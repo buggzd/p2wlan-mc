@@ -18,14 +18,17 @@ FRAME_LIMIT = 64 * 1024
 
 
 class FixtureError(Exception):
-    pass
+    def __init__(self, code, operation=None):
+        self.code, self.operation = code, operation
+        super().__init__(f"{operation}:{code}" if operation else code)
 
 
 def environment():
     # Do not inherit a developer's Control/Relay credentials or deployment.
     return {key: value for key, value in os.environ.items()
-            if not key.startswith(("CONTROL_", "RELAY_", "P2WLAN_"))
-            and key not in ("JWT_SECRET", "DB_PATH", "PORT", "LOG_UPLOAD_DIR")}
+            if not key.upper().startswith(("CONTROL_", "RELAY_", "P2WLAN_"))
+            and key.upper() not in ("JWT_SECRET", "DB_PATH", "PORT", "LOG_UPLOAD_DIR",
+                                    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")}
 
 
 def available_port():
@@ -48,6 +51,7 @@ class Agent:
     def __init__(self, process, owner):
         self.process, self.owner = process, owner
         self.request_id, self.revision = 0, 0
+        self.lock = asyncio.Lock()
 
     @classmethod
     async def launch(cls, binary, directory):
@@ -75,6 +79,12 @@ class Agent:
         return await asyncio.wait_for(read(), 4)
 
     async def request(self, operation, arguments=None, error=None):
+        # At most the fixture driver and one heartbeat task. Each wire exchange
+        # has a total deadline; this lock preserves one stdout reader.
+        async with self.lock:
+            return await self._request(operation, arguments, error)
+
+    async def _request(self, operation, arguments=None, error=None):
         self.request_id += 1
         request_id = self.request_id
         value = {"version": 1, "owner": self.owner, "id": request_id,
@@ -101,7 +111,7 @@ class Agent:
                     raise FixtureError(f"{operation}:EXPECTED_{error}")
                 return None
             if reply.get("ok") is not True:
-                raise FixtureError(f"{operation}:{reply.get('error', 'INVALID_REPLY')}")
+                raise FixtureError(reply.get("error", "INVALID_REPLY"), operation)
             return reply["result"]
         raise FixtureError("REPLY_DEADLINE")
 
@@ -141,7 +151,7 @@ def room_config(directory):
     return json.loads(files[0].read_bytes())
 
 
-async def lifecycle(agent_binary, server, root, children):
+async def lifecycle(agent_binary, server, root, children, traffic=False):
     paths = [root / "alice", root / "bob"]
     agents = []
     for path in paths:
@@ -174,6 +184,9 @@ async def lifecycle(agent_binary, server, root, children):
         await agent.request("stop", {"runtime": "0" * 32}, error="RUNTIME_CHANGED")
     if status[0]["virtual_ip"] == status[1]["virtual_ip"]:
         raise FixtureError("VIRTUAL_IP_COLLISION")
+    if traffic:
+        from traffic_fixture import transfer
+        await transfer(agents, runtime_ids, status[0]["peer_id"], FixtureError)
     identity = room_config(paths[0])["node"]["public_key"]
     await agents[0].request("stop", {"runtime": runtime_ids[0]})
     new_runtime = (await agents[0].request("connect_room", {"room": room["id"]}))["runtime"]
@@ -209,7 +222,7 @@ async def lifecycle(agent_binary, server, root, children):
     await signed_out.shutdown()
 
 
-async def run(control_binary, agent_binary):
+async def run(control_binary, agent_binary, traffic=False):
     target = PROJECT / "native/target"
     target.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="control-fixture-", dir=target) as temporary:
@@ -230,7 +243,7 @@ async def run(control_binary, agent_binary):
                 if control.returncode is not None or time.monotonic() >= deadline:
                     raise FixtureError("CONTROL_STARTUP")
                 await asyncio.sleep(0.1)
-            await lifecycle(agent_binary, f"http://127.0.0.1:{port}", root, children)
+            await lifecycle(agent_binary, f"http://127.0.0.1:{port}", root, children, traffic)
             print("PASS real Control: account/room projection, two managed daemons, fenced stop/reconnect, profile restore, running EOF, leave/logout")
         finally:
             for child in reversed(children):
@@ -241,12 +254,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--control", type=Path, required=True)
     parser.add_argument("--agent", type=Path, required=True)
+    parser.add_argument("--traffic", action="store_true", help="also verify real encrypted application TCP and service revocation")
     args = parser.parse_args()
     for path in (args.control, args.agent):
         if not path.is_file():
             parser.error("required_executable_missing")
     try:
-        asyncio.run(run(args.control.resolve(), args.agent.resolve()))
+        asyncio.run(run(args.control.resolve(), args.agent.resolve(), args.traffic))
     except (FixtureError, OSError, asyncio.TimeoutError, asyncio.IncompleteReadError) as error:
         print(f"FAIL Control fixture: {error if isinstance(error, FixtureError) else type(error).__name__}")
         return 1
