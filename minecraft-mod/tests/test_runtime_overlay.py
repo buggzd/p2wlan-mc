@@ -54,11 +54,12 @@ class RuntimeOverlayTests(unittest.TestCase):
         self.assertEqual(before, {p: hashlib.sha256(p.read_bytes()).digest() for p in files})
 
     def test_application_handoff_transforms_reject_missing_repeated_or_already_adapted_sources(self):
-        from runtime_fencing import adapt_dataplane, adapt_rooms, adapt_inbound, adapt_transport, adapt_decryption
+        from runtime_fencing import adapt_dataplane, adapt_rooms, adapt_inbound, adapt_transport, adapt_decryption, adapt_udp_business_mtu
         upstream = ROOT / "client/daemon/src"
         for transform, path in ((adapt_dataplane, "dataplane/core.rs"), (adapt_rooms, "rooms.rs"),
                 (adapt_inbound, "transport/inbound.rs"), (adapt_transport, "transport/sessions.rs"),
-                (adapt_decryption, "transport/sessions/decryption.rs")):
+                (adapt_decryption, "transport/sessions/decryption.rs"),
+                (adapt_udp_business_mtu, "udp/business_mtu.rs")):
             source = (upstream / path).read_text()
             adapted = transform(source)
             for invalid in ("", source + source, adapted):
@@ -107,6 +108,21 @@ class RuntimeOverlayTests(unittest.TestCase):
             with self.assertRaises(overlay.ContractError):
                 overlay.prepare(ROOT, link)
             self.assertFalse(list(target.iterdir()))
+
+    def test_mtu_reconcile_resolves_outer_endpoint_family_and_preserves_exact_fences(self):
+        from runtime_fencing import adapt_udp_business_mtu
+        source = (ROOT / "client/daemon/src/udp/business_mtu.rs").read_text()
+        adapted = adapt_udp_business_mtu(source)
+        before = "self.socket_for_peer(Some(&snapshot.peer_id)).await"
+        after = "self.socket_for_peer_endpoint(Some(&snapshot.peer_id), Some(remote_endpoint)).await"
+        self.assertEqual(adapted, source.replace(before, after, 1))
+        for fence in ("socket.local_addr().ok() != Some(local_endpoint)",
+                      "pair.generation != epoch.network_generation",
+                      "pair.remote_candidate_epoch != epoch.remote_candidate_epoch",
+                      "DplpmtudPathIdentity::from_committed_validation",
+                      "validation.epoch != epoch",
+                      "snapshot.lifecycle == PeerPathLifecycle::Online"):
+            self.assertIn(fence, adapted)
 
 if __name__ == "__main__":
     unittest.main()

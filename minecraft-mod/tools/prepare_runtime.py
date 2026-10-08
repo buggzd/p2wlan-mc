@@ -114,7 +114,7 @@ def write_changed(path: Path, data: bytes):
         path.write_bytes(data)
 
 def prepare(root: Path = ROOT, destination: Path = DESTINATION) -> Path:
-    from runtime_fencing import adapt_dataplane, adapt_rooms, adapt_transport, adapt_decryption, adapt_inbound
+    from runtime_fencing import adapt_dataplane, adapt_rooms, adapt_transport, adapt_decryption, adapt_inbound, adapt_udp_business_mtu
     upstream = root / "client/daemon"
     sources = {path.relative_to(upstream).as_posix(): path.read_bytes()
         for path in sorted((upstream / "src").rglob("*.rs"))}
@@ -143,6 +143,7 @@ def prepare(root: Path = ROOT, destination: Path = DESTINATION) -> Path:
     adapted = {
         "src/dataplane/core.rs": adapt_dataplane(source("src/dataplane/core.rs")),
         "src/transport/inbound.rs": adapt_inbound(source("src/transport/inbound.rs")),
+        "src/udp/business_mtu.rs": adapt_udp_business_mtu(source("src/udp/business_mtu.rs")),
         "src/transport/sessions/decryption.rs": adapt_decryption(source("src/transport/sessions/decryption.rs")),
         "src/rooms.rs": adapt_rooms(source("src/rooms.rs")),
         "src/transport/sessions.rs": adapt_transport(source("src/transport/sessions.rs")),

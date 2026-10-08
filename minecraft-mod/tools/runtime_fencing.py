@@ -280,3 +280,18 @@ def adapt_inbound(source):
                         })?;
                     }""", "application-rx-fenced-queue")
     return source
+
+
+def adapt_udp_business_mtu(source):
+    # Inner game IPv4 does not imply outer UDP IPv4. Resolve the original
+    # committed endpoint's socket family; all exact-socket/path checks below
+    # remain unchanged. An upstream resolver change must fail the build.
+    before = """            let Some((socket_index, socket)) = self.socket_for_peer(Some(&snapshot.peer_id)).await
+            else {
+                self.dplpmtud
+                    .cancel_peer(&snapshot.peer_id, "local_socket_missing", now);
+                continue;
+            };"""
+    after = before.replace("self.socket_for_peer(Some(&snapshot.peer_id)).await",
+        "self.socket_for_peer_endpoint(Some(&snapshot.peer_id), Some(remote_endpoint)).await")
+    return replace_once(source, before, after, "application-mtu-outer-socket-family")
