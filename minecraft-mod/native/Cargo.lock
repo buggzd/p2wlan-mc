@@ -1343,6 +1343,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "p2wlan-mc-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "p2wlan-mc-runtime"
 version = "0.1.170"
 dependencies = [

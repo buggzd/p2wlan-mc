@@ -42,3 +42,14 @@ python3 minecraft-mod/tools/native.py test --workspace
 ```
 
 The runtime-port integration test carries a real 128 KB bidirectional TCP stream through upstream dataplanes, the upstream Noise handshake/encrypted transport, and loopback UDP. It does not yet verify the full Control/daemon lifecycle, Direct/Relay selection, Minecraft login, or public NAT. The raw packet port alone is not a production-authorized Minecraft service.
+
+## Native IPC codec
+
+The native protocol crate applies the same object, depth, container, node, Unicode, number-token, and decimal-scale limits as the common Java codec. Numeric IDs and decimal values are retained without floating-point rounding. Idle reads are owned by the caller's session lifetime; a partially received frame has a total two-second deadline. Cancelling a read retains its header/body progress and original deadline. Cancelling or failing a write permanently poisons that writer, preventing a second request from being appended to a partial frame.
+
+```sh
+python3 minecraft-mod/tools/native.py test -p p2wlan-mc-protocol
+python3 minecraft-mod/tools/java.py interop
+```
+
+The interop command builds a native codec test peer and exchanges actual framed messages with Java, including Unicode, large payloads, exact integers/decimals, and EOF. The peer is a conformance example, not the networking Agent.

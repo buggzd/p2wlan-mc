@@ -13,3 +13,16 @@ tasks.register('protocolTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.common.ProtocolTests'
 }
 check.dependsOn protocolTest
+
+tasks.register('codecInteropTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.CodecInteropTests'
+    def probe = providers.gradleProperty('nativeProbe')
+    if (probe.isPresent()) args(probe.get())
+    doFirst {
+        if (!probe.isPresent()) {
+            throw new GradleException('Run minecraft-mod/tools/java.py interop to build the native codec peer')
+        }
+    }
+}
