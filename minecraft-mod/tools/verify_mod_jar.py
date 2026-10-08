@@ -14,6 +14,12 @@ from native_bundle import MAX_BINARY, PLATFORMS, ROOT, source_digest, strict_obj
 MAIN = "io/p2wlan/mc/fabric/FabricP2wlan.class"
 CLIENT = "io/p2wlan/mc/fabric/client/FabricP2wlanClient.class"
 COMMON = "io/p2wlan/mc/common/BundledAgent.class"
+SERVER_MIXIN = "io/p2wlan/mc/fabric/mixin/ServerNetworkIoMixin.class"
+MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.fabric.mixin", "compatibilityLevel": "JAVA_21",
+                "mixins": ["ServerNetworkIoMixin"], "injectors": {"defaultRequire": 1},
+                "refmap": "p2wlan-fabric-1.21.1-refmap.json"}
+BIND_MAPPING = {"io/p2wlan/mc/fabric/mixin/ServerNetworkIoMixin": {"bind": "Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V"}}
+REFMAP = {"mappings": BIND_MAPPING, "data": {"named:intermediary": BIND_MAPPING}}
 FIELDS = {"schema", "protocol", "version", "source-revision", "source-sha256", "build-kind", "os", "arch",
           "executable-sha256", "executable-size", "verification-platform"}
 
@@ -103,8 +109,15 @@ def verify(path, development=False):
                 or info.get("environment") != "*" or info.get("entrypoints") != {
                     "main": [MAIN.removesuffix(".class").replace("/", ".")],
                     "client": [CLIENT.removesuffix(".class").replace("/", ".")]} \
-                or depends.get("minecraft") != "1.21.1" or depends.get("java") != ">=21":
+                or depends.get("minecraft") != "1.21.1" or depends.get("java") != ">=21" or info.get("mixins") != ["p2wlan.mixins.json"]:
             raise VerificationError("mod_fabric_contract")
+        if metadata(archive, "p2wlan.mixins.json") != MIXIN_CONFIG:
+            raise VerificationError("mod_mixin_contract")
+        if metadata(archive, MIXIN_CONFIG["refmap"]) != REFMAP:
+            raise VerificationError("mod_mixin_refmap")
+        server_mixin = classfile(archive, SERVER_MIXIN, 65)
+        if b"net/minecraft/client/" in server_mixin or b"io/p2wlan/mc/fabric/client/" in server_mixin:
+            raise VerificationError("mod_dedicated_client_reference")
         main = classfile(archive, MAIN, 65)
         classfile(archive, CLIENT, 65)
         if any(value in main for value in (b"net/minecraft/client/", b"net/fabricmc/fabric/api/client/", b"io/p2wlan/mc/fabric/client/")):

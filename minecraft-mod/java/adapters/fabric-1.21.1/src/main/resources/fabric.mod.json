@@ -6,8 +6,12 @@
   "description": "P2WLAN native process integration for Minecraft.",
   "environment": "*",
   "entrypoints": {
-    "main": ["io.p2wlan.mc.fabric.FabricP2wlan"],
-    "client": ["io.p2wlan.mc.fabric.client.FabricP2wlanClient"]
+    "main": [
+      "io.p2wlan.mc.fabric.FabricP2wlan"
+    ],
+    "client": [
+      "io.p2wlan.mc.fabric.client.FabricP2wlanClient"
+    ]
   },
   "license": "MIT",
   "depends": {
@@ -15,5 +19,8 @@
     "minecraft": "1.21.1",
     "java": ">=21",
     "fabric-api": "*"
-  }
+  },
+  "mixins": [
+    "p2wlan.mixins.json"
+  ]
 }

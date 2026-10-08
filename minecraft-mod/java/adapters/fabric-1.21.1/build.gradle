@@ -53,3 +53,10 @@ check.dependsOn verifyModJar
 if (developmentEnabled) {
     loom.runs.configureEach { vmArg '-Dp2wlan.allowDevelopmentNative=true' }
 }
+
+tasks.register('worldTransportTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.fabric.world.LoopbackAdmissionTests'
+}
+check.dependsOn worldTransportTest

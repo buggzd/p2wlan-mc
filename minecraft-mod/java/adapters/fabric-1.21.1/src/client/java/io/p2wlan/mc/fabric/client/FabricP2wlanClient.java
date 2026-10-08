@@ -2,6 +2,7 @@ package io.p2wlan.mc.fabric.client;
 
 import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.fabric.FabricP2wlan;
+import io.p2wlan.mc.fabric.world.FabricWorlds;
 import io.p2wlan.mc.fabric.client.screen.AccountScreen;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
@@ -19,7 +20,7 @@ import net.minecraft.text.Text;
 public final class FabricP2wlanClient implements ClientModInitializer {
     @Override public void onInitializeClient() {
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> FabricP2wlan.AGENT.start());
-        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> { AccountScreen.shutdownRequests(); FabricP2wlan.AGENT.close(); });
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> { AccountScreen.shutdownRequests(); FabricWorlds.shutdown(); FabricP2wlan.AGENT.close(); });
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
             if (screen instanceof TitleScreen || screen instanceof MultiplayerScreen || screen instanceof GameMenuScreen) {
                 Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("P2WLAN"), button -> client.setScreen(new AccountScreen(screen)))

@@ -39,9 +39,10 @@ class ModJarTests(unittest.TestCase):
         metadata = {"schemaVersion": 1, "id": "p2wlan", "version": "0.1.0", "environment": "*",
                     "entrypoints": {"main": [verify.MAIN.removesuffix(".class").replace("/", ".")],
                                     "client": [verify.CLIENT.removesuffix(".class").replace("/", ".")]},
-                    "depends": {"minecraft": "1.21.1", "java": ">=21"},
+                    "depends": {"minecraft": "1.21.1", "java": ">=21"}, "mixins": ["p2wlan.mixins.json"],
                     "jars": [{"file": "META-INF/jars/common.jar"}, {"file": "META-INF/jars/native.jar"}]}
-        top = {"fabric.mod.json": json.dumps(metadata), verify.MAIN: bytecode(65), verify.CLIENT: bytecode(65),
+        top = {"fabric.mod.json": json.dumps(metadata), "p2wlan.mixins.json": json.dumps(verify.MIXIN_CONFIG),
+               verify.MIXIN_CONFIG["refmap"]: json.dumps(verify.REFMAP), verify.SERVER_MIXIN: bytecode(65), verify.MAIN: bytecode(65), verify.CLIENT: bytecode(65),
                "META-INF/jars/common.jar": jar(common), "META-INF/jars/native.jar": jar(native)}
         return top, metadata, common, native
 
@@ -90,6 +91,28 @@ class ModJarTests(unittest.TestCase):
         top["fabric.mod.json"] = json.dumps(metadata)
         with self.assertRaisesRegex(verify.VerificationError, "mod_fabric_contract"):
             self.check(top)
+
+    def test_required_mixin_is_packaged_exactly_and_dedicated_safe(self):
+        top, _, _, _ = self.fixture()
+        del top[verify.SERVER_MIXIN]
+        with self.assertRaisesRegex(verify.VerificationError, "mod_archive_member_invalid"):
+            self.check(top)
+        top, _, _, _ = self.fixture()
+        top[verify.SERVER_MIXIN] += b"net/minecraft/client/"
+        with self.assertRaisesRegex(verify.VerificationError, "mod_dedicated_client_reference"):
+            self.check(top)
+        for change in ({"required": False}, {"mixins": []}, {"injectors": {"defaultRequire": 0}}):
+            top, _, _, _ = self.fixture()
+            top["p2wlan.mixins.json"] = json.dumps(verify.MIXIN_CONFIG | change)
+            with self.assertRaisesRegex(verify.VerificationError, "mod_mixin_contract"):
+                self.check(top)
+
+    def test_required_refmap_is_nonempty_and_bound_to_exact_game_method(self):
+        for mapping in ({}, {"mappings": {}, "data": {}}, {"mappings": verify.BIND_MAPPING, "data": {}}):
+            top, _, _, _ = self.fixture()
+            top[verify.MIXIN_CONFIG["refmap"]] = json.dumps(mapping)
+            with self.assertRaisesRegex(verify.VerificationError, "mod_mixin_refmap"):
+                self.check(top)
 
     def test_malformed_metadata_types_fail_as_typed_contract_errors(self):
         for change in ({"schemaVersion": True}, {"depends": "not an object"}):
