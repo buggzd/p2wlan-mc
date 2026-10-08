@@ -1,0 +1,15 @@
+plugins { id 'java-library' }
+
+dependencies { api 'com.google.code.gson:gson:2.10.1' }
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+    options.encoding = 'UTF-8'
+}
+
+tasks.register('protocolTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.ProtocolTests'
+}
+check.dependsOn protocolTest
