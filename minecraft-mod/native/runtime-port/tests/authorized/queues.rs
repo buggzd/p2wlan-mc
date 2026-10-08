@@ -90,6 +90,18 @@ async fn backpressure_retains_original_frame_and_revocation_drops_exactly_the_ba
     }
     assert_eq!(endpoint.dropped_packets(), 128);
     assert_eq!(endpoint.drops_by_reason(E::ScopeClosed), 128);
+    let mut codes = std::collections::HashSet::new();
+    for (index, reason) in E::ALL.into_iter().enumerate() {
+        assert_eq!(
+            reason as usize, index,
+            "reason inventory must match storage"
+        );
+        assert!(codes.insert(reason.code()), "reason codes must be unique");
+        assert_eq!(
+            endpoint.drops_by_reason(reason),
+            if reason == E::ScopeClosed { 128 } else { 0 }
+        );
+    }
 }
 
 #[tokio::test]

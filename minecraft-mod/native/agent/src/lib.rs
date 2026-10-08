@@ -179,6 +179,9 @@ impl State {
                     "virtual_ip": runtime.address, "peer_id":runtime.gateway.as_ref().and_then(|gateway|gateway.local_peer_id().ok()), "registrations": status.map(|value| value.registrations).unwrap_or(0),
                     "connections": status.map(|value| value.connections).unwrap_or(0),
                     "gateway_failures": status.map(|value| value.failures.min(i64::MAX as u64)).unwrap_or(0),
+                    "admission_drops": runtime.gateway.as_ref().map(|gateway| gateway.admission_drops()
+                        .into_iter().map(|(code, count)| (code, count.min(i64::MAX as u64)))
+                        .collect::<std::collections::BTreeMap<_,_>>()),
                     "unsupported_local_feedback":status.map(|value|value.unsupported_local_feedback.min(i64::MAX as u64)).unwrap_or(0),
                     "gateway_failure":status.and_then(|value|value.last_failure).map(|value|value.code()),
                     "failure":self.last_failure.map(AgentError::code)})

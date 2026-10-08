@@ -70,6 +70,34 @@ pub enum AdmissionError {
 }
 
 impl AdmissionError {
+    /// Fixed, complete reason inventory. Diagnostics expose only these typed
+    /// counters, never peer endpoints, credentials or packet contents.
+    pub const ALL: [Self; Self::Contended as usize + 1] = [
+        Self::RoomRequired,
+        Self::RuntimeClosed,
+        Self::ScopeClosed,
+        Self::ScopeCapacity,
+        Self::NetworkChanged,
+        Self::PeerChanged,
+        Self::RoomRevoked,
+        Self::RoomSnapshotChanged,
+        Self::RoomLeaseExpired,
+        Self::UnknownPeer,
+        Self::AddressMismatch,
+        Self::InvalidPacket,
+        Self::PacketTooLarge,
+        Self::QueueFull,
+        Self::PortClosed,
+        Self::PortMismatch,
+        Self::AlreadyAdmitted,
+        Self::AuthorityMismatch,
+        Self::ContextMissing,
+        Self::Timeout,
+        Self::SessionMissing,
+        Self::SessionChanged,
+        Self::UnsupportedLocalFeedback,
+        Self::Contended,
+    ];
     pub fn code(self) -> &'static str {
         match self {
             Self::RoomRequired => "ROOM_REQUIRED",

@@ -187,6 +187,17 @@ impl TcpGateway {
         self.check_current()?;
         Ok(self.endpoint.authority().local_peer_id())
     }
+    /// Request-time projection of the packet port's existing counter owner.
+    /// At most one entry per fixed admission reason; no roster/cache is kept.
+    pub fn admission_drops(&self) -> Vec<(&'static str, u64)> {
+        AdmissionError::ALL
+            .into_iter()
+            .filter_map(|reason| {
+                let count = self.endpoint.drops_by_reason(reason);
+                (count > 0).then_some((reason.code(), count))
+            })
+            .collect()
+    }
     pub fn status(&self) -> GatewayStatus {
         GatewayStatus {
             closed: self.closed || !self.lifetime.is_live(),
