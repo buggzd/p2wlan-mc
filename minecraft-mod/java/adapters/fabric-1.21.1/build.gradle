@@ -60,3 +60,10 @@ tasks.register('worldTransportTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.fabric.world.LoopbackAdmissionTests'
 }
 check.dependsOn worldTransportTest
+
+tasks.register('joinTransportTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.fabric.connect.ProxyPreludeTests'
+}
+check.dependsOn joinTransportTest
