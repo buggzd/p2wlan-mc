@@ -127,6 +127,23 @@ async fn actual_agent_owners_unordered_ids_errors_and_shutdown_are_fenced() {
     )
     .await;
     assert_eq!(a.reply(13).await["error"], "INVALID_ARGUMENTS");
+    for (id, service) in [
+        (14, json!("a".repeat(64))),
+        (15, json!("A".repeat(64))),
+        (16, json!("0".repeat(63))),
+    ] {
+        a.send(id, "proxy", json!({"runtime":"foreign-owner", "peer":"fixture-peer", "world":"0".repeat(32), "port":1024, "service":service})).await;
+        assert_eq!(
+            a.reply(id).await["error"],
+            if id == 14 {
+                "RUNTIME_NOT_READY"
+            } else {
+                "INVALID_ARGUMENTS"
+            }
+        );
+    }
+    a.send(17, "proxy", json!({"runtime":"foreign-owner", "peer":"fixture-peer", "world":"0".repeat(32), "port":1024})).await;
+    assert_eq!(a.reply(17).await["error"], "INVALID_ARGUMENTS");
     a.send(10, "shutdown", json!({})).await;
     assert_eq!(a.reply(10).await["result"]["stopped"], true);
     a.exit(0).await;

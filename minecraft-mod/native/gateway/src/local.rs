@@ -1,9 +1,9 @@
+use crate::service::ServiceAdmission;
 use crate::GatewayError;
 use p2wlan_mc_runtime_port::PeerGrant;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
@@ -48,25 +48,46 @@ impl LocalTarget {
     pub fn address(&self) -> SocketAddrV4 {
         self.address
     }
-    pub(crate) async fn connect(self, grant: PeerGrant) -> Result<TcpStream, GatewayError> {
+    pub(crate) async fn connect(
+        self,
+        grant: PeerGrant,
+        admission: ServiceAdmission,
+    ) -> Result<TcpStream, GatewayError> {
         timeout(LOCAL_HANDSHAKE_TIMEOUT, async {
             grant.validate()?;
-            let mut socket = TcpStream::connect(self.address)
+            admission.validate()?;
+            let socket = TcpStream::connect(self.address)
                 .await
                 .map_err(GatewayError::Io)?;
-            // A late connect cannot inherit a replacement world. The guard also
-            // rejects this old key if the OS reused its loopback port.
-            grant.validate()?;
-            socket
-                .write_all(&self.key.prelude())
-                .await
-                .map_err(GatewayError::Io)?;
+            // Revalidate the SAME authenticated remote-service bytes after
+            // every await and immediately before each local socket syscall.
+            let prelude = self.key.prelude();
+            let mut sent = 0;
+            while sent < prelude.len() {
+                socket.writable().await.map_err(GatewayError::Io)?;
+                grant.validate()?;
+                admission.validate()?;
+                match socket.try_write(&prelude[sent..]) {
+                    Ok(0) => return Err(GatewayError::Closed),
+                    Ok(count) => sent += count,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(error) => return Err(GatewayError::Io(error)),
+                }
+            }
             let mut ready = [0u8; 1];
-            socket
-                .read_exact(&mut ready)
-                .await
-                .map_err(GatewayError::Io)?;
+            loop {
+                socket.readable().await.map_err(GatewayError::Io)?;
+                grant.validate()?;
+                admission.validate()?;
+                match socket.try_read(&mut ready) {
+                    Ok(0) => return Err(GatewayError::Closed),
+                    Ok(_) => break,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(error) => return Err(GatewayError::Io(error)),
+                }
+            }
             grant.validate()?;
+            admission.validate()?;
             if ready != [1] {
                 return Err(GatewayError::LocalKeyMismatch);
             }
@@ -121,6 +142,7 @@ impl LocalPrelude {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     #[tokio::test]
     async fn nonce_deadline_is_total_and_never_consumes_following_game_bytes() {

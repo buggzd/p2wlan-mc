@@ -1,4 +1,4 @@
-use crate::{ConnectionBridge, GatewayError, LocalKey, LocalTarget};
+use crate::{ConnectionBridge, GatewayError, LocalKey, LocalTarget, ServiceIdentity};
 use p2wlan_mc_bridge::ConnectionId;
 use p2wlan_mc_runtime_port::{PeerGrant, ScopeOwner};
 use std::net::SocketAddrV4;
@@ -28,6 +28,7 @@ impl RegistrationId {
 pub struct HostedService {
     pub id: RegistrationId,
     pub virtual_address: SocketAddrV4,
+    pub identity: ServiceIdentity,
 }
 /// Immutable endpoint capability. Stopping this registration makes the old
 /// snapshot unusable, even if another listener obtains the same OS port.
@@ -44,6 +45,7 @@ pub(crate) struct Registration {
 pub(crate) enum RegistrationKind {
     Host {
         target: LocalTarget,
+        identity: ServiceIdentity,
         port: u16,
         listener: Option<ConnectionId>,
     },
@@ -51,6 +53,7 @@ pub(crate) enum RegistrationKind {
         listener: TcpListener,
         key: LocalKey,
         remote: SocketAddrV4,
+        identity: ServiceIdentity,
         grant: Box<PeerGrant>,
     },
 }
@@ -59,6 +62,7 @@ pub(crate) struct Flow {
     pub(crate) local: SocketAddrV4,
     pub(crate) remote: SocketAddrV4,
     pub(crate) bridge: ConnectionBridge,
+    pub(crate) service: crate::service::ServiceHandshake,
     pub(crate) connect: Option<AbortHandle>,
 }
 pub(crate) struct PendingLocal {

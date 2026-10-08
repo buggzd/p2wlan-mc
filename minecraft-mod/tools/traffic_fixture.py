@@ -114,7 +114,7 @@ async def transfer(agents, runtimes, peer_id, error_type):
             await agents[0].request("ping")
             try:
                 proxy = await agents[1].request("proxy", {"runtime": runtimes[1],
-                      "peer": peer_id, "port": host["port"], "world": world})
+                      "peer": peer_id, "port": host["port"], "world": world, "service": host["service"]})
                 break
             except error_type as error:
                 if error.operation != "proxy" or error.code not in ADMISSION_PENDING:
@@ -166,8 +166,31 @@ async def transfer(agents, runtimes, peer_id, error_type):
                     "registration": host["registration"], "world": world})
         replacement = await agents[0].request("host", {"runtime": runtimes[0], "world": secrets.token_hex(16),
                     "port": target_port, "key": key.hex()})
-        if replacement["port"] == host["port"] or replacement["registration"] == host["registration"]:
+        if replacement["port"] == host["port"] or replacement["registration"] == host["registration"] or replacement["service"] == host["service"]:
             raise error_type("REUSED_SERVICE_IDENTITY")
+        # A fresh peer grant must not authorize stale selected-world metadata,
+        # even if a caller combines it with the replacement's current port.
+        stale = await agents[1].request("proxy", {"runtime": runtimes[1], "peer": peer_id,
+            "port": replacement["port"], "world": world, "service": host["service"]})
+        reader, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", stale["port"]), 2)
+        try:
+            writer.write(MARKER + bytes.fromhex(stale["key"]) + b"stale-world-selection")
+            await asyncio.wait_for(writer.drain(), 2)
+            async def wait_rejection():
+                while True:
+                    status = await agents[0].request("status")
+                    if status.get("gateway_failure") == "GATEWAY_SERVICE_IDENTITY_MISMATCH":
+                        return
+                    await asyncio.sleep(0.05)
+            await asyncio.wait_for(wait_rejection(), 3)
+        finally:
+            writer.close()
+            with contextlib.suppress(OSError, asyncio.TimeoutError):
+                await asyncio.wait_for(writer.wait_closed(), 2)
+            await agents[1].request("close_registration", {"runtime": runtimes[1],
+                "registration": stale["registration"], "world": world})
+        if accepted != STREAMS:
+            raise error_type("STALE_SELECTION_TARGET_REACHED")
         # An old proxy may connect locally, but cannot deliver into the new host.
         reader, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", proxy["port"]), 2)
         try:
@@ -204,4 +227,4 @@ async def transfer(agents, runtimes, peer_id, error_type):
                     task.cancel()
                 if tasks:
                     await asyncio.wait_for(asyncio.gather(*tuple(tasks), return_exceptions=True), 3)
-    print(f"PASS real daemon data plane: {STREAMS} concurrent {PAYLOAD_BYTES // 1024} KiB bidirectional TCP streams, half-close, stale service rejection")
+    print(f"PASS real daemon data plane: {STREAMS} concurrent {PAYLOAD_BYTES // 1024} KiB bidirectional TCP streams, half-close, stale service/selection rejection")

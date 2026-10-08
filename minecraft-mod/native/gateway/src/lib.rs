@@ -6,6 +6,7 @@ mod local;
 mod owner;
 mod receive;
 mod registry;
+mod service;
 mod wire;
 
 pub use bytes::ReceivedBytes;
@@ -14,6 +15,7 @@ pub use local::{LocalKey, LocalTarget, LOCAL_HANDSHAKE_TIMEOUT, LOCAL_PRELUDE_BY
 pub use owner::{GatewayFailure, GatewayStatus, TcpGateway, PACKET_WAIT_TIMEOUT};
 pub use receive::{RangeAdmission, ReceiveWindow, MAX_RECEIVE_SPANS};
 pub use registry::{HostedService, JoinProxy, RegistrationId, MAX_REGISTRATIONS};
+pub use service::{ServiceIdentity, SERVICE_HANDSHAKE_BYTES, SERVICE_HANDSHAKE_TIMEOUT};
 pub use wire::TcpFrame;
 
 pub const CHUNK_BYTES: usize = 8 * 1024;
@@ -35,6 +37,12 @@ pub enum GatewayError {
     LocalKeyMismatch,
     #[error("GATEWAY_IDENTITY_EXHAUSTED")]
     IdentityExhausted,
+    #[error("GATEWAY_INVALID_SERVICE_IDENTITY")]
+    InvalidServiceIdentity,
+    #[error("GATEWAY_SERVICE_IDENTITY_MISMATCH")]
+    ServiceIdentityMismatch,
+    #[error("GATEWAY_SERVICE_TIMEOUT")]
+    ServiceTimeout,
     #[error("GATEWAY_STALE_REGISTRATION")]
     StaleRegistration,
     #[error("GATEWAY_TASK_FAILED")]
@@ -62,3 +70,8 @@ pub enum GatewayError {
     #[error("GATEWAY_IO")]
     Io(#[source] std::io::Error),
 }
+
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../tests/common/mod.rs"]
+mod test_support;

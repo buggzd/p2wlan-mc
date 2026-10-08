@@ -128,6 +128,45 @@ impl ConnectionBridge {
         }
         Ok(result)
     }
+    /// Control bytes use the same original receive ledger as game bytes.
+    /// Never read beyond the fixed remote-service header into the game stream.
+    pub(crate) fn read_control(
+        &mut self,
+        stack: &mut TcpStack,
+        limit: usize,
+    ) -> Result<Option<ReceivedBytes>, GatewayError> {
+        self.grant.validate()?;
+        if stack.local(self.id)? != Some(self.local_endpoint) {
+            return Err(GatewayError::WrongTarget);
+        }
+        let Some(window) = self.receive.as_mut() else {
+            return Ok(None);
+        };
+        let mut bytes = vec![0; limit];
+        match stack.read(self.id, &mut bytes)? {
+            ReadResult::Data(count) => {
+                bytes.truncate(count);
+                Ok(Some(window.seal(bytes)?))
+            }
+            ReadResult::Eof => Err(GatewayError::Closed),
+            ReadResult::WouldBlock => Ok(None),
+        }
+    }
+    pub(crate) fn write_control(
+        &mut self,
+        stack: &mut TcpStack,
+        bytes: &[u8],
+    ) -> Result<usize, GatewayError> {
+        self.grant.validate()?;
+        if stack.local(self.id)? != Some(self.local_endpoint) {
+            return Err(GatewayError::WrongTarget);
+        }
+        match stack.write(self.id, bytes) {
+            Ok(count) => Ok(count),
+            Err(StackError::WouldBlock) => Ok(0),
+            Err(error) => Err(error.into()),
+        }
+    }
     pub fn step(&mut self, stack: &mut TcpStack) -> Result<BridgeProgress, GatewayError> {
         self.grant.validate()?;
         if stack.is_closed(self.id)? {

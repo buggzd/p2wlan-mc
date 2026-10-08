@@ -1,5 +1,6 @@
 use crate::GatewayError;
 use p2wlan_mc_runtime_port::FramePermit;
+use subtle::ConstantTimeEq;
 use tokio::net::TcpStream;
 
 /// No raw-byte accessor: the final local socket handoff must retain and check
@@ -28,6 +29,11 @@ impl ReceivedBytes {
             permit.validate()?;
         }
         Ok(())
+    }
+    /// Used only to consume a fixed remote-service prelude, never game data.
+    pub(crate) fn checked_matches(&self, expected: &[u8]) -> Result<bool, GatewayError> {
+        self.validate()?;
+        Ok(bool::from(self.bytes[self.offset..].ct_eq(expected)))
     }
     /// There is no await between validation and the actual socket syscall.
     /// Readiness waits belong to the bounded connection driver, not this buffer.

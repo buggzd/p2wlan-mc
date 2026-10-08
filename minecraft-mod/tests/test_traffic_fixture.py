@@ -86,7 +86,7 @@ class TrafficFixtureTests(unittest.IsolatedAsyncioTestCase):
                 if operation == "status":
                     return {"peer_id": "client-peer", "admission_drops": {}}
                 if operation == "host":
-                    return {"registration": "host", "port": 1024}
+                    return {"registration": "host", "port": 1024, "service": "00" * 32}
                 if operation == "close_registration":
                     return None
                 if operation == "proxy":

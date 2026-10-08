@@ -6,7 +6,7 @@ mod profile;
 mod request;
 mod runtime;
 use account::AccountApi;
-use p2wlan_mc_gateway::{GatewayError, LocalKey, LocalTarget, RegistrationId};
+use p2wlan_mc_gateway::{GatewayError, LocalKey, LocalTarget, RegistrationId, ServiceIdentity};
 use p2wlan_mc_protocol::{FrameReader, FrameWriter};
 use p2wlan_mc_runtime_port::{Config, ScopeOwner, ScopeToken};
 use profile::Profile;
@@ -454,7 +454,7 @@ impl State {
                     .ok_or(AgentError::RuntimeNotReady)?;
                 let service = gateway.register_host(target).map_err(Self::gateway_error)?;
                 let id = service.id.opaque();
-                let result = json!({"registration":id, "world":world, "virtual_ip":service.virtual_address.ip().to_string(), "port":service.virtual_address.port()});
+                let result = json!({"registration":id, "world":world, "virtual_ip":service.virtual_address.ip().to_string(), "port":service.virtual_address.port(), "service":service.identity.opaque()});
                 self.bindings.insert(
                     id,
                     Binding {
@@ -465,17 +465,19 @@ impl State {
                 Ok(result)
             }
             "proxy" => {
-                fields(args, &["runtime", "peer", "port", "world"])?;
+                fields(args, &["runtime", "peer", "port", "world", "service"])?;
                 let peer = text(args, "peer")?.to_string();
                 let world = text(args, "world")?.to_string();
                 let remote_port = port(args)?;
+                let identity = ServiceIdentity::from_hex(text(args, "service")?)
+                    .map_err(|_| AgentError::InvalidArguments)?;
                 let runtime = self.current(args)?;
                 let gateway = runtime
                     .gateway
                     .as_mut()
                     .ok_or(AgentError::RuntimeNotReady)?;
                 let proxy = gateway
-                    .register_proxy(&peer, remote_port)
+                    .register_proxy(&peer, remote_port, identity)
                     .await
                     .map_err(Self::gateway_error)?;
                 if !self.parent.is_live() {

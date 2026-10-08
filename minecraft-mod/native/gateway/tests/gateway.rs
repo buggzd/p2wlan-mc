@@ -4,11 +4,15 @@ mod support;
 use p2pnet_daemon::udp::UdpTransport;
 use p2wlan_mc_bridge::TcpStack;
 use p2wlan_mc_gateway::{
-    GatewayError, GatewayFailure, LocalKey, LocalTarget, TcpGateway, LOCAL_PRELUDE_BYTES,
-    MAX_REGISTRATIONS,
+    GatewayError, GatewayFailure, LocalKey, LocalTarget, ServiceIdentity, TcpGateway,
+    LOCAL_PRELUDE_BYTES, MAX_REGISTRATIONS,
 };
 use p2wlan_mc_runtime_port::{AdmissionError, ScopeOwner};
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -51,6 +55,7 @@ async fn registry_limits_stale_ids_shutdown_and_world_ports_are_exact() {
     ));
     let new = gateway.register_host(target(25565)).unwrap();
     assert_ne!(old.virtual_address, new.virtual_address);
+    assert!(old.identity != new.identity);
     gateway.shutdown();
     assert!(gateway.status().closed);
     assert_eq!(gateway.status().tcp_sockets, 0);
@@ -75,7 +80,11 @@ async fn unguarded_targets_and_wrong_proxy_keys_fail_before_tcp_or_game_bytes() 
     let (_interface, endpoint) = rig.interface();
     let mut gateway = TcpGateway::new(endpoint, 1).unwrap();
     let proxy = gateway
-        .register_proxy(&rig.remote.node_id, 25565)
+        .register_proxy(
+            &rig.remote.node_id,
+            25565,
+            ServiceIdentity::generate().unwrap(),
+        )
         .await
         .unwrap();
     let mut socket = TcpStream::connect(proxy.local_address).await.unwrap();
@@ -124,7 +133,11 @@ async fn sealed_backpressure_cannot_be_reauthorized_after_proxy_replacement() {
     }
     let mut gateway = TcpGateway::new(endpoint, 1).unwrap();
     let proxy = gateway
-        .register_proxy(&rig.remote.node_id, 25565)
+        .register_proxy(
+            &rig.remote.node_id,
+            25565,
+            ServiceIdentity::generate().unwrap(),
+        )
         .await
         .unwrap();
     let mut socket = TcpStream::connect(proxy.local_address).await.unwrap();
@@ -146,7 +159,11 @@ async fn sealed_backpressure_cannot_be_reauthorized_after_proxy_replacement() {
         Some(GatewayFailure::Admission(AdmissionError::ScopeClosed))
     );
     let replacement = gateway
-        .register_proxy(&rig.remote.node_id, 25565)
+        .register_proxy(
+            &rig.remote.node_id,
+            25565,
+            ServiceIdentity::generate().unwrap(),
+        )
         .await
         .unwrap();
     assert_ne!(proxy.id, replacement.id);
@@ -181,10 +198,13 @@ async fn service_registry_multiplexes_guarded_local_streams_through_original_enc
         };
         let target_key = LocalKey::generate().unwrap();
         let guard_key = target_key.clone();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let target_accepts = accepted.clone();
         let echo = tokio::spawn(async move {
             let mut echoes = JoinSet::new();
             for _ in 0..3 {
                 let (mut socket, _) = listener.accept().await.unwrap();
+                target_accepts.fetch_add(1, Ordering::SeqCst);
                 let key = guard_key.clone();
                 echoes.spawn(async move {
                     let mut prelude = [0; LOCAL_PRELUDE_BYTES];
@@ -212,11 +232,51 @@ async fn service_registry_multiplexes_guarded_local_streams_through_original_enc
             TcpGateway::new(std::mem::replace(&mut a.endpoint, placeholder_a), 1).unwrap();
         let mut host =
             TcpGateway::new(std::mem::replace(&mut b.endpoint, placeholder_b), 2).unwrap();
+        let old_service = host
+            .register_host(LocalTarget::new(address, target_key.clone()).unwrap())
+            .unwrap();
+        host.stop(old_service.id).unwrap();
         let service = host
             .register_host(LocalTarget::new(address, target_key).unwrap())
             .unwrap();
+        assert!(old_service.identity != service.identity);
+        // A NEW peer grant cannot make old selected-world metadata current.
+        // Even when the caller supplies a CURRENT port, identity must match
+        // before the gateway opens any local target connection.
+        let wrong = client
+            .register_proxy(
+                &left.remote.node_id,
+                service.virtual_address.port(),
+                old_service.identity,
+            )
+            .await
+            .unwrap();
+        let mut stale = TcpStream::connect(wrong.local_address).await.unwrap();
+        stale
+            .write_all(&[wrong.key.prelude().as_slice(), b"wrong-world-game"].concat())
+            .await
+            .unwrap();
+        timeout(Duration::from_secs(3), async {
+            loop {
+                client.tick().unwrap();
+                host.tick().unwrap();
+                if host.status().last_failure == Some(GatewayFailure::ServiceIdentityMismatch) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("stale world identity must be rejected without target admission");
+        assert_eq!(accepted.load(Ordering::SeqCst), 0);
+        client.stop(wrong.id).unwrap();
+        drop(stale);
         let proxy = client
-            .register_proxy(&left.remote.node_id, service.virtual_address.port())
+            .register_proxy(
+                &left.remote.node_id,
+                service.virtual_address.port(),
+                service.identity,
+            )
             .await
             .unwrap();
         let mut users = JoinSet::new();
@@ -248,6 +308,7 @@ async fn service_registry_multiplexes_guarded_local_streams_through_original_enc
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
         echo.await.unwrap();
+        assert_eq!(accepted.load(Ordering::SeqCst), 3);
         client.stop(proxy.id).unwrap();
         host.stop(service.id).unwrap();
         assert_eq!(client.status().connections, 0);
@@ -265,7 +326,11 @@ async fn peer_revocation_closes_proxy_and_port_owner_loss_cancels_gateway() {
     let (interface, endpoint) = rig.interface();
     let mut gateway = TcpGateway::new(endpoint, 1).unwrap();
     let proxy = gateway
-        .register_proxy(&rig.remote.node_id, 25565)
+        .register_proxy(
+            &rig.remote.node_id,
+            25565,
+            ServiceIdentity::generate().unwrap(),
+        )
         .await
         .unwrap();
     rig.peers.remove_peer(&rig.remote.node_id).await;
@@ -287,7 +352,11 @@ async fn partial_local_handshakes_are_bounded_and_stop_closes_exactly_their_sock
     let (_interface, endpoint) = rig.interface();
     let mut gateway = TcpGateway::new(endpoint, 1).unwrap();
     let proxy = gateway
-        .register_proxy(&rig.remote.node_id, 25565)
+        .register_proxy(
+            &rig.remote.node_id,
+            25565,
+            ServiceIdentity::generate().unwrap(),
+        )
         .await
         .unwrap();
     let mut sockets = Vec::new();

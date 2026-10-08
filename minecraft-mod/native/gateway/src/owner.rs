@@ -1,8 +1,9 @@
 use crate::local::LocalPrelude;
 use crate::registry::{Flow, PendingLocal, Registration, RegistrationKind};
+use crate::service::ServiceHandshake;
 use crate::{
     ConnectionBridge, GatewayError, HostedService, JoinProxy, LocalKey, LocalTarget,
-    RegistrationId, TcpFrame, MAX_REGISTRATIONS,
+    RegistrationId, ServiceIdentity, TcpFrame, MAX_REGISTRATIONS,
 };
 use p2wlan_mc_bridge::{ConnectionId, TcpStack, MAX_CONNECTIONS, PACKET_CAPACITY};
 use p2wlan_mc_runtime_port::{
@@ -33,6 +34,9 @@ pub enum GatewayFailure {
     InvalidPacket,
     LocalKeyMismatch,
     LocalTimeout,
+    InvalidServiceIdentity,
+    ServiceIdentityMismatch,
+    ServiceTimeout,
     PacketDeadline,
     ConnectionClosed,
     TaskFailed,
@@ -53,6 +57,9 @@ impl GatewayFailure {
             Self::InvalidPacket => "GATEWAY_INVALID_PACKET",
             Self::LocalKeyMismatch => "GATEWAY_LOCAL_KEY_MISMATCH",
             Self::LocalTimeout => "GATEWAY_LOCAL_TIMEOUT",
+            Self::InvalidServiceIdentity => "GATEWAY_INVALID_SERVICE_IDENTITY",
+            Self::ServiceIdentityMismatch => "GATEWAY_SERVICE_IDENTITY_MISMATCH",
+            Self::ServiceTimeout => "GATEWAY_SERVICE_TIMEOUT",
             Self::PacketDeadline => "GATEWAY_PACKET_DEADLINE",
             Self::ConnectionClosed => "GATEWAY_CONNECTION_CLOSED",
             Self::TaskFailed => "GATEWAY_TASK_FAILED",
@@ -75,6 +82,9 @@ impl GatewayFailure {
             | GatewayError::UnsupportedPacket => Self::InvalidPacket,
             GatewayError::LocalKeyMismatch => Self::LocalKeyMismatch,
             GatewayError::LocalTimeout => Self::LocalTimeout,
+            GatewayError::InvalidServiceIdentity => Self::InvalidServiceIdentity,
+            GatewayError::ServiceIdentityMismatch => Self::ServiceIdentityMismatch,
+            GatewayError::ServiceTimeout => Self::ServiceTimeout,
             GatewayError::Closed | GatewayError::IdleTimeout => Self::ConnectionClosed,
             GatewayError::Io(_) => Self::Io,
             GatewayError::Stack(p2wlan_mc_bridge::StackError::Capacity)
@@ -249,6 +259,7 @@ impl TcpGateway {
             })
             .map_err(|_| GatewayError::IdentityExhausted)? as u16;
         let id = RegistrationId::allocate()?;
+        let identity = ServiceIdentity::generate()?;
         let listener = self.stack.listen(port)?;
         self.registrations.insert(
             id,
@@ -256,6 +267,7 @@ impl TcpGateway {
                 lifetime: ScopeOwner::new(),
                 kind: RegistrationKind::Host {
                     target,
+                    identity,
                     port,
                     listener: Some(listener),
                 },
@@ -264,12 +276,14 @@ impl TcpGateway {
         Ok(HostedService {
             id,
             virtual_address: SocketAddrV4::new(self.stack.address(), port),
+            identity,
         })
     }
     pub async fn register_proxy(
         &mut self,
         peer_id: &str,
         port: u16,
+        identity: ServiceIdentity,
     ) -> Result<JoinProxy, GatewayError> {
         self.check_current()?;
         if self.registrations.len() >= MAX_REGISTRATIONS {
@@ -306,6 +320,7 @@ impl TcpGateway {
                     listener,
                     key: key.clone(),
                     remote,
+                    identity,
                     grant: Box::new(grant),
                 },
             },
@@ -483,12 +498,7 @@ impl TcpGateway {
         if self.outgoing.is_empty() {
             let ids: Vec<_> = self.flows.keys().copied().collect();
             for id in ids {
-                let result = self
-                    .flows
-                    .get_mut(&id)
-                    .ok_or(GatewayError::WrongTarget)?
-                    .bridge
-                    .step(&mut self.stack);
+                let result = self.drive_flow(id, now);
                 self.stack.poll(now.saturating_duration_since(self.started));
                 self.seal_output(now)?;
                 match result {
@@ -559,21 +569,30 @@ impl TcpGateway {
                 .ok_or(GatewayError::StaleRegistration)
                 .and_then(|registration| match &registration.kind {
                     RegistrationKind::Proxy {
-                        key, grant, remote, ..
+                        key,
+                        grant,
+                        remote,
+                        identity,
+                        ..
                     } => {
                         grant.validate()?;
                         local
                             .prelude
                             .poll(&local.socket, key, now)
-                            .map(|ready| (ready, grant.as_ref().clone(), *remote))
+                            .map(|ready| (ready, grant.as_ref().clone(), *remote, *identity))
                     }
                     _ => Err(GatewayError::WrongTarget),
                 });
             match result {
-                Ok((false, _, _)) => self.local.push(local),
-                Ok((true, grant, remote)) => {
-                    let result =
-                        self.connect_local(local.registration, remote, grant, local.socket);
+                Ok((false, _, _, _)) => self.local.push(local),
+                Ok((true, grant, remote, identity)) => {
+                    let result = self.connect_local(
+                        local.registration,
+                        remote,
+                        identity,
+                        grant,
+                        local.socket,
+                    );
                     if let Err(error) = result {
                         self.failure(GatewayFailure::from_error(&error));
                     }
@@ -587,6 +606,7 @@ impl TcpGateway {
         &mut self,
         registration: RegistrationId,
         remote: SocketAddrV4,
+        identity: ServiceIdentity,
         grant: PeerGrant,
         socket: TcpStream,
     ) -> Result<(), GatewayError> {
@@ -602,6 +622,7 @@ impl TcpGateway {
                     local,
                     remote,
                     bridge,
+                    service: ServiceHandshake::proxy(identity, Instant::now()),
                     connect: None,
                 },
             );
@@ -643,25 +664,6 @@ impl TcpGateway {
             self.remove_flow(id)?;
             return Err(GatewayError::InvalidPacket);
         }
-        let flow = self.flows.get_mut(&id).ok_or(GatewayError::WrongTarget)?;
-        if !flow.bridge.has_local() && flow.connect.is_none() {
-            if self.connects.len() >= MAX_CONNECTIONS {
-                return Err(GatewayError::Capacity);
-            }
-            let registration = self
-                .registrations
-                .get(&flow.registration)
-                .ok_or(GatewayError::StaleRegistration)?;
-            let RegistrationKind::Host { target, .. } = &registration.kind else {
-                return Err(GatewayError::WrongTarget);
-            };
-            let target = target.clone();
-            let grant = flow.bridge.grant().clone();
-            flow.connect = Some(
-                self.connects
-                    .spawn(async move { (id, grant.clone(), target.connect(grant).await) }),
-            );
-        }
         Ok(())
     }
     fn open_inbound(
@@ -700,7 +702,10 @@ impl TcpGateway {
             .grant()
             .with_scope(self.lifetime.clone())?
             .with_scope(registration.lifetime.token())?;
-        let RegistrationKind::Host { listener, .. } = &mut registration.kind else {
+        let RegistrationKind::Host {
+            listener, identity, ..
+        } = &mut registration.kind
+        else {
             return Err(GatewayError::WrongTarget);
         };
         let id = listener.ok_or(GatewayError::Capacity)?;
@@ -713,10 +718,45 @@ impl TcpGateway {
                 local: frame.destination,
                 remote: frame.source,
                 bridge,
+                service: ServiceHandshake::host(*identity, Instant::now()),
                 connect: None,
             },
         );
         Ok(id)
+    }
+    fn drive_flow(
+        &mut self,
+        id: ConnectionId,
+        now: Instant,
+    ) -> Result<crate::BridgeProgress, GatewayError> {
+        let flow = self.flows.get_mut(&id).ok_or(GatewayError::WrongTarget)?;
+        if flow.service.poll(&mut flow.bridge, &mut self.stack, now)? {
+            return flow.bridge.step(&mut self.stack);
+        }
+        if !flow.bridge.has_local() && flow.connect.is_none() {
+            if let Some(admission) = flow.service.target_admission() {
+                if self.connects.len() >= MAX_CONNECTIONS {
+                    return Err(GatewayError::Capacity);
+                }
+                let registration = self
+                    .registrations
+                    .get(&flow.registration)
+                    .ok_or(GatewayError::StaleRegistration)?;
+                let RegistrationKind::Host { target, .. } = &registration.kind else {
+                    return Err(GatewayError::WrongTarget);
+                };
+                admission.validate()?;
+                let target = target.clone();
+                let grant = flow.bridge.grant().clone();
+                flow.connect = Some(self.connects.spawn(async move {
+                    (id, grant.clone(), target.connect(grant, admission).await)
+                }));
+            }
+        }
+        Ok(crate::BridgeProgress {
+            moved_bytes: 0,
+            complete: false,
+        })
     }
     fn reap_connects(&mut self) -> Result<(), GatewayError> {
         for _ in 0..MAX_CONNECTIONS {
@@ -736,7 +776,10 @@ impl TcpGateway {
                 continue;
             };
             flow.connect = None;
-            let result = result.and_then(|socket| flow.bridge.attach_local(socket, &grant));
+            let result = result.and_then(|socket| {
+                flow.service.target_connected()?;
+                flow.bridge.attach_local(socket, &grant)
+            });
             if let Err(error) = result {
                 self.seal_output(Instant::now())?;
                 self.failure(GatewayFailure::from_error(&error));
