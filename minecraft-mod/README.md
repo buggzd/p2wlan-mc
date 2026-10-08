@@ -52,4 +52,17 @@ python3 minecraft-mod/tools/native.py test -p p2wlan-mc-protocol
 python3 minecraft-mod/tools/java.py interop
 ```
 
-The interop command builds a native codec test peer and exchanges actual framed messages with Java, including Unicode, large payloads, exact integers/decimals, and EOF. The peer is a conformance example, not the networking Agent.
+The interop command builds native conformance peers and exchanges actual framed messages with Java, including Unicode, large payloads, exact integers/decimals, and EOF. These peers are test fixtures, not the networking Agent.
+
+## Common Java subprocess client
+
+`AgentClient` owns one explicitly launched child process. It negotiates IPC version and native owner, correlates monotonic request IDs, keeps at most 32 pending requests and 32 queued frames, and sends a two-second heartbeat. Handshake/request timeouts default to five seconds and may be selected between 50 ms and 30 seconds. A timeout, damaged stream, wrong owner, unknown/duplicate reply, or unexpected exit terminates that exact child and fails outstanding work with stable reason codes. Requests with uncertain delivery are not replayed.
+
+Command completions retain their native owner and request ID in immutable `AgentReply` values. Consumers must marshal callbacks onto their own game thread and check `isCurrent` there before producing a side effect; process identity does not replace a world/service identity check. Status snapshots use the same native-owner/increasing-revision fence. No lock crosses pipe I/O or future completion. The watchdog, reader, writer, and exit watcher are bounded by that child lifecycle; stderr is discarded rather than parsed as state or copied into game logs.
+
+```sh
+python3 minecraft-mod/tools/java.py test
+python3 minecraft-mod/tools/java.py interop
+```
+
+The subprocess tests use actual native fault-fixture processes to verify concurrency, queue bounds, timeout, malformed/partial replies, stale snapshots/owners, immutable completions, stderr pressure, process replacement, and child/thread cleanup. They do not provide Control login, room management, the networking Agent executable, or Minecraft integration.

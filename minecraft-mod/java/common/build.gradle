@@ -26,3 +26,14 @@ tasks.register('codecInteropTest', JavaExec) {
         }
     }
 }
+
+tasks.register('agentClientTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.AgentClientTests'
+    def probe = providers.gradleProperty('agentProbe')
+    if (probe.isPresent()) args(probe.get())
+    doFirst {
+        if (!probe.isPresent()) throw new GradleException('Run minecraft-mod/tools/java.py interop')
+    }
+}

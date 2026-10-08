@@ -10,6 +10,28 @@ import sys
 
 PROJECT = Path(__file__).resolve().parents[1]
 
+def cargo_messages(output):
+    messages = [json.loads(line) for line in output.splitlines()]
+    for message in messages:
+        if message.get("reason") == "compiler-message":
+            rendered = message.get("message", {}).get("rendered")
+            if rendered:
+                print(rendered, file=sys.stderr, end="")
+    return messages
+
+def probe_artifacts(messages):
+    binaries = {}
+    for item in messages:
+        if item.get("reason") != "compiler-artifact" or not item.get("executable"):
+            continue
+        name = item.get("target", {}).get("name")
+        if name not in {"frame_probe", "agent_probe"} or name in binaries:
+            raise ValueError("native_probe_artifacts_ambiguous")
+        binaries[name] = item["executable"]
+    if set(binaries) != {"frame_probe", "agent_probe"}:
+        raise ValueError("native_probe_artifacts_missing")
+    return binaries
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("test", "build", "wrapper", "interop"))
@@ -27,17 +49,17 @@ def main():
     if args.command == "interop":
         from native import build_command, prepare
         prepare()
-        result = subprocess.run(build_command("build", ["-p", "p2wlan-mc-protocol", "--example", "frame_probe", "--locked", "--message-format=json"]),
+        result = subprocess.run(build_command("build", ["-p", "p2wlan-mc-protocol", "--examples", "--locked", "--message-format=json"]),
                                 cwd=PROJECT, text=True, stdout=subprocess.PIPE)
-        if result.returncode:
-            return result.returncode
-        artifacts = [json.loads(line) for line in result.stdout.splitlines()]
-        binaries = [item["executable"] for item in artifacts
-                    if item.get("reason") == "compiler-artifact" and item.get("target", {}).get("name") == "frame_probe"
-                    and item.get("executable")]
-        if len(binaries) != 1:
-            parser.error("native codec peer artifact is missing or ambiguous")
-        tasks["interop"] = [":common:codecInteropTest", "-PnativeProbe=" + binaries[0]]
+        try:
+            artifacts = cargo_messages(result.stdout)
+            if result.returncode:
+                return result.returncode
+            binaries = probe_artifacts(artifacts)
+        except (ValueError, TypeError) as error:
+            parser.error(str(error))
+        tasks["interop"] = [":common:codecInteropTest", ":common:agentClientTest",
+                            "-PnativeProbe=" + binaries["frame_probe"], "-PagentProbe=" + binaries["agent_probe"]]
     return subprocess.call([gradle, "--no-daemon", *tasks[args.command], *args.args], cwd=PROJECT / "java", env=env)
 
 if __name__ == "__main__":
