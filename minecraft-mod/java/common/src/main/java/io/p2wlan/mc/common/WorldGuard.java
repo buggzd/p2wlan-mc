@@ -33,9 +33,10 @@ public final class WorldGuard implements AutoCloseable {
 
     public record Status(String owner, boolean running, boolean terminated, int connections,
                          long forwardedBytes, long failures, Code lastFailure) {}
-    private enum Phase { PRELUDE, CONNECTING, READY, STREAMING }
+    private enum Phase { PRELUDE, CONNECTING, TARGET_PRELUDE, TARGET_READY, READY, STREAMING }
     private final String owner;
     private final InetSocketAddress target;
+    private final LocalEndpoint protectedTarget;
     private final LocalEndpoint endpoint;
     private final Selector selector;
     private final ServerSocketChannel listener;
@@ -48,9 +49,10 @@ public final class WorldGuard implements AutoCloseable {
     private long failures;
     private Code lastFailure;
 
-    private WorldGuard(InetSocketAddress target, Selector selector, ServerSocketChannel listener)
+    private WorldGuard(InetSocketAddress target, LocalEndpoint protectedTarget, Selector selector, ServerSocketChannel listener)
             throws IOException {
         this.target = target;
+        this.protectedTarget = protectedTarget;
         this.selector = selector;
         this.listener = listener;
         SecureRandom random = new SecureRandom();
@@ -65,7 +67,14 @@ public final class WorldGuard implements AutoCloseable {
     public static WorldGuard open(InetSocketAddress target) throws WorldGuardException {
         return openAt(target, 0);
     }
+    public static WorldGuard openProtected(LocalEndpoint target) throws WorldGuardException {
+        if (target == null) throw new WorldGuardException(Code.INVALID_TARGET);
+        return openAt(target.address(), target, 0);
+    }
     static WorldGuard openAt(InetSocketAddress target, int port) throws WorldGuardException {
+        return openAt(target, null, port);
+    }
+    private static WorldGuard openAt(InetSocketAddress target, LocalEndpoint protectedTarget, int port) throws WorldGuardException {
         LocalEndpoint.validateAddress(target);
         if (port < 0 || port > 65535) throw new WorldGuardException(Code.INVALID_TARGET);
         Selector selector = null;
@@ -76,7 +85,7 @@ public final class WorldGuard implements AutoCloseable {
             listener.configureBlocking(false);
             listener.bind(new InetSocketAddress("127.0.0.1", port), MAX_CONNECTIONS);
             listener.register(selector, SelectionKey.OP_ACCEPT);
-            WorldGuard guard = new WorldGuard(target, selector, listener);
+            WorldGuard guard = new WorldGuard(target, protectedTarget, selector, listener);
             guard.worker.start();
             return guard;
         } catch (IOException | RuntimeException error) {
@@ -203,6 +212,8 @@ public final class WorldGuard implements AutoCloseable {
         SelectionKey backKey;
         final ByteBuffer prelude = ByteBuffer.allocate(LocalEndpoint.PRELUDE_BYTES);
         final ByteBuffer ready = ByteBuffer.wrap(new byte[] {LocalEndpoint.READY});
+        final ByteBuffer targetPrelude = protectedTarget == null ? null : ByteBuffer.wrap(protectedTarget.prelude());
+        final ByteBuffer targetReady = ByteBuffer.allocate(1);
         final ByteBuffer toBack = ByteBuffer.allocate(BUFFER_BYTES);
         final ByteBuffer toFront = ByteBuffer.allocate(BUFFER_BYTES);
         final long born = System.nanoTime();
@@ -231,6 +242,16 @@ public final class WorldGuard implements AutoCloseable {
                 if (back.connect(target)) connected();
                 return;
             }
+            if (phase == Phase.TARGET_READY && !fromFront) {
+                current();
+                int count = back.read(targetReady);
+                if (count < 0) throw new WorldGuardException(Code.TARGET_REJECTED);
+                if (!targetReady.hasRemaining()) {
+                    if (targetReady.get(0) != LocalEndpoint.READY) throw new WorldGuardException(Code.TARGET_REJECTED);
+                    phase = Phase.READY;
+                }
+                return;
+            }
             if (phase != Phase.STREAMING) return;
             SocketChannel socket = fromFront ? front : back;
             ByteBuffer bytes = fromFront ? toBack : toFront;
@@ -242,9 +263,14 @@ public final class WorldGuard implements AutoCloseable {
         }
         void connected() throws IOException {
             current();
-            if (phase == Phase.CONNECTING && back.finishConnect()) phase = Phase.READY;
+            if (phase == Phase.CONNECTING && back.finishConnect()) phase = protectedTarget == null ? Phase.READY : Phase.TARGET_PRELUDE;
         }
         void write(boolean toFrontend) throws IOException {
+            if (phase == Phase.TARGET_PRELUDE && !toFrontend) {
+                current(); back.write(targetPrelude);
+                if (!targetPrelude.hasRemaining()) phase = Phase.TARGET_READY;
+                return;
+            }
             if (phase == Phase.READY && toFrontend) {
                 current();
                 front.write(ready);
@@ -274,16 +300,21 @@ public final class WorldGuard implements AutoCloseable {
             }
             int frontOps = switch (phase) {
                 case PRELUDE -> SelectionKey.OP_READ;
-                case CONNECTING -> 0;
+                case CONNECTING, TARGET_PRELUDE, TARGET_READY -> 0;
                 case READY -> SelectionKey.OP_WRITE;
                 case STREAMING -> (!frontEof && toBack.hasRemaining() ? SelectionKey.OP_READ : 0)
                         | (toFront.position() > 0 ? SelectionKey.OP_WRITE : 0);
             };
             frontKey.interestOps(frontOps);
             if (backKey != null) {
-                int backOps = phase == Phase.CONNECTING ? SelectionKey.OP_CONNECT : phase == Phase.STREAMING
-                        ? (!backEof && toFront.hasRemaining() ? SelectionKey.OP_READ : 0)
-                          | (toBack.position() > 0 ? SelectionKey.OP_WRITE : 0) : 0;
+                int backOps = switch (phase) {
+                    case CONNECTING -> SelectionKey.OP_CONNECT;
+                    case TARGET_PRELUDE -> SelectionKey.OP_WRITE;
+                    case TARGET_READY -> SelectionKey.OP_READ;
+                    case STREAMING -> (!backEof && toFront.hasRemaining() ? SelectionKey.OP_READ : 0)
+                            | (toBack.position() > 0 ? SelectionKey.OP_WRITE : 0);
+                    default -> 0;
+                };
                 backKey.interestOps(backOps);
             }
         }

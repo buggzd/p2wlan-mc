@@ -92,3 +92,14 @@ tasks.register('uiCompletionTest', JavaExec) {
         if (!probe.isPresent()) throw new GradleException('Run minecraft-mod/tools/java.py interop')
     }
 }
+
+tasks.register('worldHostTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.WorldHostTests'
+    def probe = providers.gradleProperty('agentProbe')
+    if (probe.isPresent()) args(probe.get())
+    doFirst {
+        if (!probe.isPresent()) throw new GradleException('Run minecraft-mod/tools/java.py interop')
+    }
+}

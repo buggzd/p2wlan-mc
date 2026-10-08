@@ -6,7 +6,7 @@ import java.io.IOException;
 public final class WorldGuardException extends IOException {
     public enum Code {
         INVALID_TARGET, CAPACITY, KEY_MISMATCH, HANDSHAKE_TIMEOUT,
-        IDLE_TIMEOUT, WORLD_CLOSED, CLOSE_TIMEOUT, INTERRUPTED, IO
+        IDLE_TIMEOUT, TARGET_REJECTED, WORLD_CLOSED, CLOSE_TIMEOUT, INTERRUPTED, IO
     }
     private final Code code;
     public WorldGuardException(Code code) { super(code.name()); this.code = code; }

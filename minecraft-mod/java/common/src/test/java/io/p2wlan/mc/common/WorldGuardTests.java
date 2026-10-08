@@ -199,6 +199,26 @@ public final class WorldGuardTests {
             check(guard.status().connections() == 0);
         }
     }
+    private static void protectedTarget() throws Exception {
+        try (Game game = new Game(); WorldGuard target = WorldGuard.open(game.address());
+             WorldGuard guard = WorldGuard.openProtected(target.endpoint()); Socket client = connect(guard.endpoint())) {
+            authorize(client, guard.endpoint());
+            byte[] payload = new byte[] {3, 5, 7, 11};
+            client.getOutputStream().write(payload);
+            check(Arrays.equals(payload, client.getInputStream().readNBytes(payload.length)));
+            client.shutdownOutput(); eof(client); game.verifyEnd();
+            check(Arrays.equals(payload, game.received.toByteArray()));
+        }
+        try (Game game = new Game(); WorldGuard target = WorldGuard.open(game.address());
+             WorldGuard guard = WorldGuard.openProtected(LocalEndpoint.from(target.endpoint().address(), "0".repeat(64)));
+             Socket client = connect(guard.endpoint())) {
+            client.getOutputStream().write(guard.endpoint().prelude()); eof(client);
+            until(() -> guard.status().lastFailure() == Code.TARGET_REJECTED);
+            check(game.accepted.getCount() == 1);
+        }
+        try { WorldGuard.openProtected(null); throw new AssertionError("null target admitted"); }
+        catch (WorldGuardException error) { check(error.code() == Code.INVALID_TARGET); }
+    }
     private static void nativeInterop(String binary) throws Exception {
         try (Game game = new Game(); WorldGuard guard = WorldGuard.open(game.address())) {
             Process peer = new ProcessBuilder(binary).redirectError(ProcessBuilder.Redirect.DISCARD).start();
@@ -234,6 +254,7 @@ public final class WorldGuardTests {
         stoppedWorldAndPortReuse();
         capacityAndDeadline();
         targetFailureCannotProduceReady();
+        protectedTarget();
         if (args.length == 1) nativeInterop(args[0]);
         else if (args.length != 0) throw new IllegalArgumentException("unexpected fixture arguments");
         check(Thread.getAllStackTraces().keySet().stream().noneMatch(thread -> thread.isAlive() && thread.getName().equals("p2wlan-world-guard")));

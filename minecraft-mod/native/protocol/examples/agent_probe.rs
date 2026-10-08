@@ -34,6 +34,13 @@ async fn run() -> Result<(), ProtocolError> {
         stall().await;
         return Ok(());
     }
+    let runtime = "c".repeat(32);
+    let world_mode = mode.starts_with("world");
+    let mut hosted = 0_u32;
+    let mut closed = 0_u32;
+    if world_mode {
+        writer.write(&json!({"version":1,"owner":owner,"event":"status","revision":1,"data":{"phase":"ready","runtime":runtime}})).await?;
+    }
     while let Some(request) = reader.next().await? {
         if request.as_object().is_none_or(|object| object.len() != 5)
             || request["version"].as_u64() != Some(1)
@@ -65,6 +72,25 @@ async fn run() -> Result<(), ProtocolError> {
             }
         }
         let mut response = json!({"version":1,"owner":owner,"id":request["id"],"ok":true,"result":request["args"]});
+        if world_mode {
+            match request["op"].as_str() {
+                Some("host") => {
+                    hosted += 1;
+                    if mode == "world_late" {
+                        writer.write(&json!({"version":1,"owner":owner,"event":"status","revision":2,"data":{"phase":"ready","runtime":runtime,"host_received":true}})).await?;
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                    }
+                    response["result"] = json!({"registration":"0000000000000001", "world":request["args"]["world"], "virtual_ip":"10.0.0.1", "port":1024,
+                        "service":if mode == "world_bad" {"invalid".into()} else {"d".repeat(64)}});
+                }
+                Some("close_registration") => {
+                    closed += 1;
+                    response["result"] = json!({"closed":true});
+                }
+                Some("inspect") => response["result"] = json!({"hosted":hosted,"closed":closed}),
+                _ => {}
+            }
+        }
         if mode == "bad_owner" {
             response["owner"] = json!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         }

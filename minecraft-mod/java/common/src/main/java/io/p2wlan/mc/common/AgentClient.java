@@ -19,6 +19,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 /** One child-process owner. It forwards commands and fenced native snapshots;
  * it does not infer NAT, Direct/Relay, peer authorization, or Minecraft state. */
@@ -27,7 +28,7 @@ public final class AgentClient implements AutoCloseable {
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
     private static final long HEARTBEAT_NANOS = Duration.ofSeconds(2).toNanos();
     private record Pending(CompletableFuture<AgentReply> future, long deadline) {}
-    private record Outbound(long id, String owner, byte[] frame) {}
+    private record Outbound(long id, String owner, byte[] frame, BooleanSupplier scopeCurrent) {}
 
     private final Object gate = new Object();
     private final Process child;
@@ -113,7 +114,18 @@ public final class AgentClient implements AutoCloseable {
     public long processId() { return child.pid(); }
 
     public CompletableFuture<AgentReply> request(String operation, JsonObject arguments) {
-        if (operation == null || !operation.matches("[a-z][a-z0-9_]{0,47}") || arguments == null) {
+        return request(operation, arguments, () -> true);
+    }
+    /** Nonblocking local lifetime predicate, checked before admission and again
+     * immediately before writing a queued IPC frame. A submitted mutation is
+     * never replayed or claimed cancelled after its bytes have been handed off. */
+    public CompletableFuture<AgentReply> request(String operation, JsonObject arguments, BooleanSupplier scopeCurrent) {
+        if (operation == null || !operation.matches("[a-z][a-z0-9_]{0,47}") || arguments == null || scopeCurrent == null) {
+            return CompletableFuture.failedFuture(new AgentException(AgentException.Code.INVALID_REQUEST));
+        }
+        try {
+            if (!scopeCurrent.getAsBoolean()) return CompletableFuture.failedFuture(new AgentException(AgentException.Code.SCOPE_CHANGED));
+        } catch (RuntimeException invalid) {
             return CompletableFuture.failedFuture(new AgentException(AgentException.Code.INVALID_REQUEST));
         }
         CompletableFuture<AgentReply> future = new CompletableFuture<>();
@@ -153,7 +165,7 @@ public final class AgentClient implements AutoCloseable {
         boolean queued;
         synchronized (gate) {
             queued = !closed && capturedOwner.equals(owner) && pending.containsKey(id)
-                && outgoing.offer(new Outbound(id, capturedOwner, frame));
+                && outgoing.offer(new Outbound(id, capturedOwner, frame, scopeCurrent));
         }
         if (!queued) reject(id, future, closed ? AgentException.Code.CLOSED : AgentException.Code.CAPACITY);
         return future.copy();
@@ -214,12 +226,23 @@ public final class AgentClient implements AutoCloseable {
             while (!closed) {
                 Outbound item = outgoing.poll(100, TimeUnit.MILLISECONDS);
                 if (item == null) continue;
+                Pending request;
                 synchronized (gate) {
-                    Pending request = pending.get(item.id());
+                    request = pending.get(item.id());
                     if (closed || request == null || !item.owner().equals(owner)) continue;
                     if (System.nanoTime() - request.deadline() >= 0) { throw new AgentException(AgentException.Code.REQUEST_TIMEOUT); }
                 }
-                // No lock crosses pipe I/O. The watchdog kills this exact child
+                boolean current;
+                try { current = item.scopeCurrent().getAsBoolean(); }
+                catch (RuntimeException invalid) {
+                    reject(item.id(), request.future(), AgentException.Code.INVALID_REQUEST);
+                    continue;
+                }
+                if (!current) {
+                    reject(item.id(), request.future(), AgentException.Code.SCOPE_CHANGED);
+                    continue;
+                }
+                // No lock crosses lifetime callbacks or pipe I/O. The watchdog kills this exact child
                 // on deadline, including when its stdin stops being consumed.
                 output.write(item.frame());
                 output.flush();

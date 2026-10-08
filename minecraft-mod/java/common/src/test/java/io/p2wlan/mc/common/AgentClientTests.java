@@ -68,6 +68,27 @@ public final class AgentClientTests {
                 for (var item : replies) check(item.get(3, TimeUnit.SECONDS));
             } finally { executor.shutdownNow(); check(executor.awaitTermination(2, TimeUnit.SECONDS)); }
         }
+        try (AgentClient client = peer(probe, "echo", 5000)) {
+            var entered = new java.util.concurrent.CountDownLatch(1);
+            var release = new java.util.concurrent.CountDownLatch(1);
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            var live = new java.util.concurrent.atomic.AtomicBoolean(true);
+            var queued = client.request("echo", data(6), () -> {
+                if (calls.incrementAndGet() > 1) {
+                    entered.countDown();
+                    try { if (!release.await(2, TimeUnit.SECONDS)) return false; }
+                    catch (InterruptedException error) { Thread.currentThread().interrupt(); return false; }
+                }
+                return live.get();
+            });
+            check(entered.await(2, TimeUnit.SECONDS));
+            live.set(false); release.countDown();
+            failure(queued, AgentException.Code.SCOPE_CHANGED);
+            check(!client.isClosed());
+            failure(client.request("echo", data(7), () -> false), AgentException.Code.SCOPE_CHANGED);
+            failure(client.request("echo", data(7), () -> { throw new IllegalStateException(); }), AgentException.Code.INVALID_REQUEST);
+            check(client.request("echo", data(8)).get(3, TimeUnit.SECONDS).data().equals(data(8)));
+        }
         try (AgentClient client = peer(probe, "stderr", 2000)) {
             check(client.request("echo", data(4)).get(3, TimeUnit.SECONDS).data().equals(data(4)));
         }

@@ -7,7 +7,7 @@ public final class AgentException extends IOException {
     public enum Code {
         START_FAILED, HANDSHAKE_TIMEOUT, PROTOCOL_MISMATCH, INVALID_REPLY,
         UNEXPECTED_EXIT, CAPACITY, NOT_READY, REQUEST_TIMEOUT, CLOSED, IO,
-        INVALID_REQUEST, IDENTITY_EXHAUSTED, REMOTE_REJECTED
+        INVALID_REQUEST, SCOPE_CHANGED, IDENTITY_EXHAUSTED, REMOTE_REJECTED
     }
     private final Code code;
     private final String remoteCode;

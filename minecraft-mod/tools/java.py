@@ -58,7 +58,7 @@ def main():
             binaries = probe_artifacts(artifacts)
         except (ValueError, TypeError) as error:
             parser.error(str(error))
-        tasks["interop"] = [":common:codecInteropTest", ":common:agentClientTest", ":common:worldGuardTest", ":common:uiCompletionTest",
+        tasks["interop"] = [":common:codecInteropTest", ":common:agentClientTest", ":common:worldGuardTest", ":common:uiCompletionTest", ":common:worldHostTest",
                             "-PnativeProbe=" + binaries["frame_probe"], "-PagentProbe=" + binaries["agent_probe"],
                             "-PworldGuardProbe=" + binaries["world_guard_probe"]]
     return subprocess.call([gradle, "--no-daemon", *tasks[args.command], *args.args], cwd=PROJECT / "java", env=env)
