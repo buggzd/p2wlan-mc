@@ -103,3 +103,10 @@ tasks.register('worldHostTest', JavaExec) {
         if (!probe.isPresent()) throw new GradleException('Run minecraft-mod/tools/java.py interop')
     }
 }
+
+tasks.register('networkCatalogTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.NetworkCatalogTests'
+}
+check.dependsOn networkCatalogTest
