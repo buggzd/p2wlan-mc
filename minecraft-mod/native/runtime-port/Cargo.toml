@@ -1,0 +1,16 @@
+[package]
+name = "p2wlan-mc-runtime-port"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+p2wlan-mc-runtime = { path = "../target/upstream-runtime" }
+p2pnet-tun = { path = "../../../client/tun" }
+tokio.workspace = true
+
+[dev-dependencies]
+p2wlan-mc-bridge = { path = "../bridge" }
+p2pnet-crypto = { path = "../../../client/crypto" }
+p2pnet-wireguard = { path = "../../../client/wireguard" }
+hex = "0.4"

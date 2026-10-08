@@ -16,7 +16,7 @@ python3 minecraft-mod/tools/native.py clippy --workspace --all-targets -- -D war
 
 Each endpoint has at most 32 sockets, 32 KiB receive/send buffers per socket, and 128 queued IP packets per direction. The initial IP MTU is 1280 bytes. TCP inactivity timeout is 15 seconds and keep-alive is 5 seconds. Packets and connections over budget return typed failures or apply backpressure; existing work is not evicted to admit new work.
 
-The current tests exercise real user-space TCP over an in-memory IP link. They are not Minecraft, P2WLAN encrypted transport, operating-system, or public-NAT acceptance evidence. This component alone is not an installable Mod.
+The bridge tests exercise real user-space TCP, half-close, resource limits, timeout, and recovery from loss, duplication, and reordering. This component alone is not an installable Mod.
 
 ## Common Java protocol
 
@@ -29,3 +29,16 @@ python3 minecraft-mod/tools/java.py test
 ```
 
 The protocol test is an explicit executable test harness, not a zero-test Gradle success. It verifies malformed/partial frames, Unicode, capacity limits, snapshot immutability, and stale-owner/revision rejection.
+
+## Upstream runtime packet port
+
+The native build generates an adapted runtime under the ignored `native/target/upstream-runtime/` directory. It reuses this checkout's upstream daemon and networking crates without modifying their source or manifests. Exact source anchors are checked before generation; incompatible upstream changes fail the build rather than silently selecting another code path. Generated metadata records source hashes and the adapter hash.
+
+The packet port substitutes bounded user-space IP channels for the daemon's system interface. Only this backend skips OS route installation; the normal daemon entry point retains its original system-interface behavior. The port requires the bridge's 1280-byte MTU and applies a 250 ms write deadline. The formatting wrapper selects only Mod-owned workspace packages, including when called with `fmt --all`.
+
+```sh
+python3 -m unittest discover -s minecraft-mod/tests -p 'test_*.py'
+python3 minecraft-mod/tools/native.py test --workspace
+```
+
+The runtime-port integration test carries a real 128 KB bidirectional TCP stream through upstream dataplanes, the upstream Noise handshake/encrypted transport, and loopback UDP. It does not yet verify the full Control/daemon lifecycle, Direct/Relay selection, Minecraft login, or public NAT. The raw packet port alone is not a production-authorized Minecraft service.

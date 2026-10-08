@@ -101,6 +101,7 @@ impl TcpStack {
         socket.set_timeout(Some(StackDuration::from_secs(15)));
         socket.set_keep_alive(Some(StackDuration::from_secs(5)));
         socket.set_nagle_enabled(false);
+        socket.set_congestion_control(tcp::CongestionControl::Reno);
         let handle = self.sockets.add(socket);
         self.connections.insert(id, handle);
         Ok((id, handle))
