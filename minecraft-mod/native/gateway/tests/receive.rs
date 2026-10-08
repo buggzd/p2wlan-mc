@@ -340,3 +340,35 @@ async fn completed_reads_release_metadata_during_long_lived_streams() {
         assert_eq!(window.retained_spans(), 0);
     }
 }
+
+#[tokio::test]
+async fn sealing_consumed_bytes_preserves_old_admission_without_reauthorizing_it() {
+    let mut f = Fixture::new().await;
+    let mut window = f.window(0);
+    window.record(0, 4, &f.permit).unwrap();
+    f.world.revoke();
+    let mut captured = window.seal(vec![1; 4]).unwrap();
+    assert_eq!(window.retained_spans(), 0);
+    assert!(matches!(
+        captured.validate(),
+        Err(GatewayError::Admission(A::ScopeClosed))
+    ));
+    let (socket, _) = sockets().await;
+    assert!(matches!(
+        captured.try_write(&socket),
+        Err(GatewayError::Admission(A::ScopeClosed))
+    ));
+    assert_eq!(captured.remaining(), 4);
+    let f = Fixture::new().await;
+    let mut window = f.window(0);
+    window.record(0, 4, &f.permit).unwrap();
+    f.local
+        .transport
+        .remove_session(&f.local.remote.node_id)
+        .await;
+    let captured = window.seal(vec![1; 4]).unwrap();
+    assert!(matches!(
+        captured.validate(),
+        Err(GatewayError::Admission(A::SessionChanged))
+    ));
+}

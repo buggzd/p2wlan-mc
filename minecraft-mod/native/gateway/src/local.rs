@@ -53,9 +53,9 @@ impl LocalTarget {
         grant: PeerGrant,
         admission: ServiceAdmission,
     ) -> Result<TcpStream, GatewayError> {
+        let deadline = Instant::now() + LOCAL_HANDSHAKE_TIMEOUT;
         timeout(LOCAL_HANDSHAKE_TIMEOUT, async {
-            grant.validate()?;
-            admission.validate()?;
+            validate_target(&grant, &admission, deadline).await?;
             let socket = TcpStream::connect(self.address)
                 .await
                 .map_err(GatewayError::Io)?;
@@ -65,8 +65,7 @@ impl LocalTarget {
             let mut sent = 0;
             while sent < prelude.len() {
                 socket.writable().await.map_err(GatewayError::Io)?;
-                grant.validate()?;
-                admission.validate()?;
+                validate_target(&grant, &admission, deadline).await?;
                 match socket.try_write(&prelude[sent..]) {
                     Ok(0) => return Err(GatewayError::Closed),
                     Ok(count) => sent += count,
@@ -77,8 +76,7 @@ impl LocalTarget {
             let mut ready = [0u8; 1];
             loop {
                 socket.readable().await.map_err(GatewayError::Io)?;
-                grant.validate()?;
-                admission.validate()?;
+                validate_target(&grant, &admission, deadline).await?;
                 match socket.try_read(&mut ready) {
                     Ok(0) => return Err(GatewayError::Closed),
                     Ok(_) => break,
@@ -86,8 +84,7 @@ impl LocalTarget {
                     Err(error) => return Err(GatewayError::Io(error)),
                 }
             }
-            grant.validate()?;
-            admission.validate()?;
+            validate_target(&grant, &admission, deadline).await?;
             if ready != [1] {
                 return Err(GatewayError::LocalKeyMismatch);
             }
@@ -98,6 +95,29 @@ impl LocalTarget {
     }
 }
 
+/// Retry ONLY validation of these exact captured envelopes, never the connect,
+/// prelude, readiness byte, grant, crypto key, or game delivery. One total limit.
+async fn validate_target(
+    grant: &PeerGrant,
+    admission: &ServiceAdmission,
+    deadline: Instant,
+) -> Result<(), GatewayError> {
+    loop {
+        if Instant::now() >= deadline {
+            return Err(GatewayError::LocalTimeout);
+        }
+        match grant
+            .validate()
+            .map_err(GatewayError::from)
+            .and_then(|()| admission.validate())
+        {
+            Err(GatewayError::Admission(p2wlan_mc_runtime_port::AdmissionError::Contended)) => {
+                tokio::time::sleep(Duration::from_millis(1)).await
+            }
+            result => return result,
+        }
+    }
+}
 pub(crate) struct LocalPrelude {
     bytes: [u8; LOCAL_PRELUDE_BYTES],
     used: usize,

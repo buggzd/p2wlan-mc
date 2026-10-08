@@ -16,7 +16,10 @@ use crate::dataplane::InboundPacket;
 use crate::rooms::RoomSendPermit;
 
 /// Packet bytes cannot be separated from their original admission accidentally.
-#[derive(Debug)]
+// Cloning preserves the ORIGINAL permit/lease/scopes; it never reauthorizes
+// bytes. Callers still own protocol-specific retry safety. This is plaintext,
+// not an encrypted wire frame (the original daemon owns counters/encryption).
+#[derive(Clone, Debug)]
 pub struct FencedPacket {
     pub(super) bytes: Vec<u8>,
     pub(super) permit: FramePermit,

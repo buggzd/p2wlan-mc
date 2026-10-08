@@ -1,5 +1,5 @@
 use crate::{AgentError, Identity};
-use p2wlan_mc_gateway::{GatewayStatus, TcpGateway};
+use p2wlan_mc_gateway::{DiscoveredService, GatewayStatus, TcpGateway};
 use p2wlan_mc_runtime_port::{
     Config, Daemon, DaemonError, FencedPacketEndpoint, PacketInterface, ScopeToken,
 };
@@ -99,6 +99,57 @@ impl ManagedRuntime {
             .tick()
             .map(Some)
             .map_err(|_| AgentError::RuntimeFailed)
+    }
+    pub async fn discover(&mut self, peer: &str) -> Result<Vec<DiscoveredService>, AgentError> {
+        let deadline = tokio::time::Instant::now() + p2wlan_mc_gateway::DISCOVERY_TIMEOUT;
+        let ticket = tokio::time::timeout_at(
+            deadline,
+            self.gateway
+                .as_mut()
+                .ok_or(AgentError::RuntimeNotReady)?
+                .discover(peer),
+        )
+        .await
+        .map_err(|_| AgentError::DiscoveryTimeout)?
+        .map_err(crate::State::gateway_error)?;
+        let result = async {
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(AgentError::DiscoveryTimeout);
+                }
+                if !self.parent.is_live() {
+                    return Err(AgentError::Protocol);
+                }
+                self.tick()?;
+                let result = self
+                    .gateway
+                    .as_mut()
+                    .ok_or(AgentError::RuntimeNotReady)?
+                    .poll_discovery(ticket);
+                match result {
+                    Ok(Some(services)) => {
+                        if tokio::time::Instant::now() >= deadline {
+                            return Err(AgentError::DiscoveryTimeout);
+                        }
+                        return Ok(services);
+                    }
+                    Ok(None)
+                    | Err(p2wlan_mc_gateway::GatewayError::Admission(
+                        p2wlan_mc_runtime_port::AdmissionError::Contended,
+                    )) => {}
+                    Err(error) => return Err(crate::State::gateway_error(error)),
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        };
+        let result = tokio::time::timeout_at(deadline, result)
+            .await
+            .unwrap_or(Err(AgentError::DiscoveryTimeout));
+        // Drop the exact query scope on every failure; never renew it or start a new query.
+        if let Some(gateway) = self.gateway.as_mut() {
+            let _ = gateway.cancel_discovery(ticket);
+        }
+        result
     }
     pub async fn stop(&mut self) -> Result<(), AgentError> {
         self.gateway = None; // Revoke application scopes before awaiting daemon cleanup.

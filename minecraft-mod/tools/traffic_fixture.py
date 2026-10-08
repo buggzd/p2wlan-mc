@@ -108,13 +108,18 @@ async def transfer(agents, runtimes, peer_id, error_type):
                     "registration": host["registration"], "world": "0" * 32}, error="WORLD_CHANGED")
         client_peer = (await agents[1].request("status"))["peer_id"]
         await wait_peer_paths(agents, runtimes, [client_peer, peer_id], error_type)
+        catalog = await agents[1].request("discover", {"runtime": runtimes[1], "peer": peer_id})
+        if catalog.get("runtime") != runtimes[1] or catalog.get("peer") != peer_id or catalog.get("services") != [
+                {"port": host["port"], "service": host["service"]}]:
+            raise error_type("SERVICE_DISCOVERY_IDENTITY")
+        selected = catalog["services"][0]
         deadline = time.monotonic() + 15
         proxy = None
         while time.monotonic() < deadline:
             await agents[0].request("ping")
             try:
                 proxy = await agents[1].request("proxy", {"runtime": runtimes[1],
-                      "peer": peer_id, "port": host["port"], "world": world, "service": host["service"]})
+                      "peer": peer_id, "port": selected["port"], "world": world, "service": selected["service"]})
                 break
             except error_type as error:
                 if error.operation != "proxy" or error.code not in ADMISSION_PENDING:
@@ -148,7 +153,14 @@ async def transfer(agents, runtimes, peer_id, error_type):
                 with contextlib.suppress(OSError, asyncio.TimeoutError):
                     await asyncio.wait_for(writer.wait_closed(), 2)
 
-        results = await asyncio.gather(*(exchange(index) for index in range(STREAMS)), return_exceptions=True)
+        async def discover_during_transfer():
+            catalog, reverse = await asyncio.gather(
+                agents[1].request("discover", {"runtime": runtimes[1], "peer": peer_id}),
+                agents[0].request("discover", {"runtime": runtimes[0], "peer": client_peer}))
+            if catalog.get("services") != [selected] or reverse.get("services") != []:
+                raise error_type("CONCURRENT_SERVICE_DISCOVERY")
+        results = await asyncio.gather(*(exchange(index) for index in range(STREAMS)),
+            discover_during_transfer(), return_exceptions=True)
         if any(isinstance(result, BaseException) for result in results):
             codes = []
             for agent in agents:
@@ -156,7 +168,7 @@ async def transfer(agents, runtimes, peer_id, error_type):
                 view = await agent.request("peer_status", {"runtime": runtimes[len(codes)],
                     "peer": client_peer if not codes else peer_id})
                 codes.append(str({name: status.get(name) for name in
-                    ("gateway_failure", "failure", "admission_drops", "connections")} | {"view": view["view"]}))
+                    ("gateway_failure", "gateway_failure_counts", "failure", "admission_drops", "connections")} | {"view": view["view"]}))
             outcomes = [(type(result).__name__, len(result.partial) if isinstance(result, asyncio.IncompleteReadError) else 0)
                         for result in results if isinstance(result, BaseException)]
             raise error_type(f"TCP_TRANSFER_FAILED:accepted={accepted}:completed={completed}:target_failure={target_failure}:target_bytes={target_bytes}:outcomes={outcomes}:" + ":".join(codes))
@@ -168,6 +180,9 @@ async def transfer(agents, runtimes, peer_id, error_type):
                     "port": target_port, "key": key.hex()})
         if replacement["port"] == host["port"] or replacement["registration"] == host["registration"] or replacement["service"] == host["service"]:
             raise error_type("REUSED_SERVICE_IDENTITY")
+        catalog = await agents[1].request("discover", {"runtime": runtimes[1], "peer": peer_id})
+        if catalog.get("services") != [{"port": replacement["port"], "service": replacement["service"]}]:
+            raise error_type("SERVICE_DISCOVERY_REPLACEMENT")
         # A fresh peer grant must not authorize stale selected-world metadata,
         # even if a caller combines it with the replacement's current port.
         stale = await agents[1].request("proxy", {"runtime": runtimes[1], "peer": peer_id,
@@ -227,4 +242,4 @@ async def transfer(agents, runtimes, peer_id, error_type):
                     task.cancel()
                 if tasks:
                     await asyncio.wait_for(asyncio.gather(*tuple(tasks), return_exceptions=True), 3)
-    print(f"PASS real daemon data plane: {STREAMS} concurrent {PAYLOAD_BYTES // 1024} KiB bidirectional TCP streams, half-close, stale service/selection rejection")
+    print(f"PASS real daemon data plane: {STREAMS} concurrent {PAYLOAD_BYTES // 1024} KiB bidirectional TCP streams, discovery, half-close, stale service/selection rejection")

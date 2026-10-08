@@ -64,6 +64,7 @@ pub(crate) struct Flow {
     pub(crate) bridge: ConnectionBridge,
     pub(crate) service: crate::service::ServiceHandshake,
     pub(crate) connect: Option<AbortHandle>,
+    pub(crate) ready_target: Option<(PeerGrant, TcpStream)>,
 }
 pub(crate) struct PendingLocal {
     pub(crate) registration: RegistrationId,

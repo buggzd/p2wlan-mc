@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 mod bytes;
 mod connection;
+mod discovery;
 mod local;
 mod owner;
 mod receive;
@@ -11,6 +12,7 @@ mod wire;
 
 pub use bytes::ReceivedBytes;
 pub use connection::{BridgeProgress, ConnectionBridge, BRIDGE_IDLE_TIMEOUT};
+pub use discovery::{DiscoveredService, DiscoveryTicket, DISCOVERY_PORT, DISCOVERY_TIMEOUT};
 pub use local::{LocalKey, LocalTarget, LOCAL_HANDSHAKE_TIMEOUT, LOCAL_PRELUDE_BYTES};
 pub use owner::{GatewayFailure, GatewayStatus, TcpGateway, PACKET_WAIT_TIMEOUT};
 pub use receive::{RangeAdmission, ReceiveWindow, MAX_RECEIVE_SPANS};
@@ -43,6 +45,12 @@ pub enum GatewayError {
     ServiceIdentityMismatch,
     #[error("GATEWAY_SERVICE_TIMEOUT")]
     ServiceTimeout,
+    #[error("GATEWAY_DISCOVERY_BUSY")]
+    DiscoveryBusy,
+    #[error("GATEWAY_DISCOVERY_TIMEOUT")]
+    DiscoveryTimeout,
+    #[error("GATEWAY_STALE_DISCOVERY")]
+    StaleDiscovery,
     #[error("GATEWAY_STALE_REGISTRATION")]
     StaleRegistration,
     #[error("GATEWAY_TASK_FAILED")]

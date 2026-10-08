@@ -36,6 +36,12 @@ impl ServiceIdentity {
         }
         Ok(Self(bytes))
     }
+    pub(crate) fn from_wire(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+    pub(crate) fn wire(self) -> [u8; 32] {
+        self.0
+    }
     pub fn opaque(self) -> String {
         self.0.iter().map(|byte| format!("{byte:02x}")).collect()
     }
@@ -139,7 +145,7 @@ impl ServiceHandshake {
             None
         }
     }
-    pub(crate) fn target_connected(&mut self) -> Result<(), GatewayError> {
+    pub(crate) fn prepare_target(&self) -> Result<(), GatewayError> {
         if Instant::now() >= self.deadline {
             return Err(GatewayError::ServiceTimeout);
         }
@@ -150,7 +156,15 @@ impl ServiceHandshake {
             .as_ref()
             .ok_or(GatewayError::MissingAdmission)?
             .validate()?;
+        Ok(())
+    }
+    pub(crate) fn mark_target_connected(&mut self) {
         self.target_ready = true;
+    }
+    #[cfg(test)]
+    fn target_connected(&mut self) -> Result<(), GatewayError> {
+        self.prepare_target()?;
+        self.mark_target_connected();
         Ok(())
     }
     /// Exactly bounded reads cannot consume game bytes following the prelude.
@@ -313,6 +327,29 @@ mod tests {
             fixture.handshake.target_connected(),
             Err(GatewayError::Admission(AdmissionError::SessionChanged))
         ));
+    }
+    #[tokio::test]
+    async fn failed_target_preparation_preserves_exact_socket_and_never_publishes_ready() {
+        let mut fixture = Authenticated::new().await;
+        let (socket, _other) = support::sockets().await;
+        let address = socket.local_addr().unwrap();
+        let captured = fixture.bridge.grant().clone();
+        fixture.world.revoke();
+        assert!(matches!(
+            fixture.handshake.prepare_target(),
+            Err(GatewayError::Admission(AdmissionError::ScopeClosed))
+        ));
+        assert!(!fixture.handshake.target_ready);
+        let (error, retained) = fixture
+            .bridge
+            .attach_local_retained(socket, &captured)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            GatewayError::Admission(AdmissionError::ScopeClosed)
+        ));
+        assert_eq!(retained.local_addr().unwrap(), address);
+        assert!(!fixture.bridge.has_local());
     }
     #[tokio::test]
     async fn total_deadline_is_checked_before_late_target_attachment() {

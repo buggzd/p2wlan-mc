@@ -1,9 +1,10 @@
+use crate::discovery::{Discovery, DiscoveryFrame, Message};
 use crate::local::LocalPrelude;
 use crate::registry::{Flow, PendingLocal, Registration, RegistrationKind};
 use crate::service::ServiceHandshake;
 use crate::{
-    ConnectionBridge, GatewayError, HostedService, JoinProxy, LocalKey, LocalTarget,
-    RegistrationId, ServiceIdentity, TcpFrame, MAX_REGISTRATIONS,
+    ConnectionBridge, DiscoveredService, DiscoveryTicket, GatewayError, HostedService, JoinProxy,
+    LocalKey, LocalTarget, RegistrationId, ServiceIdentity, TcpFrame, MAX_REGISTRATIONS,
 };
 use p2wlan_mc_bridge::{ConnectionId, TcpStack, MAX_CONNECTIONS, PACKET_CAPACITY};
 use p2wlan_mc_runtime_port::{
@@ -18,6 +19,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 
 static NEXT_SERVICE_PORT: AtomicU32 = AtomicU32::new(1024);
+const MAX_FAILURE_REASONS: usize = 128;
 pub const PACKET_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 
 type ConnectResult = (ConnectionId, PeerGrant, Result<TcpStream, GatewayError>);
@@ -47,6 +49,9 @@ pub enum GatewayFailure {
     EntropyUnavailable,
     IdentityExhausted,
     StaleRegistration,
+    DiscoveryBusy,
+    DiscoveryTimeout,
+    StaleDiscovery,
 }
 impl GatewayFailure {
     pub fn code(self) -> &'static str {
@@ -70,6 +75,9 @@ impl GatewayFailure {
             Self::EntropyUnavailable => "GATEWAY_ENTROPY_UNAVAILABLE",
             Self::IdentityExhausted => "GATEWAY_IDENTITY_EXHAUSTED",
             Self::StaleRegistration => "GATEWAY_STALE_REGISTRATION",
+            Self::DiscoveryBusy => "GATEWAY_DISCOVERY_BUSY",
+            Self::DiscoveryTimeout => "GATEWAY_DISCOVERY_TIMEOUT",
+            Self::StaleDiscovery => "GATEWAY_STALE_DISCOVERY",
         }
     }
     fn from_error(error: &GatewayError) -> Self {
@@ -104,6 +112,9 @@ impl GatewayFailure {
             GatewayError::Poisoned => Self::ReceiveAdmissionPoisoned,
             GatewayError::Entropy => Self::EntropyUnavailable,
             GatewayError::StaleRegistration => Self::StaleRegistration,
+            GatewayError::DiscoveryBusy => Self::DiscoveryBusy,
+            GatewayError::DiscoveryTimeout => Self::DiscoveryTimeout,
+            GatewayError::StaleDiscovery => Self::StaleDiscovery,
             GatewayError::TaskFailed => Self::TaskFailed,
         }
     }
@@ -115,8 +126,10 @@ pub struct GatewayStatus {
     pub connections: usize,
     pub tcp_sockets: usize,
     pub pending_connects: usize,
+    pub ready_targets: usize,
     pub local_handshakes: usize,
     pub queued_frames: usize,
+    pub discovery_queries: usize,
     pub failures: u64,
     pub unsupported_local_feedback: u64,
     pub last_failure: Option<GatewayFailure>,
@@ -140,8 +153,10 @@ pub struct TcpGateway {
     connects: JoinSet<ConnectResult>,
     outgoing: VecDeque<QueuedFrame>,
     incoming: Option<QueuedFrame>,
+    discovery: Discovery,
     failures: u64,
     last_failure: Option<GatewayFailure>,
+    failure_counts: Vec<(GatewayFailure, u64)>,
 }
 impl TcpGateway {
     pub fn new(endpoint: FencedPacketEndpoint, seed: u64) -> Result<Self, GatewayError> {
@@ -186,8 +201,10 @@ impl TcpGateway {
             connects: JoinSet::new(),
             outgoing: VecDeque::new(),
             incoming: None,
+            discovery: Discovery::default(),
             failures: 0,
             last_failure: None,
+            failure_counts: Vec::new(),
         })
     }
     pub fn contains_registration(&self, id: RegistrationId) -> bool {
@@ -228,8 +245,14 @@ impl TcpGateway {
             connections: self.flows.len(),
             tcp_sockets: self.stack.connection_count(),
             pending_connects: self.connects.len(),
+            ready_targets: self
+                .flows
+                .values()
+                .filter(|flow| flow.ready_target.is_some())
+                .count(),
             local_handshakes: self.local.len(),
             queued_frames: self.outgoing.len(),
+            discovery_queries: usize::from(self.discovery.active()),
             failures: self.failures,
             unsupported_local_feedback: self
                 .endpoint
@@ -331,6 +354,106 @@ impl TcpGateway {
             key,
         })
     }
+    /// One bounded one-shot query; existing TCP flows continue to be ticked.
+    pub async fn discover(&mut self, peer_id: &str) -> Result<DiscoveryTicket, GatewayError> {
+        self.check_current()?;
+        self.discovery.expire(Instant::now());
+        if self.discovery.active() {
+            return Err(GatewayError::DiscoveryBusy);
+        }
+        let grant = self
+            .endpoint
+            .authority()
+            .peer_grant(peer_id, self.lifetime.clone())
+            .await?;
+        self.check_current()?;
+        if self.outgoing.len() >= PACKET_CAPACITY {
+            return Err(GatewayError::Capacity);
+        }
+        let now = Instant::now();
+        let (ticket, grant) = self.discovery.start(grant, now)?;
+        let result = Message::Request(ticket)
+            .packet(self.stack.address(), grant.address())
+            .and_then(|bytes| {
+                self.endpoint
+                    .make_packet(&grant, bytes)
+                    .map_err(GatewayError::from)
+            });
+        match result {
+            Ok(packet) => {
+                if let Err(error) = self.discovery.remember_request(ticket, &packet) {
+                    let _ = self.discovery.cancel(ticket);
+                    return Err(error);
+                }
+                self.outgoing.push_back(QueuedFrame { packet, since: now });
+                Ok(ticket)
+            }
+            Err(error) => {
+                let _ = self.discovery.cancel(ticket);
+                Err(error)
+            }
+        }
+    }
+    pub fn poll_discovery(
+        &mut self,
+        ticket: DiscoveryTicket,
+    ) -> Result<Option<Vec<DiscoveredService>>, GatewayError> {
+        self.check_current()?;
+        self.discovery.poll(ticket, Instant::now())
+    }
+    pub fn cancel_discovery(&mut self, ticket: DiscoveryTicket) -> Result<(), GatewayError> {
+        self.discovery.cancel(ticket)
+    }
+    fn receive_discovery(
+        &mut self,
+        packet: &FencedPacket,
+        frame: DiscoveryFrame,
+        now: Instant,
+    ) -> Result<(), GatewayError> {
+        if frame.destination != self.stack.address()
+            || frame.source != packet.permit().grant().address()
+        {
+            return Err(GatewayError::WrongTarget);
+        }
+        match frame.message {
+            Message::Response(ticket, services) => {
+                self.discovery.receive(ticket, services, packet, now)
+            }
+            Message::Request(ticket) => {
+                let grant = packet.permit().grant().with_scope(self.lifetime.clone())?;
+                // Read-only registration snapshot, not live availability or an
+                // authorization grant. Final joining verifies each identity.
+                let mut services: Vec<_> = self
+                    .registrations
+                    .values()
+                    .filter_map(|registration| match &registration.kind {
+                        RegistrationKind::Host { port, identity, .. }
+                            if registration.lifetime.token().is_live() =>
+                        {
+                            Some(DiscoveredService {
+                                port: *port,
+                                identity: *identity,
+                            })
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                services.sort_by_key(|service| service.port);
+                if self.outgoing.len() >= PACKET_CAPACITY {
+                    return Err(GatewayError::Capacity);
+                }
+                packet.validate()?;
+                let bytes = Message::Response(ticket, services)
+                    .packet(self.stack.address(), frame.source)?;
+                let response = self.endpoint.make_packet(&grant, bytes)?;
+                self.outgoing.push_back(QueuedFrame {
+                    packet: response,
+                    since: now,
+                });
+                Ok(())
+            }
+        }
+    }
     pub fn stop(&mut self, id: RegistrationId) -> Result<(), GatewayError> {
         if !self.registrations.contains_key(&id) {
             return Err(GatewayError::StaleRegistration);
@@ -371,11 +494,32 @@ impl TcpGateway {
         self.local.clear();
         self.outgoing.clear();
         self.incoming = None;
+        self.discovery = Discovery::default();
         self.stack.clear();
+    }
+    pub fn failure_counts(&self) -> Vec<(&'static str, u64)> {
+        self.failure_counts
+            .iter()
+            .map(|(reason, count)| (reason.code(), *count))
+            .collect()
     }
     fn failure(&mut self, reason: GatewayFailure) {
         self.failures = self.failures.saturating_add(1);
         self.last_failure = Some(reason);
+        if let Some((_, count)) = self
+            .failure_counts
+            .iter_mut()
+            .find(|(key, _)| *key == reason)
+        {
+            *count = count.saturating_add(1);
+        } else if self.failure_counts.len() < MAX_FAILURE_REASONS {
+            // Typed, closed reason set (including the fixed admission enum),
+            // not externally supplied strings; even future growth is bounded.
+            self.failure_counts.push((reason, 1));
+        } else {
+            self.shutdown();
+            self.last_failure = Some(GatewayFailure::Capacity);
+        }
     }
     fn remove_flow(&mut self, id: ConnectionId) -> Result<(), GatewayError> {
         // All callers have sealed generated output first. No smoltcp polling is
@@ -448,7 +592,17 @@ impl TcpGateway {
             return Err(error);
         }
         let now = Instant::now();
+        if self.discovery.expire(now) {
+            self.failure(GatewayFailure::DiscoveryTimeout);
+        }
         self.reap_connects()?;
+        if self.outgoing.len() < PACKET_CAPACITY {
+            match self.discovery.retry(now) {
+                Ok(Some(packet)) => self.outgoing.push_back(QueuedFrame { packet, since: now }),
+                Ok(None) | Err(GatewayError::Admission(AdmissionError::Contended)) => {}
+                Err(error) => self.failure(GatewayFailure::from_error(&error)),
+            }
+        }
         self.flush_output(now);
         if !self.outgoing.is_empty() {
             return Ok(self.status());
@@ -624,6 +778,7 @@ impl TcpGateway {
                     bridge,
                     service: ServiceHandshake::proxy(identity, Instant::now()),
                     connect: None,
+                    ready_target: None,
                 },
             );
             Ok(())
@@ -634,6 +789,9 @@ impl TcpGateway {
         result
     }
     fn receive(&mut self, packet: &FencedPacket, now: Instant) -> Result<(), GatewayError> {
+        if let Some(frame) = DiscoveryFrame::parse(packet.checked_bytes()?)? {
+            return self.receive_discovery(packet, frame, now);
+        }
         let frame = TcpFrame::parse(packet.checked_bytes()?)?;
         let id = self.flows.iter().find_map(|(id, flow)| {
             (flow.local == frame.destination && flow.remote == frame.source).then_some(*id)
@@ -720,6 +878,7 @@ impl TcpGateway {
                 bridge,
                 service: ServiceHandshake::host(*identity, Instant::now()),
                 connect: None,
+                ready_target: None,
             },
         );
         Ok(id)
@@ -733,7 +892,7 @@ impl TcpGateway {
         if flow.service.poll(&mut flow.bridge, &mut self.stack, now)? {
             return flow.bridge.step(&mut self.stack);
         }
-        if !flow.bridge.has_local() && flow.connect.is_none() {
+        if !flow.bridge.has_local() && flow.connect.is_none() && flow.ready_target.is_none() {
             if let Some(admission) = flow.service.target_admission() {
                 if self.connects.len() >= MAX_CONNECTIONS {
                     return Err(GatewayError::Capacity);
@@ -776,14 +935,39 @@ impl TcpGateway {
                 continue;
             };
             flow.connect = None;
-            let result = result.and_then(|socket| {
-                flow.service.target_connected()?;
-                flow.bridge.attach_local(socket, &grant)
-            });
-            if let Err(error) = result {
-                self.seal_output(Instant::now())?;
-                self.failure(GatewayFailure::from_error(&error));
-                self.remove_flow(id)?;
+            match result {
+                Ok(socket) => flow.ready_target = Some((grant, socket)),
+                Err(error) => {
+                    self.seal_output(Instant::now())?;
+                    self.failure(GatewayFailure::from_error(&error));
+                    self.remove_flow(id)?;
+                }
+            }
+        }
+        let ready: Vec<_> = self
+            .flows
+            .iter()
+            .filter_map(|(id, flow)| flow.ready_target.is_some().then_some(*id))
+            .collect();
+        for id in ready {
+            let flow = self.flows.get_mut(&id).ok_or(GatewayError::WrongTarget)?;
+            let (grant, socket) = flow.ready_target.take().ok_or(GatewayError::WrongTarget)?;
+            let result = match flow.service.prepare_target() {
+                Ok(()) => flow.bridge.attach_local_retained(socket, &grant),
+                Err(error) => Err((error, socket)),
+            };
+            match result {
+                Ok(()) => flow.service.mark_target_connected(),
+                Err((GatewayError::Admission(AdmissionError::Contended), socket)) => {
+                    // Keep the exact target and receive proof until the existing
+                    // five-second remote handshake deadline. No new task/grant.
+                    flow.ready_target = Some((grant, socket));
+                }
+                Err((error, _)) => {
+                    self.seal_output(Instant::now())?;
+                    self.failure(GatewayFailure::from_error(&error));
+                    self.remove_flow(id)?;
+                }
             }
         }
         Ok(())

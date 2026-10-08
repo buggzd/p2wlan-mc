@@ -57,6 +57,9 @@ pub enum AgentError {
     RegistrationUnknown,
     WorldChanged,
     GatewayFailed,
+    DiscoveryBusy,
+    DiscoveryTimeout,
+    DiscoveryChanged,
     ProfileRequired,
     ProfileUnsupported,
     ProfileIo,
@@ -97,6 +100,9 @@ impl AgentError {
             Self::RegistrationUnknown => "REGISTRATION_UNKNOWN",
             Self::WorldChanged => "WORLD_CHANGED",
             Self::GatewayFailed => "GATEWAY_FAILED",
+            Self::DiscoveryBusy => "DISCOVERY_BUSY",
+            Self::DiscoveryTimeout => "DISCOVERY_TIMEOUT",
+            Self::DiscoveryChanged => "DISCOVERY_CHANGED",
             Self::ProfileRequired => "PROFILE_REQUIRED",
             Self::ProfileUnsupported => "PROFILE_UNSUPPORTED_PLATFORM",
             Self::ProfileIo => "PROFILE_IO",
@@ -156,6 +162,9 @@ impl State {
     fn gateway_error(error: GatewayError) -> AgentError {
         match error {
             GatewayError::Admission(reason) => AgentError::Admission(reason),
+            GatewayError::DiscoveryBusy => AgentError::DiscoveryBusy,
+            GatewayError::DiscoveryTimeout => AgentError::DiscoveryTimeout,
+            GatewayError::StaleDiscovery => AgentError::DiscoveryChanged,
             _ => AgentError::GatewayFailed,
         }
     }
@@ -178,7 +187,12 @@ impl State {
                 json!({"phase": if status.is_some() {"ready"} else {"starting"}, "runtime":runtime.id.as_str(),
                     "virtual_ip": runtime.address, "peer_id":runtime.gateway.as_ref().and_then(|gateway|gateway.local_peer_id().ok()), "registrations": status.map(|value| value.registrations).unwrap_or(0),
                     "connections": status.map(|value| value.connections).unwrap_or(0),
+                    "discovery_queries": status.map(|value| value.discovery_queries).unwrap_or(0),
+                    "ready_targets": status.map(|value| value.ready_targets).unwrap_or(0),
                     "gateway_failures": status.map(|value| value.failures.min(i64::MAX as u64)).unwrap_or(0),
+                    "gateway_failure_counts": runtime.gateway.as_ref().map(|gateway| gateway.failure_counts()
+                        .into_iter().map(|(code, count)| (code, count.min(i64::MAX as u64)))
+                        .collect::<std::collections::BTreeMap<_,_>>()),
                     "admission_drops": runtime.gateway.as_ref().map(|gateway| gateway.admission_drops()
                         .into_iter().map(|(code, count)| (code, count.min(i64::MAX as u64)))
                         .collect::<std::collections::BTreeMap<_,_>>()),
@@ -405,6 +419,16 @@ impl State {
                     .await
                     .map_err(Self::gateway_error)?;
                 Ok(json!({"runtime":runtime.id.as_str(), "peer":peer, "view":view}))
+            }
+            "discover" => {
+                fields(args, &["runtime", "peer"])?;
+                let peer = text(args, "peer")?.to_string();
+                let runtime = self.current(args)?;
+                let services = runtime.discover(&peer).await?;
+                Ok(
+                    json!({"runtime":runtime.id.as_str(), "peer":peer, "services":services.into_iter()
+                    .map(|service| json!({"port":service.port, "service":service.identity.opaque()})).collect::<Vec<_>>() }),
+                )
             }
             "start" => {
                 fields(args, &["config"])?;

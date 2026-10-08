@@ -102,7 +102,11 @@ impl ReceiveWindow {
         if bytes.is_empty() || bytes.len() > CHUNK_BYTES {
             return Err(GatewayError::Capacity);
         }
-        self.connection.validate()?;
+        // Mechanical capture, NOT authorization or delivery. These bytes have
+        // already left the stack; a transient upstream lock contention must
+        // not poison/discard them. Every retained span was bound to this exact
+        // connection at record(), and its original permit is checked at the
+        // actual game write / remote-service decision, without reauthorization.
         let count = bytes.len() as i32;
         let mut covered = 0;
         let mut permits = Vec::with_capacity(self.spans.len());

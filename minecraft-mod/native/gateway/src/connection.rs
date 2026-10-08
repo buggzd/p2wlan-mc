@@ -77,12 +77,28 @@ impl ConnectionBridge {
         socket: TcpStream,
         expected: &PeerGrant,
     ) -> Result<(), GatewayError> {
-        self.grant.validate()?;
-        if self.socket.is_some() || expected != &self.grant {
-            return Err(GatewayError::WrongTarget);
+        self.attach_local_retained(socket, expected)
+            .map_err(|(error, _)| error)
+    }
+    /// A bounded supervisor may retain this SAME completed socket through
+    /// transient validation contention, without reconnecting or replaying I/O.
+    pub(crate) fn attach_local_retained(
+        &mut self,
+        socket: TcpStream,
+        expected: &PeerGrant,
+    ) -> Result<(), (GatewayError, TcpStream)> {
+        let result = (|| {
+            self.grant.validate()?;
+            if self.socket.is_some() || expected != &self.grant {
+                return Err(GatewayError::WrongTarget);
+            }
+            expected.validate()?;
+            socket.set_nodelay(true).map_err(GatewayError::Io)?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            return Err((error, socket));
         }
-        expected.validate()?;
-        socket.set_nodelay(true).map_err(GatewayError::Io)?;
         self.socket = Some(socket);
         self.last_progress = Instant::now();
         Ok(())

@@ -106,6 +106,9 @@ async fn unguarded_targets_and_wrong_proxy_keys_fail_before_tcp_or_game_bytes() 
     assert_eq!(gateway.status().connections, 0);
     assert_eq!(gateway.status().tcp_sockets, 0);
     assert_eq!(gateway.status().local_handshakes, 0);
+    assert!(gateway
+        .failure_counts()
+        .contains(&("GATEWAY_LOCAL_KEY_MISMATCH", 1)));
     gateway.stop(proxy.id).unwrap();
     assert!(TcpStream::connect(proxy.local_address).await.is_err());
 }
@@ -240,6 +243,25 @@ async fn service_registry_multiplexes_guarded_local_streams_through_original_enc
             .register_host(LocalTarget::new(address, target_key).unwrap())
             .unwrap();
         assert!(old_service.identity != service.identity);
+        let ticket = client.discover(&left.remote.node_id).await.unwrap();
+        let catalog = timeout(Duration::from_secs(3), async {
+            loop {
+                client.tick().unwrap();
+                host.tick().unwrap();
+                if let Some(catalog) = client.poll_discovery(ticket).unwrap() {
+                    break catalog;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("encrypted service discovery must use the existing packet port");
+        assert_eq!(catalog.len(), 1);
+        assert_eq!(catalog[0].port, service.virtual_address.port());
+        assert!(catalog[0].identity == service.identity);
+        assert_eq!(client.status().connections, 0);
+        assert_eq!(client.status().tcp_sockets, 0);
+        assert_eq!(accepted.load(Ordering::SeqCst), 0);
         // A NEW peer grant cannot make old selected-world metadata current.
         // Even when the caller supplies a CURRENT port, identity must match
         // before the gateway opens any local target connection.

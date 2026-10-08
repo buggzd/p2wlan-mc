@@ -89,6 +89,8 @@ class TrafficFixtureTests(unittest.IsolatedAsyncioTestCase):
                     return {"registration": "host", "port": 1024, "service": "00" * 32}
                 if operation == "close_registration":
                     return None
+                if operation == "discover":
+                    return arguments | {"services": [] if arguments["runtime"] == "r0" else [{"port": 1024, "service": "00" * 32}]}
                 if operation == "proxy":
                     armed = True
                     return {"registration": "proxy", "port": 12345, "key": "00" * 32}
