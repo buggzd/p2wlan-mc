@@ -13,6 +13,10 @@ use crate::rooms::{AdditionalSendFence, RoomAuthorization, RoomSendPermit};
 use crate::transport::WireGuardTransport;
 use crate::Config;
 
+#[path = "mc_view.rs"]
+mod view;
+pub use view::{MtuView, PeerView};
+
 pub const MAX_SCOPES: usize = 4;
 pub const ADMISSION_TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -181,6 +185,7 @@ pub struct ApplicationAuthority {
     shutdown: watch::Receiver<bool>,
     local_ip: Ipv4Addr,
     local_peer_id: String,
+    udp_owner: Option<watch::Receiver<Option<crate::udp::UdpTransport>>>,
 }
 
 impl ApplicationAuthority {
@@ -220,6 +225,7 @@ impl ApplicationAuthority {
             shutdown,
             local_ip,
             local_peer_id: config.node.node_id.clone(),
+            udp_owner: None,
         })
     }
     pub fn address(&self) -> Ipv4Addr {

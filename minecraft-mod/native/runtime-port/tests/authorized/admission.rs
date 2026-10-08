@@ -318,3 +318,42 @@ async fn application_identity_is_a_read_only_snapshot_of_the_resolved_runtime_co
         assert_eq!(reason.code(), reason.to_string());
     }
 }
+
+#[tokio::test]
+async fn peer_view_is_secret_free_authorized_and_fenced_after_projection() {
+    let (rig, _) = pair().await;
+    let mut scope = ScopeOwner::new();
+    let grant = rig
+        .authority
+        .peer_grant(&rig.remote.node_id, scope.token())
+        .await
+        .unwrap();
+    let view = grant.peer_view().unwrap();
+    assert_eq!(
+        view.network_generation,
+        rig.authority.network_generation().to_string()
+    );
+    assert!(view.direct_budget_ready.is_none());
+    assert!(view.mtu.is_none());
+    let encoded = serde_json::to_value(&view).unwrap();
+    for forbidden in [
+        "endpoint",
+        "public_key",
+        "token",
+        "credential",
+        "packet",
+        "device_name",
+    ] {
+        assert!(!encoded.as_object().unwrap().contains_key(forbidden));
+    }
+    scope.revoke();
+    assert_eq!(grant.peer_view().unwrap_err(), E::ScopeClosed);
+    let scope = ScopeOwner::new();
+    let grant = rig
+        .authority
+        .peer_grant(&rig.remote.node_id, scope.token())
+        .await
+        .unwrap();
+    rig.peers.advance_network_generation("view-test").await;
+    assert_eq!(grant.peer_view().unwrap_err(), E::NetworkChanged);
+}

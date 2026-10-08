@@ -187,6 +187,19 @@ impl TcpGateway {
         self.check_current()?;
         Ok(self.endpoint.authority().local_peer_id())
     }
+    pub async fn peer_view(
+        &self,
+        peer_id: &str,
+    ) -> Result<p2wlan_mc_runtime_port::PeerView, GatewayError> {
+        self.check_current()?;
+        let grant = self
+            .endpoint
+            .authority()
+            .peer_grant(peer_id, self.lifetime.clone())
+            .await?;
+        self.check_current()?;
+        Ok(grant.peer_view()?)
+    }
     /// Request-time projection of the packet port's existing counter owner.
     /// At most one entry per fixed admission reason; no roster/cache is kept.
     pub fn admission_drops(&self) -> Vec<(&'static str, u64)> {

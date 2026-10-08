@@ -42,7 +42,8 @@ def adapt_run(source: str) -> str:
                     let authority = mc_embed::ApplicationAuthority::new(
                         &self.config, self.peers.clone(), self.control.room_authorization().await,
                         self.transport.clone(), self.shutdown_rx.clone(),
-                    ).map_err(|error| DaemonError::Config(error.to_string()))?;
+                    ).map_err(|error| DaemonError::Config(error.to_string()))?
+                        .with_udp_owner(self.udp_transport_publication.subscribe());
                     factory(mc_embed::PacketContext { config: (*self.config).clone(), authority })?
                 }
             })

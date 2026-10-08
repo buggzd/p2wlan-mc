@@ -14,3 +14,4 @@ p2wlan-mc-bridge = { path = "../bridge" }
 p2pnet-crypto = { path = "../../../client/crypto" }
 p2pnet-wireguard = { path = "../../../client/wireguard" }
 hex = "0.4"
+serde_json = "1"

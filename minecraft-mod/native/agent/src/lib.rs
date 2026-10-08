@@ -389,6 +389,23 @@ impl State {
                 fields(args, &[])?;
                 Ok(self.snapshot())
             }
+            "peer_status" => {
+                fields(args, &["runtime", "peer"])?;
+                let peer = text(args, "peer")?.to_string();
+                if peer.len() > 256 {
+                    return Err(AgentError::InvalidArguments);
+                }
+                let runtime = self.current(args)?;
+                let gateway = runtime
+                    .gateway
+                    .as_ref()
+                    .ok_or(AgentError::RuntimeNotReady)?;
+                let view = gateway
+                    .peer_view(&peer)
+                    .await
+                    .map_err(Self::gateway_error)?;
+                Ok(json!({"runtime":runtime.id.as_str(), "peer":peer, "view":view}))
+            }
             "start" => {
                 fields(args, &["config"])?;
                 if self.profile.is_some() {

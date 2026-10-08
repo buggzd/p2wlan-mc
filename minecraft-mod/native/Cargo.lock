@@ -1442,6 +1442,7 @@ dependencies = [
  "p2pnet-wireguard",
  "p2wlan-mc-bridge",
  "p2wlan-mc-runtime",
+ "serde_json",
  "tokio",
 ]
 

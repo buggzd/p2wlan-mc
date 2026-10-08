@@ -32,6 +32,7 @@ class RuntimeOverlayTests(unittest.TestCase):
             self.assertIn("run_with_packet_factory", runtime)
             self.assertIn("factory(&self.config)", runtime)
             self.assertIn("run_with_authorized_packet_factory", runtime)
+            self.assertIn(".with_udp_owner(self.udp_transport_publication.subscribe())", runtime)
             self.assertIn("with_application_port", (destination / "src/lib/daemon/dataplane_tasks.rs").read_text())
             self.assertIn("fence.is_current()", (destination / "src/rooms.rs").read_text())
             self.assertIn("deliver_inbound(&packet", (destination / "src/dataplane/core.rs").read_text())
