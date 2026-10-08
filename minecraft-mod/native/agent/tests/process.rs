@@ -198,3 +198,21 @@ async fn stdin_eof_and_idle_watchdog_terminate_the_exact_child() {
         Some(2)
     );
 }
+
+#[tokio::test]
+async fn room_peer_projection_requires_exact_fields_and_current_runtime() {
+    let mut agent = Peer::launch().await;
+    for (id, args, expected) in [
+        (1, json!({}), "INVALID_ARGUMENTS"),
+        (2, json!({"runtime":"a", "peer":"b"}), "INVALID_ARGUMENTS"),
+        (3, json!({"runtime":"a"}), "RUNTIME_NOT_READY"),
+    ] {
+        agent.send(id, "room_peers", args).await;
+        let reply = agent.reply(id).await;
+        assert_eq!(reply["ok"], false);
+        assert_eq!(reply["error"], expected);
+    }
+    agent.send(4, "shutdown", json!({})).await;
+    assert_eq!(agent.reply(4).await["ok"], true);
+    agent.exit(0).await;
+}

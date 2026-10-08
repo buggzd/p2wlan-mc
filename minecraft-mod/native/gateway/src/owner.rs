@@ -214,6 +214,14 @@ impl TcpGateway {
         self.check_current()?;
         Ok(self.endpoint.authority().local_peer_id())
     }
+    pub fn authorized_peers(
+        &self,
+    ) -> Result<p2wlan_mc_runtime_port::AuthorizedPeers, GatewayError> {
+        self.check_current()?;
+        let view = self.endpoint.authority().authorized_peers(&self.lifetime)?;
+        self.check_current()?;
+        Ok(view)
+    }
     pub async fn peer_view(
         &self,
         peer_id: &str,

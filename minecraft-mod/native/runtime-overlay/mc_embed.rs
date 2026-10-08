@@ -11,8 +11,8 @@ mod admission;
 #[path = "mc_port.rs"]
 mod port;
 pub use admission::{
-    AdmissionError, ApplicationAuthority, FramePermit, MtuView, PeerGrant, PeerView, ScopeOwner,
-    ScopeToken, MAX_SCOPES,
+    AdmissionError, ApplicationAuthority, AuthorizedPeers, FramePermit, MtuView, PeerGrant,
+    PeerView, ScopeOwner, ScopeToken, MAX_ROOM_PEERS, MAX_SCOPES,
 };
 pub use port::{FencedPacket, FencedPacketEndpoint, PacketGate};
 

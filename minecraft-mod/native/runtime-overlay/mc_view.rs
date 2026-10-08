@@ -1,5 +1,5 @@
 //! Bounded, secret-free projections of the original owners, not send permits.
-use super::{AdmissionError, ApplicationAuthority, PeerGrant};
+use super::{AdmissionError, ApplicationAuthority, PeerGrant, ScopeToken};
 use crate::dplpmtud::{DplpmtudSnapshot, DplpmtudState};
 use crate::peer::NetworkPath;
 use crate::udp::UdpTransport;
@@ -76,7 +76,38 @@ impl From<DplpmtudSnapshot> for MtuView {
         }
     }
 }
+/// Selection metadata only. Discovery and joining must acquire fresh grants.
+#[derive(Debug, Serialize)]
+pub struct AuthorizedPeers {
+    pub network_generation: String,
+    pub peers: Vec<String>,
+}
 impl ApplicationAuthority {
+    /// Bounded request-time view from the room owner, not a peer cache. This
+    /// includes authorized offline members and makes no readiness assertion.
+    pub fn authorized_peers(&self, scope: &ScopeToken) -> Result<AuthorizedPeers, AdmissionError> {
+        if !self.is_running() {
+            return Err(AdmissionError::RuntimeClosed);
+        }
+        if !scope.is_live() {
+            return Err(AdmissionError::ScopeClosed);
+        }
+        let generation = self.network_generation();
+        let peers = self.room.mc_authorized_peers(&self.local_ip.to_string())?;
+        if !self.is_running() {
+            return Err(AdmissionError::RuntimeClosed);
+        }
+        if !scope.is_live() {
+            return Err(AdmissionError::ScopeClosed);
+        }
+        if self.network_generation() != generation {
+            return Err(AdmissionError::NetworkChanged);
+        }
+        Ok(AuthorizedPeers {
+            network_generation: generation.to_string(),
+            peers,
+        })
+    }
     /// Borrow the same daemon's UDP publication owner; never copy its state.
     pub(crate) fn with_udp_owner(mut self, owner: watch::Receiver<Option<UdpTransport>>) -> Self {
         self.udp_owner = Some(owner);

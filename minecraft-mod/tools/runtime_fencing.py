@@ -85,6 +85,10 @@ pub(crate) trait AdditionalSendFence: std::fmt::Debug + Send + Sync {
             application: None,
             member: snapshot.memberships.get(peer_id)?.clone(),
         })""", "application-base-permit")
+    source = replace_once(source, "impl RoomAuthorization {", """#[path = "mc_roster.rs"]
+mod mc_roster;
+
+impl RoomAuthorization {""", "application-room-roster")
     return source
 
 

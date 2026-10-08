@@ -108,6 +108,13 @@ async def transfer(agents, runtimes, peer_id, error_type):
                     "registration": host["registration"], "world": "0" * 32}, error="WORLD_CHANGED")
         client_peer = (await agents[1].request("status"))["peer_id"]
         await wait_peer_paths(agents, runtimes, [client_peer, peer_id], error_type)
+        for agent, runtime, expected_peer in zip(agents, runtimes, [client_peer, peer_id]):
+            roster = await agent.request("room_peers", {"runtime": runtime})
+            if roster.get("runtime") != runtime or roster.get("view", {}).get("peers") != [expected_peer]:
+                raise error_type("ROOM_PEER_PROJECTION")
+            generation = roster["view"].get("network_generation")
+            if not isinstance(generation, str) or not generation.isascii() or not generation.isdecimal():
+                raise error_type("ROOM_PEER_GENERATION")
         catalog = await agents[1].request("discover", {"runtime": runtimes[1], "peer": peer_id})
         if catalog.get("runtime") != runtimes[1] or catalog.get("peer") != peer_id or catalog.get("services") != [
                 {"port": host["port"], "service": host["service"]}]:

@@ -4,6 +4,8 @@
 mod admission;
 #[path = "authorized/queues.rs"]
 mod queues;
+#[path = "authorized/roster.rs"]
+mod roster;
 #[path = "authorized/support.rs"]
 mod support;
 #[path = "authorized/tcp.rs"]

@@ -403,6 +403,17 @@ impl State {
                 fields(args, &[])?;
                 Ok(self.snapshot())
             }
+            "room_peers" => {
+                fields(args, &["runtime"])?;
+                let runtime = self.current(args)?;
+                let view = runtime
+                    .gateway
+                    .as_ref()
+                    .ok_or(AgentError::RuntimeNotReady)?
+                    .authorized_peers()
+                    .map_err(Self::gateway_error)?;
+                Ok(json!({"runtime":runtime.id.as_str(), "view":view}))
+            }
             "peer_status" => {
                 fields(args, &["runtime", "peer"])?;
                 let peer = text(args, "peer")?.to_string();

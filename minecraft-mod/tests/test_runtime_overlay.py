@@ -35,6 +35,8 @@ class RuntimeOverlayTests(unittest.TestCase):
             self.assertIn(".with_udp_owner(self.udp_transport_publication.subscribe())", runtime)
             self.assertIn("with_application_port", (destination / "src/lib/daemon/dataplane_tasks.rs").read_text())
             self.assertIn("fence.is_current()", (destination / "src/rooms.rs").read_text())
+            self.assertIn('mod mc_roster;', (destination / "src/rooms.rs").read_text())
+            self.assertIn('.try_lock()', (destination / "src/mc_roster.rs").read_text())
             self.assertIn("deliver_inbound(&packet", (destination / "src/dataplane/core.rs").read_text())
             inbound = (destination / "src/transport/inbound.rs").read_text()
             self.assertLess(inbound.index("port.authorize_inbound(inbound, generation)"),

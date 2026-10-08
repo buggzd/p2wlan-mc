@@ -85,6 +85,12 @@ Each gateway permits one in-flight query and one response, with a fresh 128-bit 
 
 The Agent keeps driving existing TCP flows during its discovery wait. A discovered entry is selection metadata, not live availability or a new authorization grant. Creating a join proxy reacquires the original daemon's peer authorization and still requires the exact remote service identity; stale entries cannot bypass the world-selection handshake. The complete Control/daemon traffic fixture queries the real encrypted catalog and verifies it changes on hosted-world replacement before attempting stale selection.
 
+## Authorized room-member selection
+
+`room_peers` accepts exactly `runtime` and returns that runtime plus `view` containing a decimal-string `network_generation` and a sorted `peers` array. This is a request-time projection of the original daemon's leased room authorization, not a second roster or online-state owner. It includes authorized offline members; membership alone does not prove discovery, connection or game readiness. Discovery and proxy registration separately acquire and validate the original peer grants.
+
+The projection contains at most 128 peer IDs, each at most 256 UTF-8 bytes and without control characters. An oversized roster fails completely with `ROOM_PEER_CAPACITY`; invalid IDs fail with `ROOM_PEER_INVALID`. A contended room owner, revoked/expired authorization, changed network, stopped runtime or revoked gateway scope fails explicitly. No background enumeration, partial result, independent roster cache or network wait is introduced. Local node IDs, device names, endpoints, account data, virtual addresses and credentials are not returned by this operation. Runtime-port tests exercise the real room owner, capacity, ordering, expiry, revocation and lifetime fences; subprocess tests also verify IPC argument/runtime rejection.
+
 ## Java world guard
 
 `WorldGuard` owns one immutable world identity and capability-protected loopback endpoint. A single nonblocking selector thread forwards at most 32 accepted connections, with two 8 KiB buffers per connection. The guard reads exactly the 40-byte capability prelude, connects only to a validated loopback game target, and sends a one-byte readiness acknowledgement only after that target connects. Handshake/target readiness has a two-second total deadline; stream-byte inactivity is bounded to 120 seconds. Partial writes retain their buffers and TCP half-close is preserved.

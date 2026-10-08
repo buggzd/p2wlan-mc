@@ -15,7 +15,9 @@ use crate::Config;
 
 #[path = "mc_view.rs"]
 mod view;
-pub use view::{MtuView, PeerView};
+pub use view::{AuthorizedPeers, MtuView, PeerView};
+
+pub const MAX_ROOM_PEERS: usize = 128;
 
 pub const MAX_SCOPES: usize = 4;
 pub const ADMISSION_TIMEOUT: Duration = Duration::from_millis(100);
@@ -69,6 +71,10 @@ pub enum AdmissionError {
     SessionChanged,
     #[error("LOCAL_MTU_FEEDBACK_UNSUPPORTED")]
     UnsupportedLocalFeedback,
+    #[error("ROOM_PEER_CAPACITY")]
+    RosterCapacity,
+    #[error("ROOM_PEER_INVALID")]
+    RosterInvalid,
     #[error("SESSION_CONTENDED")]
     Contended,
 }
@@ -100,6 +106,8 @@ impl AdmissionError {
         Self::SessionMissing,
         Self::SessionChanged,
         Self::UnsupportedLocalFeedback,
+        Self::RosterCapacity,
+        Self::RosterInvalid,
         Self::Contended,
     ];
     pub fn code(self) -> &'static str {
@@ -127,6 +135,8 @@ impl AdmissionError {
             Self::SessionMissing => "SESSION_MISSING",
             Self::SessionChanged => "SESSION_CHANGED",
             Self::UnsupportedLocalFeedback => "LOCAL_MTU_FEEDBACK_UNSUPPORTED",
+            Self::RosterCapacity => "ROOM_PEER_CAPACITY",
+            Self::RosterInvalid => "ROOM_PEER_INVALID",
             Self::Contended => "SESSION_CONTENDED",
         }
     }

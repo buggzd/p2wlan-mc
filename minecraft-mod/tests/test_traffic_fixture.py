@@ -85,6 +85,9 @@ class TrafficFixtureTests(unittest.IsolatedAsyncioTestCase):
                     return await super().request(operation, arguments, error)
                 if operation == "status":
                     return {"peer_id": "client-peer", "admission_drops": {}}
+                if operation == "room_peers":
+                    peer = "client-peer" if arguments["runtime"] == "r0" else "host-peer"
+                    return arguments | {"view": {"network_generation": "1", "peers": [peer]}}
                 if operation == "host":
                     return {"registration": "host", "port": 1024, "service": "00" * 32}
                 if operation == "close_registration":
