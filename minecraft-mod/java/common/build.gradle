@@ -110,3 +110,14 @@ tasks.register('networkCatalogTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.common.NetworkCatalogTests'
 }
 check.dependsOn networkCatalogTest
+
+tasks.register('joinProxyTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.JoinProxyTests'
+    def probe = providers.gradleProperty('agentProbe')
+    if (probe.isPresent()) args(probe.get())
+    doFirst {
+        if (!probe.isPresent()) throw new GradleException('Run minecraft-mod/tools/java.py interop')
+    }
+}

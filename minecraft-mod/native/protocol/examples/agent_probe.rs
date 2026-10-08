@@ -35,7 +35,8 @@ async fn run() -> Result<(), ProtocolError> {
         return Ok(());
     }
     let runtime = "c".repeat(32);
-    let world_mode = mode.starts_with("world");
+    let world_mode = mode.starts_with("world") || mode.starts_with("join");
+    let mut joined = 0_u32;
     let mut hosted = 0_u32;
     let mut closed = 0_u32;
     if world_mode {
@@ -74,6 +75,15 @@ async fn run() -> Result<(), ProtocolError> {
         let mut response = json!({"version":1,"owner":owner,"id":request["id"],"ok":true,"result":request["args"]});
         if world_mode {
             match request["op"].as_str() {
+                Some("proxy") => {
+                    joined += 1;
+                    if mode == "join_late" {
+                        writer.write(&json!({"version":1,"owner":owner,"event":"status","revision":2,"data":{"phase":"ready","runtime":runtime,"proxy_received":true}})).await?;
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                    }
+                    response["result"] = json!({"registration":"0000000000000001", "world":request["args"]["world"], "port":4242,
+                        "key":if mode == "join_bad" {"invalid".into()} else {"d".repeat(64)}});
+                }
                 Some("host") => {
                     hosted += 1;
                     if mode == "world_late" {
@@ -85,9 +95,17 @@ async fn run() -> Result<(), ProtocolError> {
                 }
                 Some("close_registration") => {
                     closed += 1;
-                    response["result"] = json!({"closed":true});
+                    response["result"] = json!({"closed":mode != "join_close_bad"});
+                    if mode == "join_replace" || mode == "world_replace" {
+                        writer.write(&json!({"version":1,"owner":owner,"event":"status","revision":2,"data":{"phase":"ready","runtime":"f".repeat(32)}})).await?;
+                        response.as_object_mut().map(|value| value.remove("result"));
+                        response["ok"] = Value::Bool(false);
+                        response["error"] = json!("RUNTIME_CHANGED");
+                    }
                 }
-                Some("inspect") => response["result"] = json!({"hosted":hosted,"closed":closed}),
+                Some("inspect") => {
+                    response["result"] = json!({"hosted":hosted,"joined":joined,"closed":closed})
+                }
                 _ => {}
             }
         }

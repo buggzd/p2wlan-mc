@@ -110,7 +110,10 @@ public final class WorldHost implements AutoCloseable {
                     AgentReply closed = request("close_registration", args, () -> runtime.isCurrent(client));
                     if (!client.isCurrent(closed) || !closed.data().equals(closedReply())) throw new WorldHostException(WorldHostException.Code.CLEANUP_FAILED);
                 }
-            } catch (Exception error) { client.close(); failure = error; }
+            } catch (Exception error) {
+                if (!RuntimeView.staleCleanup(error)) client.close();
+                failure = error;
+            }
             boolean cleaned = true;
             try { if (guard != null) guard.close(); }
             catch (Exception error) { cleaned = false; failure = error; }

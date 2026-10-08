@@ -92,6 +92,13 @@ public final class WorldHostTests {
                 JsonObject counts = client.request("inspect", new JsonObject()).get(3, TimeUnit.SECONDS).data();
                 check(counts.get("hosted").getAsInt() == 1 && counts.get("closed").getAsInt() == 1);
             }
+            try (AgentClient client = agent(probe, "world_replace")) {
+                WorldHost host = WorldHost.start(client, RuntimeView.ready(client).orElseThrow(), () -> true, fence -> new Target(address, fence, null));
+                host.ready().get(3, TimeUnit.SECONDS); host.revoke();
+                check(failed(host.released()) instanceof AgentException error && "RUNTIME_CHANGED".equals(error.remoteCode()));
+                check(!client.isClosed() && RuntimeView.ready(client).orElseThrow().runtime().equals("f".repeat(32)));
+                host.revoke(); client.request("ping", new JsonObject()).get(3, TimeUnit.SECONDS); check(!client.isClosed());
+            }
             try (AgentClient client = agent(probe, "world_bad")) {
                 WorldHost host = WorldHost.start(client, RuntimeView.ready(client).orElseThrow(), () -> true, fence -> new Target(address, fence, null));
                 check(failed(host.ready()) instanceof WorldHostException error && error.code() == WorldHostException.Code.INVALID_REPLY);

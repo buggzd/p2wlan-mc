@@ -93,6 +93,12 @@ The projection contains at most 128 peer IDs, each at most 256 UTF-8 bytes and w
 
 The common Java `RoomPeers` and `ServiceCatalog` parsers retain the native reply owner and exact runtime selection. They enforce complete field sets, unsigned 64-bit generation strings, bounded valid peer IDs, native UTF-8 ordering, at most eight sorted unique service ports/identities, and immutable lists. These are selection snapshots, not permission, online state or continuously updated caches; callers must recheck process/runtime identity on the destination thread before using them. Synthetic Java catalog tests do not establish live discovery or game compatibility.
 
+## Java join-registration lifetime
+
+`JoinProxy` owns one game-join intent and its exact native `proxy` registration. It retains the selected process/runtime, peer, virtual port and remote service identity; native admission still acquires the original authorization. One JVM slot and one daemon worker are allowed, with no work queue or mutation replay. Native requests have a five-second deadline; parent/runtime revocation is checked every 100 ms. Cleanup uses the exact registration and fresh local attempt identity. Uncertain cleanup closes/reaps the captured helper; a known unsent or runtime-replaced cleanup cannot terminate the replacement runtime. Capacity is released only after known cleanup or actual child reaping.
+
+`ready()` yields a validated, redacted loopback capability only. It does **not** prove a remote server, Minecraft login, byte delivery or an active world. The caller must revalidate `isCurrent()` before opening a connection or releasing game bytes, and revoke the owner on cancellation/disconnect. Actual subprocess fixtures test capacity, late registration after cancellation, parent/process exit, malformed replies, cleanup failure and runtime replacement. They are not Minecraft or live proxy acceptance tests.
+
 ## Java world guard
 
 `WorldGuard` owns one immutable world identity and capability-protected loopback endpoint. A single nonblocking selector thread forwards at most 32 accepted connections, with two 8 KiB buffers per connection. The guard reads exactly the 40-byte capability prelude, connects only to a validated loopback game target, and sends a one-byte readiness acknowledgement only after that target connects. Handshake/target readiness has a two-second total deadline; stream-byte inactivity is bounded to 120 seconds. Partial writes retain their buffers and TCP half-close is preserved.
