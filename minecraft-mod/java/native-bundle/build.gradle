@@ -1,0 +1,15 @@
+plugins { id 'java-library' }
+
+// The tracked entry point produces host-specific resources, never downloads an
+// executable. No successful empty jar is allowed when packaging has not run.
+sourceSets.main.resources.srcDir layout.buildDirectory.dir('generatedResources')
+tasks.named('jar') {
+    doFirst {
+        def manifests = fileTree(layout.buildDirectory.dir('generatedResources')) {
+            include 'p2wlan/native/*/manifest.properties'
+        }
+        if (manifests.isEmpty()) {
+            throw new GradleException('Run minecraft-mod/tools/native_bundle.py before packaging')
+        }
+    }
+}

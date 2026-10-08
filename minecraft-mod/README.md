@@ -168,3 +168,15 @@ python3 minecraft-mod/tools/control_smoke.py --control minecraft-mod/native/targ
 ```
 
 The fixture uses isolated loopback Control/database state, excludes inherited Control/Relay credentials and ambient proxy settings, discards child logs, generates disposable fixture credentials, enforces readiness/exit deadlines and removes temporary files. Required executables must exist; missing inputs fail rather than skipping integration checks.
+
+## Native resource package
+
+A native resource package is built for the current POSIX host, not downloaded at runtime. From the repository root:
+
+```sh
+python3 minecraft-mod/tools/native_bundle.py --offline
+```
+
+Release packaging requires a clean checkout. For an explicitly labelled development package, add `--development`. The producer selects Cargo's reported release artifact, runs its bounded `--build-info` command and checks its exact protocol, version, source commit, native-input digest and compiled platform before publication. The manifest binds those fields to the executable's SHA-256 and size; the copied resource bytes are checked again. A concurrent source change, ambiguous artifact or failed verification aborts packaging.
+
+Generated executable resources remain under the ignored `java/native-bundle/build/` directory. The Java resource subproject refuses to build an empty resource jar. The currently recognised packaging targets are macOS/Linux on aarch64/x86_64; target recognition is not evidence of device verification or an installable Minecraft Mod. Windows is not a packaging target while private-profile ACL support is absent.

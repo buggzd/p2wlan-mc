@@ -6,3 +6,5 @@ pluginManagement {
 }
 rootProject.name = 'p2wlan-minecraft'
 include 'common'
+
+include 'native-bundle'
