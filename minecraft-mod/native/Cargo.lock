@@ -1346,6 +1346,7 @@ dependencies = [
 name = "p2wlan-mc-gateway"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.2.17",
  "hex",
  "p2pnet-crypto",
  "p2pnet-tun",
@@ -1355,6 +1356,7 @@ dependencies = [
  "p2wlan-mc-runtime-port",
  "smoltcp",
  "socket2",
+ "subtle",
  "thiserror",
  "tokio",
 ]

@@ -1,68 +1,19 @@
 //! Actual local socket -> scoped bridge -> user-space TCP -> original encrypted
 //! UDP -> scoped bridge -> local socket, with bidirectional transfer and EOF.
 #[allow(dead_code)]
-#[path = "../../runtime-port/tests/authorized/support.rs"]
+#[path = "common/mod.rs"]
 mod support;
-use p2pnet_daemon::dataplane::OutboundPacket;
-use p2pnet_daemon::transport::WireGuardTransport;
 use p2pnet_daemon::udp::UdpTransport;
 use p2wlan_mc_bridge::TcpStack;
 use p2wlan_mc_gateway::{ConnectionBridge, GatewayError};
 use p2wlan_mc_runtime_port::{AdmissionError, FencedPacketEndpoint, ScopeOwner};
 use std::net::SocketAddrV4;
 use std::time::{Duration, Instant};
+use support::{network, sockets};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 
-async fn send(
-    transport: WireGuardTransport,
-    mut packets: mpsc::Receiver<OutboundPacket>,
-    udp: UdpTransport,
-    target: std::net::SocketAddr,
-) {
-    while let Some(packet) = packets.recv().await {
-        let encrypted = transport.encrypt_outbound(packet).await.unwrap().unwrap();
-        udp.send_packet_to(&encrypted, target).await.unwrap();
-    }
-}
-async fn network(
-    local: &support::Rig,
-    plane: &mut support::Plane,
-    udp: UdpTransport,
-    remote: std::net::SocketAddr,
-    tasks: &mut JoinSet<()>,
-) {
-    let (sender, receiver) = mpsc::channel(128);
-    let transport = local.transport.clone();
-    let inbound = plane.inbound.clone();
-    let peers = local.peers.clone();
-    let gate = plane.gate.clone();
-    let socket = udp.clone();
-    tasks.spawn(async move {
-        socket.run_inbound(sender).await.unwrap();
-    });
-    let socket = udp.clone();
-    tasks.spawn(async move {
-        transport
-            .run_inbound_with_application_port(receiver, inbound, peers, socket, gate)
-            .await
-            .unwrap();
-    });
-    let (_, placeholder) = mpsc::channel(1);
-    let packets = std::mem::replace(&mut plane.outbound, placeholder);
-    tasks.spawn(send(local.transport.clone(), packets, udp, remote));
-}
-async fn sockets() -> (TcpStream, TcpStream) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let left = TcpStream::connect(listener.local_addr().unwrap())
-        .await
-        .unwrap();
-    let (right, _) = listener.accept().await.unwrap();
-    (left, right)
-}
 async fn drive(
     stack: &mut TcpStack,
     bridge: &mut ConnectionBridge,
@@ -70,7 +21,7 @@ async fn drive(
     elapsed: Duration,
 ) {
     while let Some(packet) = endpoint.try_recv().unwrap() {
-        bridge.receive_packet(stack, packet, elapsed).unwrap();
+        bridge.receive_packet(stack, &packet, elapsed).unwrap();
     }
     bridge.step(stack).unwrap();
     stack.poll(elapsed);

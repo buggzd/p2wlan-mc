@@ -11,6 +11,8 @@ smoltcp.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 socket2 = "=0.6.5"
+getrandom = "=0.2.17"
+subtle = "2"
 
 [dev-dependencies]
 p2wlan-mc-runtime = { path = "../target/upstream-runtime" }

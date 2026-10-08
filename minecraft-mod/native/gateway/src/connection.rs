@@ -64,6 +64,9 @@ impl ConnectionBridge {
             last_progress: Instant::now(),
         })
     }
+    pub(crate) fn has_local(&self) -> bool {
+        self.socket.is_some()
+    }
     pub fn grant(&self) -> &PeerGrant {
         &self.grant
     }
@@ -87,12 +90,12 @@ impl ConnectionBridge {
     pub fn receive_packet(
         &mut self,
         stack: &mut TcpStack,
-        packet: FencedPacket,
+        packet: &FencedPacket,
         elapsed: Duration,
     ) -> Result<RangeAdmission, GatewayError> {
         let permit = packet.permit().bind_received_connection(&self.grant)?;
-        let bytes = packet.into_bytes()?;
-        let frame = TcpFrame::parse(&bytes)?;
+        let bytes = packet.checked_bytes()?;
+        let frame = TcpFrame::parse(bytes)?;
         if stack.local(self.id)? != Some(self.local_endpoint)
             || frame.destination != self.local_endpoint
             || *frame.source.ip() != self.grant.address()
@@ -111,7 +114,7 @@ impl ConnectionBridge {
         if result == RangeAdmission::OutsideWindow {
             return Ok(result);
         }
-        stack.ingest(bytes)?;
+        stack.ingest(bytes.to_vec())?;
         stack.poll(elapsed);
         if self.receive.is_none()
             && frame.syn

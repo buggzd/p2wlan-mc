@@ -255,6 +255,14 @@ impl TcpStack {
         Ok(())
     }
 
+    /// Cancel this endpoint's entire socket/packet lifetime without reusing IDs.
+    pub fn clear(&mut self) {
+        for (_, handle) in self.connections.drain() {
+            self.sockets.remove(handle);
+        }
+        self.device.clear();
+    }
+
     pub fn ingest(&mut self, packet: Vec<u8>) -> Result<(), PacketError> {
         self.device.ingest(packet)
     }

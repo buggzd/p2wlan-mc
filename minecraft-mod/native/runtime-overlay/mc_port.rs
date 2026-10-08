@@ -28,6 +28,11 @@ impl FencedPacket {
     pub fn validate(&self) -> Result<(), AdmissionError> {
         self.permit.validate()
     }
+    /// Borrowing retains the original envelope on contention/backpressure.
+    pub fn checked_bytes(&self) -> Result<&[u8], AdmissionError> {
+        self.validate()?;
+        Ok(&self.bytes)
+    }
     pub fn into_bytes(self) -> Result<Vec<u8>, AdmissionError> {
         self.validate()?;
         Ok(self.bytes)
@@ -36,6 +41,7 @@ impl FencedPacket {
 
 pub struct FencedPacketEndpoint {
     incoming: mpsc::Receiver<FencedPacket>,
+    pending_receive: Option<(FencedPacket, std::time::Instant)>,
     outgoing: mpsc::Sender<FencedPacket>,
     authority: ApplicationAuthority,
     gate: Arc<PacketGate>,
@@ -54,14 +60,34 @@ impl FencedPacketEndpoint {
         if !self.gate.is_up() {
             return Err(AdmissionError::PortClosed);
         }
-        match self.incoming.try_recv() {
-            Ok(packet) => {
-                self.authority.validate_grant(packet.permit.grant())?;
-                packet.validate()?;
-                Ok(Some(packet))
+        let (packet, started) = match self.pending_receive.take() {
+            Some(pending) => pending,
+            None => match self.incoming.try_recv() {
+                Ok(packet) => (packet, std::time::Instant::now()),
+                Err(mpsc::error::TryRecvError::Empty) => return Ok(None),
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    return Err(AdmissionError::PortClosed)
+                }
+            },
+        };
+        if started.elapsed() >= Duration::from_millis(250) {
+            self.gate.record_drop(AdmissionError::Timeout);
+            return Err(AdmissionError::Timeout);
+        }
+        let result = self
+            .authority
+            .validate_grant(packet.permit.grant())
+            .and_then(|()| packet.validate());
+        match result {
+            Ok(()) => Ok(Some(packet)),
+            Err(AdmissionError::Contended) => {
+                self.pending_receive = Some((packet, started));
+                Err(AdmissionError::Contended)
             }
-            Err(mpsc::error::TryRecvError::Empty) => Ok(None),
-            Err(mpsc::error::TryRecvError::Disconnected) => Err(AdmissionError::PortClosed),
+            Err(reason) => {
+                self.gate.record_drop(reason);
+                Err(reason)
+            }
         }
     }
     pub fn make_packet(
@@ -144,6 +170,7 @@ impl PacketGate {
         });
         let endpoint = FencedPacketEndpoint {
             incoming: stack_read,
+            pending_receive: None,
             outgoing: to_core,
             authority,
             gate: gate.clone(),

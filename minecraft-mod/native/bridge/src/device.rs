@@ -39,6 +39,11 @@ impl PacketDevice {
         Ok(())
     }
 
+    pub(crate) fn clear(&mut self) {
+        self.incoming.clear();
+        self.outgoing.clear();
+    }
+
     pub(crate) fn pop_outgoing(&mut self) -> Option<Vec<u8>> {
         self.outgoing.pop_front()
     }

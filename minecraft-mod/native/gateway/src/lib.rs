@@ -2,12 +2,18 @@
 #![forbid(unsafe_code)]
 mod bytes;
 mod connection;
+mod local;
+mod owner;
 mod receive;
+mod registry;
 mod wire;
 
 pub use bytes::ReceivedBytes;
 pub use connection::{BridgeProgress, ConnectionBridge, BRIDGE_IDLE_TIMEOUT};
+pub use local::{LocalKey, LocalTarget, LOCAL_HANDSHAKE_TIMEOUT, LOCAL_PRELUDE_BYTES};
+pub use owner::{GatewayFailure, GatewayStatus, TcpGateway, PACKET_WAIT_TIMEOUT};
 pub use receive::{RangeAdmission, ReceiveWindow, MAX_RECEIVE_SPANS};
+pub use registry::{HostedService, JoinProxy, RegistrationId, MAX_REGISTRATIONS};
 pub use wire::TcpFrame;
 
 pub const CHUNK_BYTES: usize = 8 * 1024;
@@ -21,6 +27,18 @@ pub enum GatewayError {
     Stack(#[from] p2wlan_mc_bridge::StackError),
     #[error(transparent)]
     Packet(#[from] p2wlan_mc_bridge::PacketError),
+    #[error("GATEWAY_ENTROPY_UNAVAILABLE")]
+    Entropy,
+    #[error("GATEWAY_LOCAL_TIMEOUT")]
+    LocalTimeout,
+    #[error("GATEWAY_LOCAL_KEY_MISMATCH")]
+    LocalKeyMismatch,
+    #[error("GATEWAY_IDENTITY_EXHAUSTED")]
+    IdentityExhausted,
+    #[error("GATEWAY_STALE_REGISTRATION")]
+    StaleRegistration,
+    #[error("GATEWAY_TASK_FAILED")]
+    TaskFailed,
     #[error("GATEWAY_WRONG_TARGET")]
     WrongTarget,
     #[error("GATEWAY_IDLE_TIMEOUT")]
