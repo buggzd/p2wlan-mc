@@ -157,10 +157,12 @@ impl VirtualInterface for PacketInterface {
     async fn write(&mut self, buffer: &[u8]) -> TunResult<usize> {
         match &mut self.backend {
             Backend::System(device) => device.write(buffer).await,
-            Backend::Authorized { gate, .. } => gate
-                .deliver_feedback(buffer)
-                .await
-                .map_err(|_| Error::SendBufferFull),
+            Backend::Authorized { gate, .. } => {
+                // Business receive uses the authenticated original envelope in
+                // deliver_inbound, never a generic raw-IP interface write.
+                gate.record_drop(AdmissionError::UnsupportedLocalFeedback);
+                Err(Error::SendBufferFull)
+            }
             Backend::Userspace { outgoing, .. } => {
                 if buffer.len() > PACKET_MTU {
                     return Err(Error::PacketTooShort(PACKET_MTU, buffer.len()));

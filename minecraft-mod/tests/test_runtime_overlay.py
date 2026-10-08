@@ -40,6 +40,8 @@ class RuntimeOverlayTests(unittest.TestCase):
                             inbound.index("let decrypt_completed ="))
             self.assertIn("port.queue_inbound(&inbound_tx, inbound)", inbound)
             self.assertIn("mc_application_permit", (destination / "src/transport/sessions/decryption.rs").read_text())
+            self.assertIn("AdmissionError::UnsupportedLocalFeedback", (destination / "src/dataplane/core.rs").read_text())
+            self.assertNotIn("deliver_feedback", (destination / "src/mc_port.rs").read_text())
             metadata = json.loads((destination / "UPSTREAM.json").read_text())
             for name, digest in metadata["adapters_sha256"].items():
                 self.assertEqual(digest, hashlib.sha256((PROJECT / "native/runtime-overlay" / name).read_bytes()).hexdigest())
@@ -62,6 +64,18 @@ class RuntimeOverlayTests(unittest.TestCase):
                 with self.subTest(path=path, kind=len(invalid)):
                     with self.assertRaises(overlay.ContractError):
                         transform(invalid)
+
+    def test_original_control_families_are_classified_before_business_admission(self):
+        from runtime_fencing import adapt_inbound
+        source = (ROOT / "client/daemon/src/transport/inbound.rs").read_text()
+        adapted = adapt_inbound(source)
+        capture = adapted[adapted.index("let control = is_rekey_confirmation_packet"):adapted.index("let decrypt_completed =")]
+        for parser in ("parse_direct_validation_token", "dplpmtud::parse_control_packet", "relay_probe::parse_relay_probe_token", "path_commit::parse_path_commit_token"):
+            self.assertIn(parser, capture)
+        self.assertIn("if !control && p2pnet_tun::IpPacket::new", capture)
+        for changed in (source.replace("|| path_commit.is_some()", "|| new_control.is_some()"), source.replace("|| dplpmtud.is_some()", "")):
+            with self.assertRaises(overlay.ContractError):
+                adapt_inbound(changed)
 
     def test_identical_preparation_preserves_all_generated_file_timestamps(self):
         with tempfile.TemporaryDirectory() as directory:

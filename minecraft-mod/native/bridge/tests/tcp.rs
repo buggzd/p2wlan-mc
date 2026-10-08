@@ -218,3 +218,51 @@ fn listener_endpoint_and_cross_stack_connection_identity_are_exact() {
     assert_eq!(right.local(a), Err(StackError::StaleConnection));
     assert_eq!(left.remote(a).unwrap(), None);
 }
+
+#[test]
+fn transmit_ceiling_bounds_real_tcp_segments_without_reducing_receive_capacity() {
+    for invalid in [0, 575, 1281] {
+        assert!(matches!(
+            TcpStack::with_transmit_mtu(Ipv4Addr::new(10, 221, 0, 1), 1, invalid),
+            Err(StackError::InvalidEndpoint)
+        ));
+    }
+    let mut client = TcpStack::with_transmit_mtu(Ipv4Addr::new(10, 221, 0, 1), 1, 1168).unwrap();
+    let mut host = TcpStack::with_transmit_mtu(Ipv4Addr::new(10, 221, 0, 2), 2, 1168).unwrap();
+    let listener = host.listen(25565).unwrap();
+    let connection = client
+        .connect(SocketAddrV4::new(host.address(), 25565))
+        .unwrap();
+    let payload = vec![0xa5; 32768];
+    let mut sent = 0;
+    let mut received = Vec::new();
+    for tick in 0..2000 {
+        let now = Duration::from_millis(tick * 5);
+        client.poll(now);
+        host.poll(now);
+        fn bounded_transfer(from: &mut TcpStack, to: &mut TcpStack) {
+            while let Some(packet) = from.take_packet() {
+                assert!(packet.len() <= 1168);
+                to.ingest(packet).unwrap();
+            }
+        }
+        bounded_transfer(&mut client, &mut host);
+        bounded_transfer(&mut host, &mut client);
+        match client.write(connection, &payload[sent..]) {
+            Ok(count) => sent += count,
+            Err(StackError::WouldBlock) => {}
+            error => panic!("unexpected write {error:?}"),
+        }
+        let mut buffer = [0; 8192];
+        match host.read(listener, &mut buffer).unwrap() {
+            ReadResult::Data(count) => received.extend_from_slice(&buffer[..count]),
+            ReadResult::WouldBlock => {}
+            ReadResult::Eof => panic!("unexpected EOF"),
+        }
+        if received.len() == payload.len() {
+            assert_eq!(received, payload);
+            return;
+        }
+    }
+    panic!("bounded packetization did not complete the TCP stream");
+}

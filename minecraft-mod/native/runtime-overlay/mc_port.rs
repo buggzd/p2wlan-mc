@@ -314,38 +314,6 @@ impl PacketGate {
         });
         Ok(bytes.len())
     }
-    /// Only trusted local PMTU feedback may use the generic interface write.
-    /// Quoted original destination identifies the affected authorized peer.
-    pub(super) async fn deliver_feedback(&self, bytes: &[u8]) -> Result<usize, AdmissionError> {
-        check_packet(bytes)?;
-        let header = (bytes[0] as usize & 15) * 4;
-        if bytes[9] != 1 || bytes.get(header..header + 2) != Some(&[3, 4]) {
-            return Err(AdmissionError::InvalidPacket);
-        }
-        let quoted = bytes
-            .get(header + 8..)
-            .ok_or(AdmissionError::InvalidPacket)?;
-        let quoted = IpPacket::new(quoted).map_err(|_| AdmissionError::InvalidPacket)?;
-        let ip = quoted
-            .dst_addr_string()
-            .parse::<Ipv4Addr>()
-            .map_err(|_| AdmissionError::InvalidPacket)?;
-        let grant = self
-            .authority
-            .grant_for_ip(ip, self.lifetime.clone())
-            .await?;
-        let permit = grant.frame_permit()?;
-        let slot = timeout(Duration::from_millis(250), self.to_stack.reserve())
-            .await
-            .map_err(|_| AdmissionError::Timeout)?
-            .map_err(|_| AdmissionError::PortClosed)?;
-        permit.validate()?;
-        slot.send(FencedPacket {
-            bytes: bytes.to_vec(),
-            permit,
-        });
-        Ok(bytes.len())
-    }
 }
 
 fn check_packet(bytes: &[u8]) -> Result<(), AdmissionError> {

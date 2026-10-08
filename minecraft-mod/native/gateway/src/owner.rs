@@ -45,6 +45,26 @@ pub enum GatewayFailure {
     StaleRegistration,
 }
 impl GatewayFailure {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Admission(reason) => reason.code(),
+            Self::Capacity => "GATEWAY_CAPACITY",
+            Self::WrongTarget => "GATEWAY_WRONG_TARGET",
+            Self::InvalidPacket => "GATEWAY_INVALID_PACKET",
+            Self::LocalKeyMismatch => "GATEWAY_LOCAL_KEY_MISMATCH",
+            Self::LocalTimeout => "GATEWAY_LOCAL_TIMEOUT",
+            Self::PacketDeadline => "GATEWAY_PACKET_DEADLINE",
+            Self::ConnectionClosed => "GATEWAY_CONNECTION_CLOSED",
+            Self::TaskFailed => "GATEWAY_TASK_FAILED",
+            Self::Io => "GATEWAY_IO",
+            Self::ReceiveAdmissionMissing => "GATEWAY_RECEIVE_ADMISSION_MISSING",
+            Self::ReceiveAdmissionPoisoned => "GATEWAY_RECEIVE_ADMISSION_POISONED",
+            Self::WouldBlock => "GATEWAY_WOULD_BLOCK",
+            Self::EntropyUnavailable => "GATEWAY_ENTROPY_UNAVAILABLE",
+            Self::IdentityExhausted => "GATEWAY_IDENTITY_EXHAUSTED",
+            Self::StaleRegistration => "GATEWAY_STALE_REGISTRATION",
+        }
+    }
     fn from_error(error: &GatewayError) -> Self {
         match error {
             GatewayError::Admission(reason) => Self::Admission(*reason),
@@ -88,6 +108,7 @@ pub struct GatewayStatus {
     pub local_handshakes: usize,
     pub queued_frames: usize,
     pub failures: u64,
+    pub unsupported_local_feedback: u64,
     pub last_failure: Option<GatewayFailure>,
 }
 
@@ -133,7 +154,14 @@ impl TcpGateway {
             return Err(AdmissionError::RuntimeClosed.into());
         }
         let generation = endpoint.authority().network_generation();
-        let stack = TcpStack::new(endpoint.authority().address(), seed)?;
+        let stack = TcpStack::with_transmit_mtu(
+            endpoint.authority().address(),
+            seed,
+            endpoint
+                .authority()
+                .conservative_packet_budget()
+                .min(p2wlan_mc_bridge::PACKET_MTU),
+        )?;
         Ok(Self {
             endpoint,
             stack,
@@ -155,6 +183,10 @@ impl TcpGateway {
     pub fn contains_registration(&self, id: RegistrationId) -> bool {
         !self.closed && self.lifetime.is_live() && self.registrations.contains_key(&id)
     }
+    pub fn local_peer_id(&self) -> Result<&str, GatewayError> {
+        self.check_current()?;
+        Ok(self.endpoint.authority().local_peer_id())
+    }
     pub fn status(&self) -> GatewayStatus {
         GatewayStatus {
             closed: self.closed || !self.lifetime.is_live(),
@@ -165,6 +197,9 @@ impl TcpGateway {
             local_handshakes: self.local.len(),
             queued_frames: self.outgoing.len(),
             failures: self.failures,
+            unsupported_local_feedback: self
+                .endpoint
+                .drops_by_reason(AdmissionError::UnsupportedLocalFeedback),
             last_failure: self.last_failure,
         }
     }

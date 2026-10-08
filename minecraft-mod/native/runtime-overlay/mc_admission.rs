@@ -63,8 +63,41 @@ pub enum AdmissionError {
     SessionMissing,
     #[error("SESSION_CHANGED")]
     SessionChanged,
+    #[error("LOCAL_MTU_FEEDBACK_UNSUPPORTED")]
+    UnsupportedLocalFeedback,
     #[error("SESSION_CONTENDED")]
     Contended,
+}
+
+impl AdmissionError {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::RoomRequired => "ROOM_REQUIRED",
+            Self::RuntimeClosed => "RUNTIME_CLOSED",
+            Self::ScopeClosed => "SCOPE_CLOSED",
+            Self::ScopeCapacity => "SCOPE_CAPACITY",
+            Self::NetworkChanged => "NETWORK_CHANGED",
+            Self::PeerChanged => "PEER_CHANGED",
+            Self::RoomRevoked => "ROOM_REVOKED",
+            Self::RoomSnapshotChanged => "ROOM_SNAPSHOT_CHANGED",
+            Self::RoomLeaseExpired => "ROOM_LEASE_EXPIRED",
+            Self::UnknownPeer => "UNKNOWN_PEER",
+            Self::AddressMismatch => "ADDRESS_MISMATCH",
+            Self::InvalidPacket => "INVALID_PACKET",
+            Self::PacketTooLarge => "PACKET_TOO_LARGE",
+            Self::QueueFull => "QUEUE_FULL",
+            Self::PortClosed => "PORT_CLOSED",
+            Self::PortMismatch => "PORT_MISMATCH",
+            Self::AlreadyAdmitted => "ALREADY_ADMITTED",
+            Self::AuthorityMismatch => "AUTHORITY_MISMATCH",
+            Self::ContextMissing => "PORT_CONTEXT_MISSING",
+            Self::Timeout => "ADMISSION_TIMEOUT",
+            Self::SessionMissing => "SESSION_MISSING",
+            Self::SessionChanged => "SESSION_CHANGED",
+            Self::UnsupportedLocalFeedback => "LOCAL_MTU_FEEDBACK_UNSUPPORTED",
+            Self::Contended => "SESSION_CONTENDED",
+        }
+    }
 }
 
 /// One non-cloneable gateway/world/connection lifetime owner. Snapshots below
@@ -119,9 +152,23 @@ pub struct ApplicationAuthority {
     transport: WireGuardTransport,
     shutdown: watch::Receiver<bool>,
     local_ip: Ipv4Addr,
+    local_peer_id: String,
 }
 
 impl ApplicationAuthority {
+    /// Authenticated startup identity from the resolved original daemon config.
+    /// Not the pre-registration node identifier retained in a profile file.
+    /// Conservative encrypted plaintext baseline from the original DPLPMTUD
+    /// protocol constants. The interface's 1280-byte receive cap is not a safe
+    /// Direct plaintext transmit size: Noise framing consumes UDP budget too.
+    pub fn conservative_packet_budget(&self) -> usize {
+        (crate::dplpmtud::DPLPMTUD_BASE_UDP_DATAGRAM_SIZE
+            - crate::dplpmtud::WIREGUARD_UDP_DATAGRAM_OVERHEAD) as usize
+    }
+    pub fn local_peer_id(&self) -> &str {
+        &self.local_peer_id
+    }
+
     pub fn new(
         config: &Config,
         peers: Arc<PeerManager>,
@@ -144,6 +191,7 @@ impl ApplicationAuthority {
             transport,
             shutdown,
             local_ip,
+            local_peer_id: config.node.node_id.clone(),
         })
     }
     pub fn address(&self) -> Ipv4Addr {

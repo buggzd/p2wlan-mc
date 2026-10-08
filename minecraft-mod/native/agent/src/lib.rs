@@ -6,7 +6,7 @@ mod profile;
 mod request;
 mod runtime;
 use account::AccountApi;
-use p2wlan_mc_gateway::{LocalKey, LocalTarget, RegistrationId};
+use p2wlan_mc_gateway::{GatewayError, LocalKey, LocalTarget, RegistrationId};
 use p2wlan_mc_protocol::{FrameReader, FrameWriter};
 use p2wlan_mc_runtime_port::{Config, ScopeOwner, ScopeToken};
 use profile::Profile;
@@ -52,6 +52,7 @@ pub enum AgentError {
     StartupTimeout,
     StopTimeout,
     HeartbeatTimeout,
+    Admission(p2wlan_mc_runtime_port::AdmissionError),
     IdentityExhausted,
     RegistrationUnknown,
     WorldChanged,
@@ -91,6 +92,7 @@ impl AgentError {
             Self::StartupTimeout => "STARTUP_TIMEOUT",
             Self::StopTimeout => "STOP_TIMEOUT",
             Self::HeartbeatTimeout => "HEARTBEAT_TIMEOUT",
+            Self::Admission(reason) => reason.code(),
             Self::IdentityExhausted => "IDENTITY_EXHAUSTED",
             Self::RegistrationUnknown => "REGISTRATION_UNKNOWN",
             Self::WorldChanged => "WORLD_CHANGED",
@@ -151,6 +153,12 @@ fn port(args: &Map<String, Value>) -> Result<u16, AgentError> {
         .ok_or(AgentError::InvalidArguments)
 }
 impl State {
+    fn gateway_error(error: GatewayError) -> AgentError {
+        match error {
+            GatewayError::Admission(reason) => AgentError::Admission(reason),
+            _ => AgentError::GatewayFailed,
+        }
+    }
     fn current(&mut self, args: &Map<String, Value>) -> Result<&mut ManagedRuntime, AgentError> {
         if !self.parent.is_live() {
             return Err(AgentError::Protocol);
@@ -168,9 +176,11 @@ impl State {
             Some(runtime) => {
                 let status = runtime.gateway.as_ref().map(|gateway| gateway.status());
                 json!({"phase": if status.is_some() {"ready"} else {"starting"}, "runtime":runtime.id.as_str(),
-                    "virtual_ip": runtime.address, "registrations": status.map(|value| value.registrations).unwrap_or(0),
+                    "virtual_ip": runtime.address, "peer_id":runtime.gateway.as_ref().and_then(|gateway|gateway.local_peer_id().ok()), "registrations": status.map(|value| value.registrations).unwrap_or(0),
                     "connections": status.map(|value| value.connections).unwrap_or(0),
                     "gateway_failures": status.map(|value| value.failures.min(i64::MAX as u64)).unwrap_or(0),
+                    "unsupported_local_feedback":status.map(|value|value.unsupported_local_feedback.min(i64::MAX as u64)).unwrap_or(0),
+                    "gateway_failure":status.and_then(|value|value.last_failure).map(|value|value.code()),
                     "failure":self.last_failure.map(AgentError::code)})
             }
         };
@@ -422,9 +432,7 @@ impl State {
                     .gateway
                     .as_mut()
                     .ok_or(AgentError::RuntimeNotReady)?;
-                let service = gateway
-                    .register_host(target)
-                    .map_err(|_| AgentError::GatewayFailed)?;
+                let service = gateway.register_host(target).map_err(Self::gateway_error)?;
                 let id = service.id.opaque();
                 let result = json!({"registration":id, "world":world, "virtual_ip":service.virtual_address.ip().to_string(), "port":service.virtual_address.port()});
                 self.bindings.insert(
@@ -449,7 +457,7 @@ impl State {
                 let proxy = gateway
                     .register_proxy(&peer, remote_port)
                     .await
-                    .map_err(|_| AgentError::GatewayFailed)?;
+                    .map_err(Self::gateway_error)?;
                 if !self.parent.is_live() {
                     let _ = self.stop().await;
                     return Err(AgentError::Protocol);
@@ -482,7 +490,7 @@ impl State {
                     .as_mut()
                     .ok_or(AgentError::RuntimeNotReady)?
                     .stop(registration_id)
-                    .map_err(|_| AgentError::GatewayFailed)?;
+                    .map_err(Self::gateway_error)?;
                 self.bindings.remove(id);
                 Ok(json!({"closed":true}))
             }

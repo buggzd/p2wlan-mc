@@ -56,10 +56,23 @@ pub struct TcpStack {
 
 impl TcpStack {
     pub fn new(address: Ipv4Addr, random_seed: u64) -> Result<Self, StackError> {
+        Self::with_transmit_mtu(address, random_seed, crate::PACKET_MTU)
+    }
+    /// Packetization ceiling supplied by the surrounding authoritative network
+    /// backend, not an independently evolving Direct/Relay/path MTU estimate.
+    /// Receive capacity remains PACKET_MTU; this bounds transmitted TCP segments.
+    pub fn with_transmit_mtu(
+        address: Ipv4Addr,
+        random_seed: u64,
+        mtu: usize,
+    ) -> Result<Self, StackError> {
+        if !(576..=crate::PACKET_MTU).contains(&mtu) {
+            return Err(StackError::InvalidEndpoint);
+        }
         if address.is_unspecified() || address.is_multicast() || address.is_broadcast() {
             return Err(StackError::InvalidEndpoint);
         }
-        let mut device = PacketDevice::default();
+        let mut device = PacketDevice::new(mtu);
         let mut config = Config::new(HardwareAddress::Ip);
         config.random_seed = random_seed;
         let mut interface = Interface::new(config, &mut device, Instant::ZERO);

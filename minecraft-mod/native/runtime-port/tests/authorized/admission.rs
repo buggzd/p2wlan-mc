@@ -302,3 +302,19 @@ async fn unrelated_room_member_changes_preserve_connections_but_fence_old_frames
     rig.renew(Instant::now(), 30);
     assert_eq!(grant.validate(), Err(E::RoomRevoked));
 }
+
+#[tokio::test]
+async fn application_identity_is_a_read_only_snapshot_of_the_resolved_runtime_config() {
+    let (rig, _) = pair().await;
+    assert_eq!(rig.authority.local_peer_id(), rig.config.node.node_id);
+    assert_eq!(rig.authority.conservative_packet_budget(), 1168);
+    for reason in [
+        E::UnknownPeer,
+        E::RoomRevoked,
+        E::SessionChanged,
+        E::NetworkChanged,
+        E::Contended,
+    ] {
+        assert_eq!(reason.code(), reason.to_string());
+    }
+}

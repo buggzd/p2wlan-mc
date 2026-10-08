@@ -132,6 +132,20 @@ def adapt_dataplane(source):
             room_authorization
         };
 """ + source[last:]
+    feedback = """    async fn write_local_feedback(&mut self, packet: &[u8]) -> Result<()> {
+        IpPacket::new(packet).map_err(|error| {
+            DaemonError::Network(format!("invalid locally generated MTU feedback: {error}"))
+        })?;"""
+    source = replace_once(source, feedback, feedback + """
+        if let Some(port) = self.application_port.as_ref() {
+            // The userspace TCP endpoint has an explicit conservative transmit
+            // ceiling, not a kernel PMTU consumer. This is control feedback, not
+            // an authenticated received application packet. Reject it visibly
+            // without acquiring a new peer/world grant or claiming delivery.
+            // Unsupported feedback must not kill the whole network daemon.
+            port.record_drop(crate::mc_embed::AdmissionError::UnsupportedLocalFeedback);
+            return Ok(());
+        }""", "application-local-feedback-policy")
     source = replace_once(source, """        let written = self
             .tun
             .write(&inbound_packet)
@@ -173,6 +187,17 @@ def adapt_decryption(source):
 
 
 def adapt_inbound(source):
+    # Fail closed if upstream adds/removes a control family. Several probes use
+    # valid IPv4/ICMP envelopes, so IP parsing alone cannot classify business.
+    controls = """                    if internal_rekey_confirmation
+                        || direct_validation.is_some()
+                        || dplpmtud.is_some()
+                        || relay_probe.is_some()
+                        || path_commit.is_some()
+                    {
+                        continue;
+                    }"""
+    source = replace_once(source, controls, controls, "application-original-control-families")
     source = replace_once(source, "impl WireGuardTransport {", """impl WireGuardTransport {
     /// Checked application port over the same inbound network/crypto owner.
     pub async fn run_inbound_with_application_port(
@@ -223,7 +248,15 @@ def adapt_inbound(source):
                     // Control payloads are consumed by their original handlers;
                     // only application IP packets acquire this extra capability.
                     if let Some(port) = application_port.as_ref() {
-                        if p2pnet_tun::IpPacket::new(&inbound.packet).is_ok() {
+                        // Some upstream probes are valid IPv4 packets too. Their
+                        // original crypto/path handlers, not the application IP
+                        // gate, own their synthetic addresses and payloads.
+                        let control = is_rekey_confirmation_packet(&inbound.packet)
+                            || parse_direct_validation_token(&inbound.packet).is_some()
+                            || crate::dplpmtud::parse_control_packet(&inbound.packet).is_some()
+                            || crate::relay_probe::parse_relay_probe_token(&inbound.packet).is_some()
+                            || crate::path_commit::parse_path_commit_token(&inbound.packet).is_some();
+                        if !control && p2pnet_tun::IpPacket::new(&inbound.packet).is_ok() {
                             let Some(generation) = packet_network_generation else {
                                 port.record_drop(crate::mc_embed::AdmissionError::ContextMissing);
                                 continue;

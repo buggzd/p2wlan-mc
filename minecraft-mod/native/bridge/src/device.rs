@@ -18,13 +18,25 @@ pub enum PacketError {
     QueueFull,
 }
 
-#[derive(Default)]
 pub(crate) struct PacketDevice {
+    transmit_mtu: usize,
     incoming: VecDeque<Vec<u8>>,
     outgoing: VecDeque<Vec<u8>>,
 }
 
+impl Default for PacketDevice {
+    fn default() -> Self {
+        Self::new(PACKET_MTU)
+    }
+}
 impl PacketDevice {
+    pub(crate) fn new(transmit_mtu: usize) -> Self {
+        Self {
+            transmit_mtu,
+            incoming: VecDeque::new(),
+            outgoing: VecDeque::new(),
+        }
+    }
     pub(crate) fn ingest(&mut self, packet: Vec<u8>) -> Result<(), PacketError> {
         if packet.len() > PACKET_MTU {
             return Err(PacketError::TooLarge);
@@ -95,7 +107,7 @@ impl Device for PacketDevice {
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = DeviceCapabilities::default();
         caps.medium = Medium::Ip;
-        caps.max_transmission_unit = PACKET_MTU;
+        caps.max_transmission_unit = self.transmit_mtu;
         caps.max_burst_size = Some(32);
         caps
     }
