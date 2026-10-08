@@ -46,3 +46,17 @@ tasks.register('worldGuardTest', JavaExec) {
     if (probe.isPresent()) args(probe.get())
 }
 check.dependsOn worldGuardTest
+
+tasks.register('nativeBundleTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.NativeBundleTests'
+}
+check.dependsOn nativeBundleTest
+
+tasks.register('bundledAgentTest', JavaExec) {
+    dependsOn testClasses, ':native-bundle:jar'
+    classpath = sourceSets.test.runtimeClasspath + files(project(':native-bundle').tasks.named('jar'))
+    mainClass = 'io.p2wlan.mc.common.NativeBundleTests'
+    args '--bundled'
+}

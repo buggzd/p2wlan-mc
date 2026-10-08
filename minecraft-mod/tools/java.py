@@ -34,7 +34,7 @@ def probe_artifacts(messages):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("test", "build", "wrapper", "interop"))
+    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test"))
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     wrapper = PROJECT / "java/gradlew"
@@ -45,7 +45,7 @@ def main():
     if sys.platform == "darwin":
         selected = subprocess.check_output(["/usr/libexec/java_home", "-v", "21"], text=True).strip()
         env["JAVA_HOME"] = selected
-    tasks = {"test": [":common:protocolTest", ":common:worldGuardTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
+    tasks = {"test": [":common:protocolTest", ":common:worldGuardTest", ":common:nativeBundleTest"], "bundle-test": [":common:bundledAgentTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
     if args.command == "interop":
         from native import build_command, prepare
         prepare()

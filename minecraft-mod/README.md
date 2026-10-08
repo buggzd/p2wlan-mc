@@ -180,3 +180,16 @@ python3 minecraft-mod/tools/native_bundle.py --offline
 Release packaging requires a clean checkout. For an explicitly labelled development package, add `--development`. The producer selects Cargo's reported release artifact, runs its bounded `--build-info` command and checks its exact protocol, version, source commit, native-input digest and compiled platform before publication. The manifest binds those fields to the executable's SHA-256 and size; the copied resource bytes are checked again. A concurrent source change, ambiguous artifact or failed verification aborts packaging.
 
 Generated executable resources remain under the ignored `java/native-bundle/build/` directory. The Java resource subproject refuses to build an empty resource jar. The currently recognised packaging targets are macOS/Linux on aarch64/x86_64; target recognition is not evidence of device verification or an installable Minecraft Mod. Windows is not a packaging target while private-profile ACL support is absent.
+
+The common Java `BundledAgent` entry point selects only the exact host resource, rejects missing/duplicate/non-local resources, validates the strict bounded manifest, and rejects development packages unless explicitly allowed by its caller. It extracts at most two private installations per JVM, with 0700 directories, 0500 executables, SHA-256/length checks and a 15-second extraction/verification deadline. There is no shared executable cache or permissive filesystem fallback. Startup belongs off the game thread. `close()` is nonblocking; `released()` completes only after the exact child has exited and owned-file cleanup has succeeded. Failed or replaced-file cleanup is typed and retains its capacity slot rather than permitting unbounded leftovers.
+
+The supported filesystem boundary is POSIX isolation from other OS users plus identity-checked, non-recursive cleanup. Java's path-based launch does **not** protect against malicious code running under the same OS user, a modified JVM/classloader, or another malicious Mod. A package checksum is integrity metadata, not a signature. File/directory identity, owner, permission and hard-link checks detect observable replacement; they are not an atomic descriptor-based execution guarantee. Windows and filesystems lacking the required POSIX/Unix attributes fail closed.
+
+The package integration check uses the actual extracted release-mode executable. Generate an explicitly labelled development resource and run:
+
+```sh
+python3 minecraft-mod/tools/native_bundle.py --development --offline
+python3 minecraft-mod/tools/java.py bundle-test
+```
+
+This checks bundle validation, private extraction, replacement/symlink/hard-link rejection, exact subprocess readiness/IPC, immediate-close races and cleanup. It does not start Minecraft or prove loader compatibility.

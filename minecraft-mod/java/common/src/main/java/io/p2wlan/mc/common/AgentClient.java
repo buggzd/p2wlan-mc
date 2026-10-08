@@ -37,6 +37,7 @@ public final class AgentClient implements AutoCloseable {
     private final Map<Long, Pending> pending = new HashMap<>();
     private final SessionFence snapshots = new SessionFence();
     private final CompletableFuture<Void> ready = new CompletableFuture<>();
+    private final CompletableFuture<Void> terminated = new CompletableFuture<>();
     private final ScheduledExecutorService watchdog;
     private volatile boolean closed;
     private volatile AgentException.Code failure;
@@ -83,8 +84,12 @@ public final class AgentClient implements AutoCloseable {
         daemon("p2wlan-agent-reader", this::readLoop).start();
         daemon("p2wlan-agent-writer", this::writeLoop).start();
         daemon("p2wlan-agent-exit", () -> {
-            try { child.waitFor(); fail(AgentException.Code.UNEXPECTED_EXIT); }
-            catch (InterruptedException error) { Thread.currentThread().interrupt(); fail(AgentException.Code.IO); }
+            try { child.waitFor(); terminated.complete(null); fail(AgentException.Code.UNEXPECTED_EXIT); }
+            catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                fail(AgentException.Code.IO);
+                child.onExit().thenRun(() -> terminated.complete(null));
+            }
         }).start();
     }
 
@@ -95,6 +100,8 @@ public final class AgentClient implements AutoCloseable {
     }
 
     public CompletableFuture<Void> ready() { return ready.copy(); }
+    /** Completes only after this exact child is reaped, not merely killed. */
+    public CompletableFuture<Void> terminated() { return terminated.copy(); }
     public Optional<StatusSnapshot> snapshot() {
         synchronized (gate) { return closed ? Optional.empty() : snapshots.snapshot(); }
     }
