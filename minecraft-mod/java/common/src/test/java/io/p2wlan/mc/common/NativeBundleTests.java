@@ -111,9 +111,18 @@ public final class NativeBundleTests {
         if (arguments.length == 1 && arguments[0].equals("--bundled")) {
             Path profile = Files.createTempDirectory("p2wlan-bundled-profile-", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
             try {
-                reject(Code.DEVELOPMENT_DISABLED, () -> BundledAgent.launch(profile, false));
+                String platform = NativeManifest.currentPlatform();
+                NativeManifest manifest;
+                try (var input = NativeBundleTests.class.getClassLoader().getResourceAsStream(
+                        "p2wlan/native/" + platform + "/manifest.properties")) {
+                    check(input != null);
+                    manifest = NativeManifest.read(input, platform, true);
+                }
+                boolean development = manifest.buildKind().equals("development");
+                if (development) reject(Code.DEVELOPMENT_DISABLED, () -> BundledAgent.launch(profile, false));
+                // Release resources must exercise extraction, IPC and cleanup without opt-in.
                 for (int iteration = 0; iteration < 3; iteration++) {
-                    BundledAgent owner = BundledAgent.launch(profile, true);
+                    BundledAgent owner = BundledAgent.launch(profile, development);
                     try {
                         owner.client().ready().get(5, TimeUnit.SECONDS);
                         check(owner.client().isCurrent(owner.client().request("ping", new com.google.gson.JsonObject()).get(5, TimeUnit.SECONDS)));
@@ -123,7 +132,7 @@ public final class NativeBundleTests {
                     check(ProcessHandle.of(owner.client().processId()).isEmpty());
                 }
                 for (int iteration = 0; iteration < 3; iteration++) {
-                    BundledAgent owner = BundledAgent.launch(profile, true);
+                    BundledAgent owner = BundledAgent.launch(profile, development);
                     owner.close();
                     owner.released().get(5, TimeUnit.SECONDS);
                     check(owner.client().terminated().isDone());
