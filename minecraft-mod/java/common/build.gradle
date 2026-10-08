@@ -60,3 +60,17 @@ tasks.register('bundledAgentTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.common.NativeBundleTests'
     args '--bundled'
 }
+
+tasks.register('agentLifecycleTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.AgentLifecycleTests'
+}
+check.dependsOn agentLifecycleTest
+
+tasks.register('bundledLifecycleTest', JavaExec) {
+    dependsOn testClasses, ':native-bundle:jar'
+    classpath = sourceSets.test.runtimeClasspath + files(project(':native-bundle').tasks.named('jar'))
+    mainClass = 'io.p2wlan.mc.common.AgentLifecycleTests'
+    args '--bundled'
+}

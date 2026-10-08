@@ -49,6 +49,7 @@ class NativeBundleTests(unittest.TestCase):
             self.assertEqual(fields["verification-platform"], "macos-aarch64")
             self.assertEqual(fields["source-revision"], "a" * 40)
             self.assertEqual(fields["build-kind"], "development")
+            self.assertIn(b"verification-platform=linux-x86_64\n", bundle.manifest(self.info() | {"os": "linux", "arch": "x86_64"}, binary))
             link = Path(directory) / "link"
             link.symlink_to(binary)
             with self.assertRaises(bundle.BundleError):
@@ -80,6 +81,25 @@ class NativeBundleTests(unittest.TestCase):
         with patch.object(bundle.platform, "system", return_value="Windows"):
             with self.assertRaises(bundle.BundleError):
                 bundle.host_platform()
+
+    def test_build_paths_are_remapped_without_losing_caller_flags(self):
+        env = bundle.build_environment({"RUSTFLAGS": "-C opt-level=2", "CARGO_BUILD_TARGET": "foreign"}, "/fixture/repo", "/fixture/home")
+        self.assertEqual(env["CARGO_ENCODED_RUSTFLAGS"].split("\x1f"), ["-C", "opt-level=2", "--remap-path-prefix=/fixture/home=build-home", "--remap-path-prefix=/fixture/repo=p2wlan-source"])
+        self.assertNotIn("CARGO_BUILD_TARGET", env)
+        self.assertNotIn("RUSTFLAGS", env)
+        env = bundle.build_environment({"CARGO_ENCODED_RUSTFLAGS": "--cfg\x1ffixture"}, "/fixture/repo", "/fixture/home")
+        self.assertTrue(env["CARGO_ENCODED_RUSTFLAGS"].startswith("--cfg\x1ffixture\x1f"))
+        env = bundle.build_environment({"CARGO_ENCODED_RUSTFLAGS": "", "RUSTFLAGS": "--cfg ignored"}, "/fixture/repo", "/fixture/home")
+        self.assertEqual(len(env["CARGO_ENCODED_RUSTFLAGS"].split("\x1f")), 2)
+
+    def test_private_prefix_check_includes_block_boundaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "agent"
+            binary.write_bytes(b"x" * 32765 + b"/fixture/private-source" + b"x")
+            with self.assertRaisesRegex(bundle.BundleError, "native_binary_private_build_path"):
+                bundle.check_private_paths(binary, ["/fixture/private-source"])
+            binary.write_bytes(b"p2wlan-source/source.rs build-home/.cargo/registry")
+            bundle.check_private_paths(binary, ["/fixture/private-source"])
 
     def test_digest_ignores_generated_outputs_but_includes_new_sources(self):
         with tempfile.TemporaryDirectory() as directory:

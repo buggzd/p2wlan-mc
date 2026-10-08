@@ -53,6 +53,31 @@ def source_digest(root=ROOT):
     return digest.hexdigest()
 
 
+def build_environment(environment, root, home):
+    env = environment.copy()
+    encoded = env.pop("CARGO_ENCODED_RUSTFLAGS", None)
+    flags = ([] if encoded == "" else encoded.split("\x1f")) if encoded is not None else env.get("RUSTFLAGS", "").split()
+    env.pop("RUSTFLAGS", None)
+    # Prefixes are compile-only input. Neither usernames nor local source paths
+    # may become public error locations/string literals in the release asset.
+    # Rust uses the last matching prefix; the specific repo rule follows home.
+    flags += [f"--remap-path-prefix={home}=build-home", f"--remap-path-prefix={root}=p2wlan-source"]
+    env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(flags)
+    env.pop("CARGO_BUILD_TARGET", None)
+    return env
+
+
+def check_private_paths(binary, prefixes):
+    needles = [str(prefix).encode("utf-8") for prefix in prefixes]
+    tail = b""
+    with binary.open("rb") as stream:
+        while block := stream.read(32768):
+            content = tail + block
+            if any(needle in content for needle in needles):
+                raise BundleError("native_binary_private_build_path")
+            tail = content[-max(map(len, needles)):]
+
+
 def host_platform():
     system = {"Darwin": "macos", "Linux": "linux"}.get(platform.system())
     arch = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64", "AMD64": "x86_64"}.get(platform.machine())
@@ -111,7 +136,7 @@ def manifest(info, binary):
         "executable-sha256": checksum, "executable-size": str(size),
         "verification-platform": f'{info["os"]}-{info["arch"]}',
     }
-    if any(not re.fullmatch(r"[a-z0-9.\-]+", value) for value in fields.values()):
+    if any(not re.fullmatch(r"[a-z0-9._-]+", value) for value in fields.values()):
         raise BundleError("native_manifest_value")
     return "".join(f"{key}={value}\n" for key, value in fields.items()).encode("ascii")
 
@@ -158,9 +183,7 @@ def build(development=False, offline=False):
     version = tomllib.loads((PROJECT / "native/Cargo.toml").read_text())["workspace"]["package"]["version"]
     expected = {"schema": 1, "protocol": 1, "version": version, "source_revision": revision,
                 "source_sha256": digest, "build_kind": "development" if development else "release", "os": system, "arch": arch}
-    env = os.environ.copy()
-    # Do not inherit a target override that could produce a different platform.
-    env.pop("CARGO_BUILD_TARGET", None)
+    env = build_environment(os.environ, ROOT, Path.home())
     env.update(P2WLAN_MC_SOURCE_REVISION=revision, P2WLAN_MC_SOURCE_SHA256=digest,
                P2WLAN_MC_BUILD_KIND=expected["build_kind"])
     prepare()
@@ -173,6 +196,7 @@ def build(development=False, offline=False):
     binary = select_agent(result.stdout)
     if binary.is_symlink() or not binary.is_file() or not 0 < binary.stat().st_size <= MAX_BINARY:
         raise BundleError("native_binary_invalid")
+    check_private_paths(binary, (ROOT, Path.home()))
     # stdout is bounded by this locally built binary's fixed --build-info contract.
     info = subprocess.run([str(binary), "--build-info"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
     if info.returncode:

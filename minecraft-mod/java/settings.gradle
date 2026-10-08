@@ -8,3 +8,10 @@ rootProject.name = 'p2wlan-minecraft'
 include 'common'
 
 include 'native-bundle'
+
+// Loader builds are opt-in, so common protocol tests never fetch Minecraft or
+// load Loom. New loader/version adapters remain independent subprojects.
+if (providers.gradleProperty('fabricAdapter').isPresent()) {
+    include 'fabric'
+    project(':fabric').projectDir = file('adapters/fabric-1.21.1')
+}

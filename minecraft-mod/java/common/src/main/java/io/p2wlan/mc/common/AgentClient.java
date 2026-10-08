@@ -84,7 +84,7 @@ public final class AgentClient implements AutoCloseable {
         daemon("p2wlan-agent-reader", this::readLoop).start();
         daemon("p2wlan-agent-writer", this::writeLoop).start();
         daemon("p2wlan-agent-exit", () -> {
-            try { child.waitFor(); terminated.complete(null); fail(AgentException.Code.UNEXPECTED_EXIT); }
+            try { child.waitFor(); fail(AgentException.Code.UNEXPECTED_EXIT); terminated.complete(null); }
             catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
                 fail(AgentException.Code.IO);

@@ -1,0 +1,55 @@
+plugins { id 'fabric-loom' version '1.10.5' }
+
+base { archivesName = 'p2wlan-fabric-1.21.1' }
+def developmentEnabled = providers.gradleProperty('developmentNative').map { value ->
+    value.isEmpty() || value == 'true'
+}.getOrElse(false)
+repositories { maven { url = 'https://maven.fabricmc.net/' } }
+dependencies {
+    minecraft 'com.mojang:minecraft:1.21.1'
+    mappings 'net.fabricmc:yarn:1.21.1+build.3:v2'
+    modImplementation 'net.fabricmc:fabric-loader:0.16.14'
+    modImplementation 'net.fabricmc.fabric-api:fabric-api:0.116.7+1.21.1'
+    implementation project(':common')
+    include project(':common')
+    implementation project(':native-bundle')
+    include project(':native-bundle')
+}
+loom {
+    splitEnvironmentSourceSets()
+    mods {
+        p2wlan {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    withSourcesJar()
+}
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand version: project.version }
+}
+
+tasks.register('verifyModJar', Exec) {
+    dependsOn remapJar
+    doFirst {
+        commandLine 'python3', rootProject.file('../tools/verify_mod_jar.py'),
+                tasks.named('remapJar').get().archiveFile.get().asFile
+        if (developmentEnabled) args '--development'
+    }
+}
+check.dependsOn verifyModJar
+
+// Explicit development opt-in is also forwarded to Loom's development JVMs;
+// it never changes the packaged runtime default or Minecraft's EULA/account.
+if (developmentEnabled) {
+    loom.runs.configureEach { vmArg '-Dp2wlan.allowDevelopmentNative=true' }
+}

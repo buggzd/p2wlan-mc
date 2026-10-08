@@ -179,6 +179,8 @@ python3 minecraft-mod/tools/native_bundle.py --offline
 
 Release packaging requires a clean checkout. For an explicitly labelled development package, add `--development`. The producer selects Cargo's reported release artifact, runs its bounded `--build-info` command and checks its exact protocol, version, source commit, native-input digest and compiled platform before publication. The manifest binds those fields to the executable's SHA-256 and size; the copied resource bytes are checked again. A concurrent source change, ambiguous artifact or failed verification aborts packaging.
 
+Compilation remaps repository/home source prefixes to generic build paths; a bounded scan rejects executable bytes that still contain those absolute build prefixes.
+
 Generated executable resources remain under the ignored `java/native-bundle/build/` directory. The Java resource subproject refuses to build an empty resource jar. The currently recognised packaging targets are macOS/Linux on aarch64/x86_64; target recognition is not evidence of device verification or an installable Minecraft Mod. Windows is not a packaging target while private-profile ACL support is absent.
 
 The common Java `BundledAgent` entry point selects only the exact host resource, rejects missing/duplicate/non-local resources, validates the strict bounded manifest, and rejects development packages unless explicitly allowed by its caller. It extracts at most two private installations per JVM, with 0700 directories, 0500 executables, SHA-256/length checks and a 15-second extraction/verification deadline. There is no shared executable cache or permissive filesystem fallback. Startup belongs off the game thread. `close()` is nonblocking; `released()` completes only after the exact child has exited and owned-file cleanup has succeeded. Failed or replaced-file cleanup is typed and retains its capacity slot rather than permitting unbounded leftovers.
@@ -193,3 +195,30 @@ python3 minecraft-mod/tools/java.py bundle-test
 ```
 
 This checks bundle validation, private extraction, replacement/symlink/hard-link rejection, exact subprocess readiness/IPC, immediate-close races and cleanup. It does not start Minecraft or prove loader compatibility.
+
+## Fabric adapter bootstrap
+
+The explicit Fabric adapter targets **Minecraft 1.21.1**, with Fabric Loader 0.16.14, Fabric API 0.116.7+1.21.1, Yarn 1.21.1+build.3 and Loom 1.10.5 as its pinned build inputs. Its loader metadata accepts 1.21.1 only; it does not claim support for other game versions, NeoForge or Forge. Loader/version references are confined to `java/adapters/fabric-1.21.1/`; common Java and native networking remain game-independent.
+
+From a clean repository checkout, generate the host resource and build the adapter:
+
+```sh
+python3 minecraft-mod/tools/native_bundle.py --offline
+python3 minecraft-mod/tools/java.py fabric-build
+```
+
+The explicit adapter build remaps its jar, embeds the common and native-resource jars, and checks the exact loader entrypoints, Java 21 adapter/Java 17 common bytecode, absence of game/loader references in common bytecode, source-bound native manifests and executable hashes. Empty, stale, mismatched or duplicate native resources fail the artifact check. The checker emits public metadata binding the final jar SHA-256, source commit, embedded version and native verification targets; archive verification is not Minecraft gameplay acceptance. Common Java tests do not configure Loom or fetch Minecraft. A single-host resource package does not provide executable coverage for other operating systems or architectures.
+
+For explicitly labelled development resources and a development build:
+
+```sh
+python3 minecraft-mod/tools/native_bundle.py --development --offline
+python3 minecraft-mod/tools/java.py fabric-build -PdevelopmentNative
+python3 minecraft-mod/tools/java.py fabric-server -PdevelopmentNative
+```
+
+`fabric-server` uses Loom's development server; it does not accept or rewrite Minecraft's EULA. Game/account terms must be accepted by the user before a playable server can run. The development property permits development manifests in the build check and forwards the same explicit opt-in to Loom's development JVM. A normally installed adapter rejects development-native resources by default.
+
+The common loader entrypoint contains no client initialization. Dedicated-server lifecycle events start the native helper off the game thread and close it when the server stops. On a client, the helper lifetime follows the application rather than individual integrated worlds. The shared `AgentLifecycle` is single-use: one startup worker, one 40-second startup deadline, no retry/work queue, immediate revocation on close, and identity checks before an asynchronous client reference can be used. Late startup completion closes its own child rather than publishing a revoked owner.
+
+The dedicated-server `/p2wlan status` command requires permission level 4. The client command is `/p2wlan-client status`. They show helper process/IPC readiness and stable startup/cleanup reason codes, **not** overlay-room connection or Minecraft-world readiness. This bootstrap currently has **no** in-game account/room UI, host-world registration, proxy-preface injection or playable P2WLAN join flow; a compiled bootstrap jar is not a completed multiplayer Mod.
