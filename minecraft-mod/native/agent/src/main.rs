@@ -11,9 +11,19 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let result = runtime.block_on(p2wlan_mc_agent::run(
+    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    let profile = match arguments.as_slice() {
+        [] => None,
+        [flag, path] if flag == "--profile-dir" => Some(std::path::PathBuf::from(path)),
+        _ => {
+            eprintln!("INVALID_ARGUMENTS");
+            std::process::exit(2);
+        }
+    };
+    let result = runtime.block_on(p2wlan_mc_agent::run_with_profile(
         tokio::io::stdin(),
         tokio::io::stdout(),
+        profile.as_deref(),
     ));
     runtime.shutdown_timeout(std::time::Duration::from_secs(2));
     match result {

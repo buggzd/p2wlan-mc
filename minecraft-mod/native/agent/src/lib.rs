@@ -1,15 +1,22 @@
 //! Native networking Agent. No game/loader dependency or alternate path owner.
 #![forbid(unsafe_code)]
+mod account;
+mod private;
+mod profile;
 mod request;
 mod runtime;
+use account::AccountApi;
 use p2wlan_mc_gateway::{LocalKey, LocalTarget, RegistrationId};
 use p2wlan_mc_protocol::{FrameReader, FrameWriter};
 use p2wlan_mc_runtime_port::{Config, ScopeOwner, ScopeToken};
+use profile::Profile;
 use request::{Request, RequestLedger};
+use reqwest::Method;
 use runtime::ManagedRuntime;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::path::Path;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
@@ -49,6 +56,20 @@ pub enum AgentError {
     RegistrationUnknown,
     WorldChanged,
     GatewayFailed,
+    ProfileRequired,
+    ProfileUnsupported,
+    ProfileIo,
+    ProfileInvalid,
+    ProfileBusy,
+    ProfileCapacity,
+    AuthRequired,
+    Forbidden,
+    RoomUnknown,
+    ControlConflict,
+    ControlRateLimited,
+    ControlTimeout,
+    ControlResponse,
+    ControlUnavailable,
 }
 impl AgentError {
     pub fn code(self) -> &'static str {
@@ -74,6 +95,20 @@ impl AgentError {
             Self::RegistrationUnknown => "REGISTRATION_UNKNOWN",
             Self::WorldChanged => "WORLD_CHANGED",
             Self::GatewayFailed => "GATEWAY_FAILED",
+            Self::ProfileRequired => "PROFILE_REQUIRED",
+            Self::ProfileUnsupported => "PROFILE_UNSUPPORTED_PLATFORM",
+            Self::ProfileIo => "PROFILE_IO",
+            Self::ProfileInvalid => "PROFILE_INVALID",
+            Self::ProfileBusy => "PROFILE_BUSY",
+            Self::ProfileCapacity => "PROFILE_CAPACITY",
+            Self::AuthRequired => "AUTH_REQUIRED",
+            Self::Forbidden => "FORBIDDEN",
+            Self::RoomUnknown => "ROOM_UNKNOWN",
+            Self::ControlConflict => "CONTROL_CONFLICT",
+            Self::ControlRateLimited => "CONTROL_RATE_LIMITED",
+            Self::ControlTimeout => "CONTROL_TIMEOUT",
+            Self::ControlResponse => "CONTROL_RESPONSE",
+            Self::ControlUnavailable => "CONTROL_UNAVAILABLE",
         }
     }
 }
@@ -83,6 +118,8 @@ struct Binding {
 }
 struct State {
     parent: ScopeToken,
+    profile: Option<Profile>,
+    api: AccountApi,
     runtime: Option<ManagedRuntime>,
     bindings: HashMap<String, Binding>,
     last_failure: Option<AgentError>,
@@ -98,6 +135,12 @@ fn text<'a>(args: &'a Map<String, Value>, key: &str) -> Result<&'a str, AgentErr
     args.get(key)
         .and_then(Value::as_str)
         .filter(|text| !text.is_empty() && text.len() <= 256)
+        .ok_or(AgentError::InvalidArguments)
+}
+fn optional_text<'a>(args: &'a Map<String, Value>, key: &str) -> Result<&'a str, AgentError> {
+    args.get(key)
+        .and_then(Value::as_str)
+        .filter(|text| text.len() <= 256)
         .ok_or(AgentError::InvalidArguments)
 }
 fn port(args: &Map<String, Value>) -> Result<u16, AgentError> {
@@ -120,7 +163,7 @@ impl State {
         Ok(runtime)
     }
     fn snapshot(&self) -> Value {
-        match &self.runtime {
+        let mut snapshot = match &self.runtime {
             None => json!({"phase":"idle", "failure": self.last_failure.map(AgentError::code)}),
             Some(runtime) => {
                 let status = runtime.gateway.as_ref().map(|gateway| gateway.status());
@@ -130,7 +173,13 @@ impl State {
                     "gateway_failures": status.map(|value| value.failures.min(i64::MAX as u64)).unwrap_or(0),
                     "failure":self.last_failure.map(AgentError::code)})
             }
-        }
+        };
+        snapshot["account"] = self
+            .profile
+            .as_ref()
+            .map(Profile::status)
+            .unwrap_or(json!({"available":false}));
+        snapshot
     }
     async fn tick(&mut self) {
         let failure = self
@@ -152,6 +201,143 @@ impl State {
         }
         Ok(())
     }
+    async fn account_command(&mut self, request: &Request) -> Result<Value, AgentError> {
+        let args = &request.arguments;
+        let profile = self.profile.as_mut().ok_or(AgentError::ProfileRequired)?;
+        match request.operation.as_str() {
+            "login" | "register" => {
+                fields(args, &["server", "identifier", "password"])?;
+                let server = AccountApi::server(text(args, "server")?)?;
+                let (user, token) = self
+                    .api
+                    .authenticate(
+                        &server,
+                        text(args, "identifier")?,
+                        text(args, "password")?,
+                        request.operation == "register",
+                    )
+                    .await?;
+                if !self.parent.is_live() {
+                    return Err(AgentError::Protocol);
+                }
+                profile.login(server, user, token)?;
+                Ok(profile.status())
+            }
+            "logout" => {
+                fields(args, &[])?;
+                profile.logout()?;
+                Ok(profile.status())
+            }
+            "rooms" => {
+                fields(args, &[])?;
+                let (server, token, user) = profile.credentials()?;
+                let response = self
+                    .api
+                    .request(server, Some(token), Method::GET, "rooms", None)
+                    .await?;
+                if response["user_id"] != user || response["room_protocol_version"] != 1 {
+                    return Err(AgentError::ControlResponse);
+                }
+                let values = response["rooms"]
+                    .as_array()
+                    .ok_or(AgentError::ControlResponse)?;
+                if values.len() > 64 {
+                    return Err(AgentError::ControlResponse);
+                }
+                Ok(json!({"rooms":values.iter().map(account::room).collect::<Result<Vec<_>,_>>()?}))
+            }
+            "create_room" | "join_room" => {
+                let create = request.operation == "create_room";
+                fields(
+                    args,
+                    if create {
+                        &["name", "password"]
+                    } else {
+                        &["code", "password"]
+                    },
+                )?;
+                let (server, token, _) = profile.credentials()?;
+                let body = if create {
+                    json!({"name":text(args,"name")?,"password":optional_text(args,"password")?})
+                } else {
+                    json!({"room_code":text(args,"code")?,"password":optional_text(args,"password")?})
+                };
+                let response = self
+                    .api
+                    .request(
+                        server,
+                        Some(token),
+                        Method::POST,
+                        if create { "rooms" } else { "rooms/join" },
+                        Some(body),
+                    )
+                    .await?;
+                Ok(json!({"room":account::room(&response["room"])?}))
+            }
+            "leave_room" => {
+                fields(args, &["room"])?;
+                let id = text(args, "room")?;
+                if !id.starts_with("room-")
+                    || !id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                {
+                    return Err(AgentError::InvalidArguments);
+                }
+                let (server, token, _) = profile.credentials()?;
+                self.api
+                    .request(
+                        server,
+                        Some(token),
+                        Method::POST,
+                        &format!("rooms/{id}/leave"),
+                        None,
+                    )
+                    .await?;
+                Ok(json!({"left":true}))
+            }
+            "connect_room" => {
+                fields(args, &["room"])?;
+                let selected = text(args, "room")?;
+                let (server, token, user) = profile.credentials()?;
+                let response = self
+                    .api
+                    .request(server, Some(token), Method::GET, "rooms", None)
+                    .await?;
+                if response["user_id"] != user || response["room_protocol_version"] != 1 {
+                    return Err(AgentError::ControlResponse);
+                }
+                let rooms = response["rooms"]
+                    .as_array()
+                    .filter(|rooms| rooms.len() <= 64)
+                    .ok_or(AgentError::ControlResponse)?;
+                let found = rooms
+                    .iter()
+                    .find(|room| room["id"] == selected || room["room_code"] == selected)
+                    .ok_or(AgentError::RoomUnknown)?;
+                let room = account::room(found)?;
+                if !self.parent.is_live() {
+                    return Err(AgentError::Protocol);
+                }
+                let config = profile.room_config(
+                    room["id"].as_str().ok_or(AgentError::ControlResponse)?,
+                    room["cidr"].as_str().ok_or(AgentError::ControlResponse)?,
+                )?;
+                let (server, token, _) = profile.credentials()?;
+                self.api.request(server,Some(token),Method::POST,&format!("rooms/{}/device-access",room["id"].as_str().ok_or(AgentError::ControlResponse)?),
+                    Some(json!({"public_key":config.node.public_key,"device_name":config.node.device_name,"platform":config.node.platform,"resume":true}))).await?;
+                if !self.parent.is_live() {
+                    return Err(AgentError::Protocol);
+                }
+                let runtime = ManagedRuntime::start(config, self.parent.clone())?;
+                let result = json!({"runtime":runtime.id.as_str(),"phase":"starting","room":room});
+                self.runtime = Some(runtime);
+                self.last_failure = None;
+                Ok(result)
+            }
+            _ => Err(AgentError::UnknownOperation),
+        }
+    }
     async fn execute(&mut self, request: &Request) -> Result<Value, AgentError> {
         if !self.parent.is_live() {
             return Err(AgentError::Protocol);
@@ -163,6 +349,24 @@ impl State {
                 .is_some_and(|gateway| gateway.contains_registration(binding.id))
         });
         let args = &request.arguments;
+        if matches!(
+            request.operation.as_str(),
+            "login"
+                | "register"
+                | "logout"
+                | "rooms"
+                | "create_room"
+                | "join_room"
+                | "leave_room"
+                | "connect_room"
+        ) {
+            if self.runtime.is_some() {
+                return Err(AgentError::RuntimeBusy);
+            }
+            return tokio::time::timeout(Duration::from_secs(3), self.account_command(request))
+                .await
+                .map_err(|_| AgentError::ControlTimeout)?;
+        }
         match request.operation.as_str() {
             "ping" => {
                 fields(args, &[])?;
@@ -174,6 +378,9 @@ impl State {
             }
             "start" => {
                 fields(args, &["config"])?;
+                if self.profile.is_some() {
+                    return Err(AgentError::InvalidArguments);
+                }
                 if self.runtime.is_some() {
                     return Err(AgentError::RuntimeBusy);
                 }
@@ -296,6 +503,19 @@ where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin,
 {
+    run_with_profile(input, output, None).await
+}
+pub async fn run_with_profile<R, W>(
+    input: R,
+    output: W,
+    directory: Option<&Path>,
+) -> Result<(), AgentError>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin,
+{
+    let profile = directory.map(Profile::open).transpose()?;
+    let api = AccountApi::new()?;
     let owner = Identity::generate()?;
     let mut writer = FrameWriter::new(output);
     writer
@@ -341,6 +561,8 @@ where
     });
     let mut state = State {
         parent,
+        profile,
+        api,
         runtime: None,
         bindings: HashMap::new(),
         last_failure: None,
@@ -390,3 +612,6 @@ where
     reader.abort();
     result.and(cleanup)
 }
+
+#[cfg(all(test, unix))]
+mod profile_tests;

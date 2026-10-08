@@ -40,7 +40,6 @@ impl ManagedRuntime {
         config.diagnostics.enabled = false;
         config.port_mappings.clear();
         config.dns.enabled = false;
-        config.config_path = None;
         let id = Identity::generate()?;
         let mut daemon = Daemon::new(config);
         let shutdown = daemon.shutdown_sender();

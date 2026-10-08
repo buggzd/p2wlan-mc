@@ -125,4 +125,27 @@ python3 minecraft-mod/tools/native.py build -p p2wlan-mc-agent --locked
 python3 minecraft-mod/tools/native.py test -p p2wlan-mc-agent
 ```
 
-Actual-child tests verify owner uniqueness, out-of-order request handling, typed command rejection, duplicate/foreign-owner termination, stdin EOF, heartbeat expiry and bounded shutdown. The configured daemon/Control/Relay lifecycle has not yet been integration-tested through this executable. Account/room RPCs, private profile persistence, service discovery, native packaging/extraction and Minecraft adapters remain unavailable; this executable is not yet an installable Mod.
+Actual-child tests verify owner uniqueness, out-of-order request handling, typed command rejection, duplicate/foreign-owner termination, stdin EOF, heartbeat expiry and bounded shutdown. Service discovery, native packaging/extraction and Minecraft adapters remain unavailable; this executable is not yet an installable Mod.
+
+## Managed account and room profiles
+
+Launch the native Agent with `--profile-dir DIRECTORY` to enable `login`, `register`, `logout`, `rooms`, `create_room`, `join_room`, `leave_room` and `connect_room` IPC operations. Login/register take `server`, `identifier` and `password`; credentials travel only in private IPC, never command arguments. Account/room operations require an idle runtime. Connecting accepts a room ID or eight-digit code from the authenticated account's own room list. Managed profiles reject the raw `start` operation.
+
+The REST client accepts a root HTTPS origin, or HTTP only on loopback. It disables ambient proxies and redirects, uses a one-second connect deadline and 2.5-second total request deadline, and limits each response body to 1 MiB. The whole account command has a three-second deadline. Room lists contain at most 64 projected records; IPC exposes only room ID/code/name/CIDR/role, not membership arrays, passwords or credentials. Profile publication and runtime start revalidate the parent lifetime after HTTP awaits.
+
+Unix profiles require a same-user directory and regular single-link files with no group/other access; new directories/files are created with `0700`/`0600` permissions. An exclusive lock prevents concurrent profile owners. Reads/publication stay relative to a pinned directory descriptor; directory or lock replacement fails closed. Account loading rejects unknown fields/versions, unsafe origins and oversized files. Logout atomically replaces account state with `null` without silently deleting retained room identities. Windows/non-Unix profile persistence returns `PROFILE_UNSUPPORTED_PLATFORM` pending private ACL implementation; it does not write credentials with unverified permissions.
+
+Room node identities are retained separately for each Control origin, account ID and room ID. The profile retains at most 32 room identities with no implicit eviction and limits directory enumeration to 256 entries. Device names are explicitly `Minecraft Mod`, not the host name. The account JWT and the daemon-owned room configuration are separate: room reconnect reuses its node identity while the original daemon owns registration credentials and boot incarnation. Configurations and keys must not be shared or committed.
+
+The integration fixture builds against the unchanged Go Control and runs actual native child processes in a temporary private directory. It verifies account/room operations, distinct virtual addresses for two managed daemons, fenced stop/reconnect, retained room identities across process replacement, EOF cleanup while connected, and leave/logout. It does not prove encrypted application traffic, Direct/Relay selection, Minecraft login or public NAT.
+
+With Rust and the Go toolchain required by `server/go.mod`, from the repository root:
+
+```sh
+python3 minecraft-mod/tools/native.py build -p p2wlan-mc-agent --locked
+mkdir -p minecraft-mod/native/target/server
+go -C server build -mod=readonly -o ../minecraft-mod/native/target/server/p2wlan-control .
+python3 minecraft-mod/tools/control_smoke.py --control minecraft-mod/native/target/server/p2wlan-control --agent minecraft-mod/native/target/debug/p2wlan-mc-agent
+```
+
+The fixture uses only isolated loopback Control/database state, discards child logs, generates disposable fixture credentials, enforces readiness/exit deadlines and removes temporary files. Required executables must exist; missing inputs fail rather than skipping integration checks.
