@@ -1,0 +1,19 @@
+[package]
+name = "p2wlan-mc-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+p2wlan-mc-bridge = { path = "../bridge" }
+p2wlan-mc-runtime-port = { path = "../runtime-port" }
+smoltcp.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+p2wlan-mc-runtime = { path = "../target/upstream-runtime" }
+p2pnet-crypto = { path = "../../../client/crypto" }
+p2pnet-wireguard = { path = "../../../client/wireguard" }
+p2pnet-tun = { path = "../../../client/tun" }
+hex = "0.4"

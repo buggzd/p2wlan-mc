@@ -405,6 +405,43 @@ impl FramePermit {
         }
         Ok(())
     }
+    /// Preserve the original receive lease and actual crypto instance while
+    /// binding buffered bytes to one application connection's scoped lifetime.
+    pub fn bind_received_connection(&self, connection: &PeerGrant) -> Result<Self, AdmissionError> {
+        self.validate()?;
+        connection.validate()?;
+        if self.authenticated_session.is_none() {
+            return Err(AdmissionError::SessionMissing);
+        }
+        if !Arc::ptr_eq(
+            &self.grant.authority.identity,
+            &connection.authority.identity,
+        ) {
+            return Err(AdmissionError::AuthorityMismatch);
+        }
+        if self.grant.generation != connection.generation {
+            return Err(AdmissionError::NetworkChanged);
+        }
+        if self.grant.id != connection.id
+            || self.grant.address != connection.address
+            || self.grant.peer_session != connection.peer_session
+        {
+            return Err(AdmissionError::PeerChanged);
+        }
+        if !self
+            .grant
+            .membership
+            .mc_same_membership(&connection.membership)
+        {
+            return Err(AdmissionError::RoomRevoked);
+        }
+        let mut bound = self.clone();
+        for scope in &connection.scopes {
+            bound.grant = bound.grant.with_scope(scope.clone())?;
+        }
+        bound.validate()?;
+        Ok(bound)
+    }
     pub(crate) fn validate_authenticated(
         &self,
         instance: Option<u64>,

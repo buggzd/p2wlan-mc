@@ -1,5 +1,5 @@
 [workspace]
-members = ["bridge", "runtime-port", "protocol"]
+members = ["bridge", "runtime-port", "protocol", "gateway"]
 exclude = ["target/upstream-runtime"]
 resolver = "2"
 

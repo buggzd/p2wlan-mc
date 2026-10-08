@@ -70,6 +70,9 @@ pub(crate) trait AdditionalSendFence: std::fmt::Debug + Send + Sync {
     pub(crate) fn mc_membership_live(&self) -> bool {
         self.member.load(Ordering::Acquire)
     }
+    pub(crate) fn mc_same_membership(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.member, &other.member)
+    }
     pub(crate) fn mc_lease_expired(&self) -> bool {
         Instant::now() >= self.expires_at
     }""", "application-membership-identity")

@@ -1343,6 +1343,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "p2wlan-mc-gateway"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "p2pnet-crypto",
+ "p2pnet-tun",
+ "p2pnet-wireguard",
+ "p2wlan-mc-bridge",
+ "p2wlan-mc-runtime",
+ "p2wlan-mc-runtime-port",
+ "smoltcp",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "p2wlan-mc-protocol"
 version = "0.1.0"
 dependencies = [
