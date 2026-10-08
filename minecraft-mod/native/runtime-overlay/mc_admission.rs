@@ -535,8 +535,13 @@ impl FramePermit {
     }
     pub(crate) fn authenticated(mut self, instance: Option<u64>) -> Result<Self, AdmissionError> {
         self.authenticated_session = Some(instance.ok_or(AdmissionError::SessionMissing)?);
-        self.validate()?;
-        Ok(self)
+        // This only captures an already-decrypted envelope, never sends or
+        // commits it. A busy crypto owner defers validation to the bounded
+        // queue handoff; checked bytes and every side effect still validate.
+        match self.validate() {
+            Ok(()) | Err(AdmissionError::Contended) => Ok(self),
+            Err(reason) => Err(reason),
+        }
     }
     pub(crate) fn into_room_permit(
         self,

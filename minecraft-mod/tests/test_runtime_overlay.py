@@ -124,5 +124,20 @@ class RuntimeOverlayTests(unittest.TestCase):
                       "snapshot.lifecycle == PeerPathLifecycle::Online"):
             self.assertIn(fence, adapted)
 
+    def test_inbound_contention_keeps_original_envelope_with_shared_operation_deadline(self):
+        port = (PROJECT / "native/runtime-overlay/mc_port.rs").read_text()
+        helper = port[port.index("async fn ready_inbound"):port.index("/// Use the existing upstream channel", port.index("async fn ready_inbound"))]
+        self.assertIn("timeout_at(deadline", helper)
+        self.assertIn("Instant::now() >= deadline", helper)
+        self.assertIn("self.inbound_permit(packet)", helper)
+        self.assertIn("Err(AdmissionError::Contended)", helper)
+        for fresh in ("peer_grant", "inbound_grant", "frame_permit", "authorize_inbound"):
+            self.assertNotIn(fresh, helper)
+        for method in ("queue_inbound", "deliver_inbound"):
+            operation = port[port.index("pub(crate) async fn " + method):]
+            operation = operation.split("pub(crate) async fn ", 1)[-1].split("pub(crate) async fn ", 1)[0]
+            self.assertGreaterEqual(operation.count("ready_inbound("), 2)
+            self.assertIn("timeout_at(deadline", operation)
+
 if __name__ == "__main__":
     unittest.main()

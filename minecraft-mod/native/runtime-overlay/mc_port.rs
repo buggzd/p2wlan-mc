@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use p2pnet_tun::IpPacket;
 use tokio::sync::mpsc;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout_at, Instant};
 
 use super::{
     AdmissionError, ApplicationAuthority, FramePermit, PeerGrant, ScopeOwner, ScopeToken,
@@ -272,6 +272,29 @@ impl PacketGate {
         permit.validate_authenticated(packet.session_instance)?;
         Ok((**permit).clone())
     }
+    /// Retain one original encrypted-ingress envelope while its existing
+    /// crypto owner is busy. No fresh grant, lease or session is acquired.
+    /// There is no new queue/task or lock held over sleep. Both contention
+    /// and capacity share one 250 ms operation deadline.
+    async fn ready_inbound(
+        &self,
+        packet: &InboundPacket,
+        deadline: Instant,
+    ) -> Result<FramePermit, AdmissionError> {
+        timeout_at(deadline, async {
+            loop {
+                if Instant::now() >= deadline {
+                    return Err(AdmissionError::Timeout);
+                }
+                match self.inbound_permit(packet) {
+                    Err(AdmissionError::Contended) => sleep(Duration::from_millis(1)).await,
+                    result => return result,
+                }
+            }
+        })
+        .await
+        .map_err(|_| AdmissionError::Timeout)?
+    }
     /// Use the existing upstream channel, not another unbounded queue. Reserve
     /// first, then validate the original identity before committing the packet.
     pub(crate) async fn queue_inbound(
@@ -279,12 +302,13 @@ impl PacketGate {
         sender: &mpsc::Sender<InboundPacket>,
         packet: InboundPacket,
     ) -> Result<(), AdmissionError> {
-        let permit = self.inbound_permit(&packet)?;
-        let slot = timeout(Duration::from_millis(250), sender.reserve())
+        let deadline = Instant::now() + Duration::from_millis(250);
+        self.ready_inbound(&packet, deadline).await?;
+        let slot = timeout_at(deadline, sender.reserve())
             .await
             .map_err(|_| AdmissionError::Timeout)?
             .map_err(|_| AdmissionError::PortClosed)?;
-        permit.validate()?;
+        self.ready_inbound(&packet, deadline).await?;
         slot.send(packet);
         Ok(())
     }
@@ -296,18 +320,19 @@ impl PacketGate {
         bytes: &[u8],
     ) -> Result<usize, AdmissionError> {
         check_packet(bytes)?;
-        let permit = self.inbound_permit(packet)?;
+        let deadline = Instant::now() + Duration::from_millis(250);
+        let permit = self.ready_inbound(packet, deadline).await?;
         let parsed = IpPacket::new(bytes).map_err(|_| AdmissionError::InvalidPacket)?;
         if parsed.src_addr_string() != permit.grant().address().to_string()
             || parsed.dst_addr_string() != self.authority.address().to_string()
         {
             return Err(AdmissionError::AddressMismatch);
         }
-        let slot = timeout(Duration::from_millis(250), self.to_stack.reserve())
+        let slot = timeout_at(deadline, self.to_stack.reserve())
             .await
             .map_err(|_| AdmissionError::Timeout)?
             .map_err(|_| AdmissionError::PortClosed)?;
-        permit.validate()?;
+        let permit = self.ready_inbound(packet, deadline).await?;
         slot.send(FencedPacket {
             bytes: bytes.to_vec(),
             permit,

@@ -216,6 +216,13 @@ async fn inbound_admission_needs_the_actual_authenticated_session() {
     let local_plane = local.plane();
     let gate = local_plane.gate.clone();
     let mut packet = decrypt(&local, &remote, &mut remote_plane).await;
+    packet.session_instance = Some(u64::MAX);
+    assert_eq!(
+        gate.authorize_inbound(packet, local.authority.network_generation())
+            .unwrap_err(),
+        E::SessionChanged
+    );
+    let mut packet = decrypt(&local, &remote, &mut remote_plane).await;
     packet.session_instance = None;
     assert_eq!(
         gate.authorize_inbound(packet, local.authority.network_generation())
