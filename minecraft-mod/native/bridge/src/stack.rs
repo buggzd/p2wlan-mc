@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+
+static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
 
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::socket::tcp;
@@ -47,7 +50,6 @@ pub struct TcpStack {
     device: PacketDevice,
     sockets: SocketSet<'static>,
     connections: HashMap<ConnectionId, SocketHandle>,
-    next_id: u64,
     next_port: u16,
     address: Ipv4Addr,
 }
@@ -71,7 +73,6 @@ impl TcpStack {
             device,
             sockets: SocketSet::new(vec![]),
             connections: HashMap::new(),
-            next_id: 1,
             next_port: 49152,
             address,
         })
@@ -89,11 +90,13 @@ impl TcpStack {
         if self.connections.len() >= MAX_CONNECTIONS {
             return Err(StackError::Capacity);
         }
-        let id = ConnectionId(self.next_id);
-        self.next_id = self
-            .next_id
-            .checked_add(1)
-            .ok_or(StackError::IdentityExhausted)?;
+        let id = ConnectionId(
+            NEXT_CONNECTION
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                    value.checked_add(1)
+                })
+                .map_err(|_| StackError::IdentityExhausted)?,
+        );
         let mut socket = tcp::Socket::new(
             tcp::SocketBuffer::new(vec![0; BUFFER_BYTES]),
             tcp::SocketBuffer::new(vec![0; BUFFER_BYTES]),
@@ -179,6 +182,21 @@ impl TcpStack {
 
     pub fn is_closed(&mut self, id: ConnectionId) -> Result<bool, StackError> {
         Ok(self.socket(id)?.state() == tcp::State::Closed)
+    }
+
+    pub fn local(&mut self, id: ConnectionId) -> Result<Option<SocketAddrV4>, StackError> {
+        let socket = self.socket(id)?;
+        if socket.state() == tcp::State::Listen {
+            let endpoint = socket.listen_endpoint();
+            return Ok(endpoint.addr.map(|address| {
+                let IpAddress::Ipv4(address) = address;
+                SocketAddrV4::new(address, endpoint.port)
+            }));
+        }
+        Ok(socket.local_endpoint().map(|endpoint| {
+            let IpAddress::Ipv4(address) = endpoint.addr;
+            SocketAddrV4::new(address, endpoint.port)
+        }))
     }
 
     pub fn remote(&mut self, id: ConnectionId) -> Result<Option<SocketAddrV4>, StackError> {

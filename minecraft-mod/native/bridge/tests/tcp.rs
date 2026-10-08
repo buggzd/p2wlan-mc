@@ -202,3 +202,19 @@ fn established_connection_times_out_when_peer_disappears() {
     }
     assert!(client.is_closed(connection).unwrap());
 }
+
+#[test]
+fn listener_endpoint_and_cross_stack_connection_identity_are_exact() {
+    let mut left = TcpStack::new(Ipv4Addr::new(10, 221, 0, 1), 1).unwrap();
+    let mut right = TcpStack::new(Ipv4Addr::new(10, 221, 0, 1), 1).unwrap();
+    let a = left.listen(25565).unwrap();
+    let b = right.listen(25565).unwrap();
+    assert_ne!(a, b);
+    assert_eq!(
+        left.local(a).unwrap(),
+        Some(SocketAddrV4::new(left.address(), 25565))
+    );
+    assert_eq!(left.local(b), Err(StackError::StaleConnection));
+    assert_eq!(right.local(a), Err(StackError::StaleConnection));
+    assert_eq!(left.remote(a).unwrap(), None);
+}

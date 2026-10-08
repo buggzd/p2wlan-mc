@@ -1354,6 +1354,7 @@ dependencies = [
  "p2wlan-mc-runtime",
  "p2wlan-mc-runtime-port",
  "smoltcp",
+ "socket2",
  "thiserror",
  "tokio",
 ]

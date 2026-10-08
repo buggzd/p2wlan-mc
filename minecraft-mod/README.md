@@ -59,6 +59,12 @@ Read chunks are limited to 8 KiB and retain their original authenticated crypto 
 
 The component tests use actual upstream room/peer/Noise capabilities and real local TCP sockets, including revocation between readiness and the final write. This admission component is not yet a complete TCP gateway, Agent, or Minecraft adapter.
 
+## Scoped local TCP connection bridge
+
+`ConnectionBridge` binds one local socket to one non-reusable virtual socket identity. It retains at most one 8 KiB chunk in each direction, rechecks connection/world grants when attaching delayed connect results and transferring buffered bytes, and preserves TCP half-close. An already attached local destination cannot be replaced. Application-byte inactivity is bounded to 120 seconds, separate from TCP keep-alives and peer-loss detection.
+
+The connection test exchanges 128 KB in both directions between real local sockets through the original encrypted UDP receive workers and user-space TCP stack. It also checks delayed attachment after scope closure and foreign-stack identity rejection. This component requires a supervisor to seal raw stack output before removing or replacing a flow; it is not yet a complete service registry or networking Agent.
+
 ## Native IPC codec
 
 The native protocol crate applies the same object, depth, container, node, Unicode, number-token, and decimal-scale limits as the common Java codec. Numeric IDs and decimal values are retained without floating-point rounding. Idle reads are owned by the caller's session lifetime; a partially received frame has a total two-second deadline. Cancelling a read retains its header/body progress and original deadline. Cancelling or failing a write permanently poisons that writer, preventing a second request from being appended to a partial frame.
