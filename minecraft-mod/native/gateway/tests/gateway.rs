@@ -319,3 +319,21 @@ async fn partial_local_handshakes_are_bounded_and_stop_closes_exactly_their_sock
     .await
     .expect("stopping the registration must close accepted handshake sockets");
 }
+
+#[tokio::test]
+async fn borrowed_supervisor_scope_revocation_closes_all_gateway_work() {
+    let (rig, _) = support::pair().await;
+    let (_interface, endpoint) = rig.interface();
+    let mut supervisor = ScopeOwner::new();
+    let mut gateway = TcpGateway::with_lifetime(endpoint, 1, supervisor.token()).unwrap();
+    let service = gateway.register_host(target(25565)).unwrap();
+    assert!(gateway.contains_registration(service.id));
+    supervisor.revoke();
+    assert!(!gateway.contains_registration(service.id));
+    assert!(matches!(
+        gateway.tick(),
+        Err(GatewayError::Admission(AdmissionError::RuntimeClosed))
+    ));
+    assert!(gateway.status().closed);
+    assert_eq!(gateway.status().tcp_sockets, 0);
+}

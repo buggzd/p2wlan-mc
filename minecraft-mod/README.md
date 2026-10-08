@@ -73,7 +73,7 @@ Local endpoints use a 40-byte prelude: an eight-byte protocol marker and a 32-by
 
 Raw stack output is sealed with the current flow's original fenced grant before flow removal. A 128-frame backpressure queue retains those envelopes for at most 250 ms and never refreshes authorization on retry. Receive contention retains the original envelope in a single additional packet-port slot with the same 250 ms total deadline. Status exposes bounded resource counts, a saturating failure count, and typed failure reasons rather than interpreting logs.
 
-The gateway tests carry three concurrent, capability-guarded local streams through the original encrypted UDP workers, including fragmented preludes, coalesced game bytes, bidirectional payloads, and half-close. They also verify registration/handshake capacity, shutdown, peer and port-owner revocation, and stale proxy backlog rejection. The target guards in the native gateway tests are fixtures. The Java guard below is separately tested; the full networking Agent, Fabric lifecycle/UI, and Minecraft login/world verification are not yet implemented.
+The gateway tests carry three concurrent, capability-guarded local streams through the original encrypted UDP workers, including fragmented preludes, coalesced game bytes, bidirectional payloads, and half-close. They also verify registration/handshake capacity, shutdown, peer and port-owner revocation, and stale proxy backlog rejection. The target guards in the native gateway tests are fixtures. The Java guard below is separately tested; the Agent account/room workflow, Fabric lifecycle/UI, and Minecraft login/world verification are not yet implemented.
 
 ## Java world guard
 
@@ -110,4 +110,19 @@ python3 minecraft-mod/tools/java.py test
 python3 minecraft-mod/tools/java.py interop
 ```
 
-The subprocess tests use actual native fault-fixture processes to verify concurrency, queue bounds, timeout, malformed/partial replies, stale snapshots/owners, immutable completions, stderr pressure, process replacement, and child/thread cleanup. They do not provide Control login, room management, the networking Agent executable, or Minecraft integration.
+The subprocess tests use actual native fault-fixture processes to verify concurrency, queue bounds, timeout, malformed/partial replies, stale snapshots/owners, immutable completions, stderr pressure, process replacement, and child/thread cleanup. They do not prove Control login, room management, the networking Agent lifecycle, or Minecraft integration.
+
+## Native Agent entry and runtime supervisor
+
+The independent `p2wlan-mc-agent` executable uses the framed IPC protocol and CSPRNG process/runtime owners. It accepts `ping`, `status`, `start`, `stop`, `host`, `proxy`, `close_registration`, and `shutdown` operations. `start` consumes a private IPC configuration for an authenticated, managed `room-` network and returns a fenced runtime ID while startup proceeds; it is not an account-login operation. OS interface/routing integration remains disabled by the authorized userspace backend, and this entry disables daemon diagnostics listeners, DNS and port mappings.
+
+The Agent owns one original daemon and one gateway. Startup is bounded to 15 seconds and daemon stop to two seconds. Host/proxy/stop commands must identify that exact runtime; registration closure also checks the caller's immutable scope/world tag. Binding metadata is bounded by and revalidated against the gateway's authoritative registrations. The stdin producer owns a revocable lifetime token that survives through final upstream packet writes: EOF or invalid input invalidates old application grants even while cleanup is pending. No extra fifth scope is required. A 32-request queue has a 250 ms admission deadline, the idle heartbeat limit is six seconds, and the native runtime uses two async worker threads with at most eight blocking workers.
+
+Request IDs may arrive out of order, but may not repeat. Non-evicting ID ranges compact adjacent IDs and are bounded to 128 disjoint intervals; capacity failure terminates the IPC session rather than allowing replay. Replies and increasing-revision status events retain the native owner. Configuration, credentials and local capabilities are never written into replies as diagnostics or used to drive control flow through logs.
+
+```sh
+python3 minecraft-mod/tools/native.py build -p p2wlan-mc-agent --locked
+python3 minecraft-mod/tools/native.py test -p p2wlan-mc-agent
+```
+
+Actual-child tests verify owner uniqueness, out-of-order request handling, typed command rejection, duplicate/foreign-owner termination, stdin EOF, heartbeat expiry and bounded shutdown. The configured daemon/Control/Relay lifecycle has not yet been integration-tested through this executable. Account/room RPCs, private profile persistence, service discovery, native packaging/extraction and Minecraft adapters remain unavailable; this executable is not yet an installable Mod.

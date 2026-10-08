@@ -12,6 +12,9 @@ pub const MAX_REGISTRATIONS: usize = 8;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct RegistrationId(u64);
 impl RegistrationId {
+    pub fn opaque(self) -> String {
+        format!("{:016x}", self.0)
+    }
     pub(crate) fn allocate() -> Result<Self, GatewayError> {
         NEXT_REGISTRATION
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {

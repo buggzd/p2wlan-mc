@@ -1335,6 +1335,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "p2wlan-mc-agent"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "hex",
+ "p2wlan-mc-gateway",
+ "p2wlan-mc-protocol",
+ "p2wlan-mc-runtime-port",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "p2wlan-mc-bridge"
 version = "0.1.0"
 dependencies = [

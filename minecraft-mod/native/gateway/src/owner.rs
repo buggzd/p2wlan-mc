@@ -6,7 +6,7 @@ use crate::{
 };
 use p2wlan_mc_bridge::{ConnectionId, TcpStack, MAX_CONNECTIONS, PACKET_CAPACITY};
 use p2wlan_mc_runtime_port::{
-    AdmissionError, FencedPacket, FencedPacketEndpoint, PeerGrant, ScopeOwner,
+    AdmissionError, FencedPacket, FencedPacketEndpoint, PeerGrant, ScopeOwner, ScopeToken,
 };
 use std::collections::{HashMap, VecDeque};
 use std::net::{Ipv4Addr, SocketAddrV4};
@@ -98,7 +98,9 @@ pub struct GatewayStatus {
 pub struct TcpGateway {
     endpoint: FencedPacketEndpoint,
     stack: TcpStack,
-    lifetime: ScopeOwner,
+    lifetime: ScopeToken,
+    lifetime_owner: Option<ScopeOwner>,
+    closed: bool,
     generation: u64,
     started: Instant,
     registrations: HashMap<RegistrationId, Registration>,
@@ -112,6 +114,21 @@ pub struct TcpGateway {
 }
 impl TcpGateway {
     pub fn new(endpoint: FencedPacketEndpoint, seed: u64) -> Result<Self, GatewayError> {
+        let owner = ScopeOwner::new();
+        let mut gateway = Self::with_lifetime(endpoint, seed, owner.token())?;
+        gateway.lifetime_owner = Some(owner);
+        Ok(gateway)
+    }
+    /// Borrow one non-cloneable supervisor lifetime owner. Its revocation is
+    /// retained through final upstream UDP/Relay sends without a fifth scope.
+    pub fn with_lifetime(
+        endpoint: FencedPacketEndpoint,
+        seed: u64,
+        lifetime: ScopeToken,
+    ) -> Result<Self, GatewayError> {
+        if !lifetime.is_live() {
+            return Err(AdmissionError::ScopeClosed.into());
+        }
         if !endpoint.authority().is_running() {
             return Err(AdmissionError::RuntimeClosed.into());
         }
@@ -120,7 +137,9 @@ impl TcpGateway {
         Ok(Self {
             endpoint,
             stack,
-            lifetime: ScopeOwner::new(),
+            lifetime,
+            lifetime_owner: None,
+            closed: false,
             generation,
             started: Instant::now(),
             registrations: HashMap::new(),
@@ -133,9 +152,12 @@ impl TcpGateway {
             last_failure: None,
         })
     }
+    pub fn contains_registration(&self, id: RegistrationId) -> bool {
+        !self.closed && self.lifetime.is_live() && self.registrations.contains_key(&id)
+    }
     pub fn status(&self) -> GatewayStatus {
         GatewayStatus {
-            closed: !self.lifetime.token().is_live(),
+            closed: self.closed || !self.lifetime.is_live(),
             registrations: self.registrations.len(),
             connections: self.flows.len(),
             tcp_sockets: self.stack.connection_count(),
@@ -147,7 +169,7 @@ impl TcpGateway {
         }
     }
     fn check_current(&self) -> Result<(), GatewayError> {
-        if !self.lifetime.token().is_live() || !self.endpoint.authority().is_running() {
+        if self.closed || !self.lifetime.is_live() || !self.endpoint.authority().is_running() {
             return Err(AdmissionError::RuntimeClosed.into());
         }
         if self.generation != self.endpoint.authority().network_generation() {
@@ -202,7 +224,7 @@ impl TcpGateway {
         let grant = self
             .endpoint
             .authority()
-            .peer_grant(peer_id, self.lifetime.token())
+            .peer_grant(peer_id, self.lifetime.clone())
             .await?
             .with_scope(lifetime.token())?;
         self.check_current()?;
@@ -267,7 +289,8 @@ impl TcpGateway {
         Ok(())
     }
     pub fn shutdown(&mut self) {
-        self.lifetime.revoke();
+        self.closed = true;
+        self.lifetime_owner = None;
         self.connects = JoinSet::new();
         self.registrations.clear();
         self.flows.clear();
@@ -616,7 +639,7 @@ impl TcpGateway {
         let grant = packet
             .permit()
             .grant()
-            .with_scope(self.lifetime.token())?
+            .with_scope(self.lifetime.clone())?
             .with_scope(registration.lifetime.token())?;
         let RegistrationKind::Host { listener, .. } = &mut registration.kind else {
             return Err(GatewayError::WrongTarget);
