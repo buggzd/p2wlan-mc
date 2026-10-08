@@ -34,7 +34,7 @@ def probe_artifacts(messages):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server"))
+    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client"))
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     wrapper = PROJECT / "java/gradlew"
@@ -45,7 +45,7 @@ def main():
     if sys.platform == "darwin":
         selected = subprocess.check_output(["/usr/libexec/java_home", "-v", "21"], text=True).strip()
         env["JAVA_HOME"] = selected
-    tasks = {"test": [":common:protocolTest", ":common:worldGuardTest", ":common:nativeBundleTest", ":common:agentLifecycleTest"], "fabric-build": ["-PfabricAdapter", ":fabric:build"], "fabric-server": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runServer"], "bundle-test": [":common:bundledAgentTest", ":common:bundledLifecycleTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
+    tasks = {"test": [":common:protocolTest", ":common:worldGuardTest", ":common:nativeBundleTest", ":common:agentLifecycleTest", ":common:accountCatalogTest"], "fabric-build": ["-PfabricAdapter", ":fabric:build"], "fabric-server": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runServer"], "fabric-client": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runClient"], "bundle-test": [":common:bundledAgentTest", ":common:bundledLifecycleTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
     if args.command == "interop":
         from native import build_command, prepare
         prepare()
@@ -58,7 +58,7 @@ def main():
             binaries = probe_artifacts(artifacts)
         except (ValueError, TypeError) as error:
             parser.error(str(error))
-        tasks["interop"] = [":common:codecInteropTest", ":common:agentClientTest", ":common:worldGuardTest",
+        tasks["interop"] = [":common:codecInteropTest", ":common:agentClientTest", ":common:worldGuardTest", ":common:uiCompletionTest",
                             "-PnativeProbe=" + binaries["frame_probe"], "-PagentProbe=" + binaries["agent_probe"],
                             "-PworldGuardProbe=" + binaries["world_guard_probe"]]
     return subprocess.call([gradle, "--no-daemon", *tasks[args.command], *args.args], cwd=PROJECT / "java", env=env)

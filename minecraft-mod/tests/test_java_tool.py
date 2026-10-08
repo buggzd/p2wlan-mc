@@ -25,6 +25,17 @@ class JavaToolTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 java.probe_artifacts(items)
 
+    def test_client_run_verifies_artifact_and_forwards_explicit_development_property(self):
+        with patch("sys.argv", ["java.py", "fabric-client", "-PdevelopmentNative", "--offline"]), \
+                patch.object(java.subprocess, "check_output", return_value="fixture-jdk\n"), \
+                patch.object(java.subprocess, "call", return_value=0) as run:
+            self.assertEqual(java.main(), 0)
+            command = run.call_args.args[0]
+            self.assertLess(command.index(":fabric:verifyModJar"), command.index(":fabric:runClient"))
+            self.assertIn("-PfabricAdapter", command)
+            self.assertIn("-PdevelopmentNative", command)
+            self.assertIn("--offline", command)
+
     def test_compiler_diagnostics_are_not_lost_while_capturing_json_artifacts(self):
         output = json.dumps({"reason": "compiler-message", "message": {"rendered": "fixture diagnostic\n"}})
         with patch("sys.stderr", new_callable=io.StringIO) as stream:

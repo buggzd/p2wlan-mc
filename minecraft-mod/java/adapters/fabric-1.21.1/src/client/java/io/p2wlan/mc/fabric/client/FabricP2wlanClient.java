@@ -2,6 +2,13 @@ package io.p2wlan.mc.fabric.client;
 
 import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.fabric.FabricP2wlan;
+import io.p2wlan.mc.fabric.client.screen.AccountScreen;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.Screens;
+import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.gui.screen.GameMenuScreen;
+import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
+import net.minecraft.client.gui.widget.ButtonWidget;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
@@ -12,9 +19,18 @@ import net.minecraft.text.Text;
 public final class FabricP2wlanClient implements ClientModInitializer {
     @Override public void onInitializeClient() {
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> FabricP2wlan.AGENT.start());
-        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> FabricP2wlan.AGENT.close());
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> { AccountScreen.shutdownRequests(); FabricP2wlan.AGENT.close(); });
+        ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+            if (screen instanceof TitleScreen || screen instanceof MultiplayerScreen || screen instanceof GameMenuScreen) {
+                Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("P2WLAN"), button -> client.setScreen(new AccountScreen(screen)))
+                        .dimensions(Math.max(4, width - 104), 4, 100, 20).build());
+            }
+        });
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registry) -> dispatcher.register(
-                ClientCommandManager.literal("p2wlan-client").then(ClientCommandManager.literal("status").executes(context -> {
+                ClientCommandManager.literal("p2wlan-client").executes(context -> {
+                    var client = context.getSource().getClient();
+                    client.setScreen(new AccountScreen(client.currentScreen)); return 1;
+                }).then(ClientCommandManager.literal("status").executes(context -> {
                     AgentLifecycle.Status status = FabricP2wlan.AGENT.status();
                     context.getSource().sendFeedback(Text.literal("P2WLAN helper: " + status.phase()
                             + (status.reason() == null ? "" : " / " + status.reason())));

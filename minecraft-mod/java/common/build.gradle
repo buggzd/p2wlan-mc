@@ -74,3 +74,21 @@ tasks.register('bundledLifecycleTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.common.AgentLifecycleTests'
     args '--bundled'
 }
+
+tasks.register('accountCatalogTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.AccountCatalogTests'
+}
+check.dependsOn accountCatalogTest
+
+tasks.register('uiCompletionTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.UiCompletionGateTests'
+    def probe = providers.gradleProperty('agentProbe')
+    if (probe.isPresent()) args(probe.get())
+    doFirst {
+        if (!probe.isPresent()) throw new GradleException('Run minecraft-mod/tools/java.py interop')
+    }
+}

@@ -103,6 +103,14 @@ public final class AgentLifecycle implements AutoCloseable {
         synchronized (gate) { return !closing && phase == Phase.READY && bundle != null
                 && bundle.client() == client && !client.isClosed(); }
     }
+    /** Nonblocking lookup; unlike ready().copy(), polling this creates no
+     * pending future/listener while native startup is still in progress. */
+    public java.util.Optional<AgentClient> current() {
+        synchronized (gate) {
+            return !closing && phase == Phase.READY && bundle != null && !bundle.client().isClosed()
+                    ? java.util.Optional.of(bundle.client()) : java.util.Optional.empty();
+        }
+    }
     public Status status() { synchronized (gate) { return new Status(phase, reason); } }
     private void stop(Throwable failure) {
         BundledAgent owner;

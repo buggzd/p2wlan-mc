@@ -75,7 +75,7 @@ Each hosted registration also receives a fresh 256-bit remote service identity. 
 
 Raw stack output is sealed with the current flow's original fenced grant before flow removal. A 128-frame backpressure queue retains those envelopes for at most 250 ms and never refreshes authorization on retry. Receive contention retains the original envelope in a single additional packet-port slot with the same 250 ms total deadline. Status exposes bounded resource counts, a saturating failure count, and typed failure reasons rather than interpreting logs.
 
-The gateway tests carry three concurrent, capability-guarded local streams through the original encrypted UDP workers, including fragmented preludes, coalesced game bytes, bidirectional payloads, and half-close. They also verify registration/handshake capacity, shutdown, peer and port-owner revocation, stale proxy backlog rejection, and rejection of old world metadata before any target accept. The target guards in the native gateway tests are fixtures. The Java guard below is separately tested; the managed account/room entry is described below. Fabric lifecycle/UI and Minecraft login/world integration remain unavailable.
+The gateway tests carry three concurrent, capability-guarded local streams through the original encrypted UDP workers, including fragmented preludes, coalesced game bytes, bidirectional payloads, and half-close. They also verify registration/handshake capacity, shutdown, peer and port-owner revocation, stale proxy backlog rejection, and rejection of old world metadata before any target accept. The target guards in the native gateway tests are fixtures. The Java guard below is separately tested; the managed account/room entry is described below. Minecraft login/world integration remains unavailable.
 
 ## One-shot service discovery
 
@@ -143,7 +143,7 @@ python3 minecraft-mod/tools/native.py build -p p2wlan-mc-agent --locked
 python3 minecraft-mod/tools/native.py test -p p2wlan-mc-agent
 ```
 
-Actual-child tests verify owner uniqueness, out-of-order request handling, typed command rejection, duplicate/foreign-owner termination, stdin EOF, heartbeat expiry and bounded shutdown. Service discovery, native packaging/extraction and Minecraft adapters remain unavailable; this executable is not yet an installable Mod.
+Actual-child tests verify owner uniqueness, out-of-order request handling, typed command rejection, duplicate/foreign-owner termination, stdin EOF, heartbeat expiry and bounded shutdown. These process-only tests do not prove playable Minecraft integration.
 
 ## Managed account and room profiles
 
@@ -215,10 +215,13 @@ For explicitly labelled development resources and a development build:
 python3 minecraft-mod/tools/native_bundle.py --development --offline
 python3 minecraft-mod/tools/java.py fabric-build -PdevelopmentNative
 python3 minecraft-mod/tools/java.py fabric-server -PdevelopmentNative
+python3 minecraft-mod/tools/java.py fabric-client -PdevelopmentNative
 ```
 
 `fabric-server` uses Loom's development server; it does not accept or rewrite Minecraft's EULA. Game/account terms must be accepted by the user before a playable server can run. The development property permits development manifests in the build check and forwards the same explicit opt-in to Loom's development JVM. A normally installed adapter rejects development-native resources by default.
 
 The common loader entrypoint contains no client initialization. Dedicated-server lifecycle events start the native helper off the game thread and close it when the server stops. On a client, the helper lifetime follows the application rather than individual integrated worlds. The shared `AgentLifecycle` is single-use: one startup worker, one 40-second startup deadline, no retry/work queue, immediate revocation on close, and identity checks before an asynchronous client reference can be used. Late startup completion closes its own child rather than publishing a revoked owner.
 
-The dedicated-server `/p2wlan status` command requires permission level 4. The client command is `/p2wlan-client status`. They show helper process/IPC readiness and stable startup/cleanup reason codes, **not** overlay-room connection or Minecraft-world readiness. This bootstrap currently has **no** in-game account/room UI, host-world registration, proxy-preface injection or playable P2WLAN join flow; a compiled bootstrap jar is not a completed multiplayer Mod.
+The dedicated-server `/p2wlan status` command requires permission level 4. The client command is `/p2wlan-client status`. They show helper process/IPC readiness and stable startup/cleanup reason codes, **not** overlay-room connection or Minecraft-world readiness. The client exposes a P2WLAN button in the title, multiplayer and pause menus; bare `/p2wlan-client` opens the same account screen. The screens support explicit login/register, saved-account room membership, bounded paging, refresh, create/join/leave membership and logout. Password fields mask rendering and narration, block copy/cut and clear widget retention after submission/removal/resize; Java strings are not securely zeroisable. No Minecraft/Microsoft credential is required by these screens.
+
+A shared completion gate permits at most one native account request or queued game-thread presentation. Process/view identity is rechecked at the actual presentation boundary; closing a screen discards late presentation without replaying or claiming to undo a native mutation. Buttons follow the native idle snapshot, not an independently maintained account/runtime state machine. Membership operations do **not** connect the overlay runtime or join a Minecraft world. Host-world registration, proxy-preface injection and playable P2WLAN joining are not yet available; a compiled UI jar is not a completed multiplayer Mod. Real-client screen rendering has not been verified.
