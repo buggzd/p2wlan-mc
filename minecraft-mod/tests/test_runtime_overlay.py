@@ -1,12 +1,15 @@
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
+import sys
 import tomllib
 import unittest
 
 PROJECT = Path(__file__).resolve().parents[1]
 ROOT = PROJECT.parent
+sys.path.insert(0, str(PROJECT / "tools"))
 spec = importlib.util.spec_from_file_location("prepare_runtime", PROJECT / "tools/prepare_runtime.py")
 overlay = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(overlay)
@@ -28,10 +31,46 @@ class RuntimeOverlayTests(unittest.TestCase):
             self.assertIn("if !userspace", runtime)
             self.assertIn("run_with_packet_factory", runtime)
             self.assertIn("factory(&self.config)", runtime)
+            self.assertIn("run_with_authorized_packet_factory", runtime)
+            self.assertIn("with_application_port", (destination / "src/lib/daemon/dataplane_tasks.rs").read_text())
+            self.assertIn("fence.is_current()", (destination / "src/rooms.rs").read_text())
+            self.assertIn("deliver_inbound(&packet", (destination / "src/dataplane/core.rs").read_text())
+            inbound = (destination / "src/transport/inbound.rs").read_text()
+            self.assertLess(inbound.index("port.authorize_inbound(inbound, generation)"),
+                            inbound.index("let decrypt_completed ="))
+            self.assertIn("port.queue_inbound(&inbound_tx, inbound)", inbound)
+            self.assertIn("mc_application_permit", (destination / "src/transport/sessions/decryption.rs").read_text())
+            metadata = json.loads((destination / "UPSTREAM.json").read_text())
+            for name, digest in metadata["adapters_sha256"].items():
+                self.assertEqual(digest, hashlib.sha256((PROJECT / "native/runtime-overlay" / name).read_bytes()).hexdigest())
+            for name, digest in metadata["build_tools_sha256"].items():
+                self.assertEqual(digest, hashlib.sha256((PROJECT / "tools" / name).read_bytes()).hexdigest())
             dependencies = tomllib.loads((destination / "Cargo.toml").read_text())["dependencies"]
             self.assertTrue((destination / dependencies["p2wlan-mc-bridge"]["path"] / "Cargo.toml").is_file())
             self.assertIn("Option<mc_embed::PacketInterface>", (destination / "src/lib/daemon/dataplane_tasks.rs").read_text())
         self.assertEqual(before, {p: hashlib.sha256(p.read_bytes()).digest() for p in files})
+
+    def test_application_handoff_transforms_reject_missing_repeated_or_already_adapted_sources(self):
+        from runtime_fencing import adapt_dataplane, adapt_rooms, adapt_inbound, adapt_transport, adapt_decryption
+        upstream = ROOT / "client/daemon/src"
+        for transform, path in ((adapt_dataplane, "dataplane/core.rs"), (adapt_rooms, "rooms.rs"),
+                (adapt_inbound, "transport/inbound.rs"), (adapt_transport, "transport/sessions.rs"),
+                (adapt_decryption, "transport/sessions/decryption.rs")):
+            source = (upstream / path).read_text()
+            adapted = transform(source)
+            for invalid in ("", source + source, adapted):
+                with self.subTest(path=path, kind=len(invalid)):
+                    with self.assertRaises(overlay.ContractError):
+                        transform(invalid)
+
+    def test_identical_preparation_preserves_all_generated_file_timestamps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "generated"
+            overlay.prepare(ROOT, destination)
+            before = {path: path.stat().st_mtime_ns for path in destination.rglob("*") if path.is_file()}
+            overlay.prepare(ROOT, destination)
+            after = {path: path.stat().st_mtime_ns for path in destination.rglob("*") if path.is_file()}
+            self.assertEqual(before, after)
 
     def test_generated_descendant_cannot_redirect_writes_into_upstream(self):
         with tempfile.TemporaryDirectory() as directory:

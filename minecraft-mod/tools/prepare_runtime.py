@@ -13,13 +13,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 ROOT = PROJECT.parent
 DESTINATION = PROJECT / "native/target/upstream-runtime"
 
-class ContractError(RuntimeError):
-    pass
-
-def replace_once(source: str, before: str, after: str, label: str) -> str:
-    if source.count(before) != 1:
-        raise ContractError(f"upstream_contract_changed:{label}")
-    return source.replace(before, after, 1)
+from source_contract import ContractError, replace_once
 
 def adapt_run(source: str) -> str:
     source = replace_once(source,
@@ -30,15 +24,28 @@ def adapt_run(source: str) -> str:
 
     /// Run the unchanged network owner with a user-space packet interface.
     pub async fn run_with_packet_factory(&mut self, factory: mc_embed::PacketFactory) -> Result<()> {
-        self.run_backend(Some(factory)).await
+        self.run_backend(Some(mc_embed::RuntimePacketFactory::Raw(factory))).await
     }
 
-    async fn run_backend(&mut self, factory: Option<mc_embed::PacketFactory>) -> Result<()> {
+    pub async fn run_with_authorized_packet_factory(&mut self, factory: mc_embed::AuthorizedPacketFactory) -> Result<()> {
+        self.run_backend(Some(mc_embed::RuntimePacketFactory::Authorized(factory))).await
+    }
+
+    async fn run_backend(&mut self, factory: Option<mc_embed::RuntimePacketFactory>) -> Result<()> {
         let userspace = factory.is_some();""", "run-entry")
     source = replace_once(source,
         "        let tun = self.init_tun_with(&virtual_ip, &netmask, self.config.network.mtu)?;",
         """        let tun = if let Some(factory) = factory {
-            Some(factory(&self.config)?)
+            Some(match factory {
+                mc_embed::RuntimePacketFactory::Raw(factory) => factory(&self.config)?,
+                mc_embed::RuntimePacketFactory::Authorized(factory) => {
+                    let authority = mc_embed::ApplicationAuthority::new(
+                        &self.config, self.peers.clone(), self.control.room_authorization().await,
+                        self.transport.clone(), self.shutdown_rx.clone(),
+                    ).map_err(|error| DaemonError::Config(error.to_string()))?;
+                    factory(mc_embed::PacketContext { config: (*self.config).clone(), authority })?
+                }
+            })
         } else {
             self.init_tun_with(&virtual_ip, &netmask, self.config.network.mtu)?
                 .map(mc_embed::PacketInterface::system)
@@ -106,13 +113,40 @@ def write_changed(path: Path, data: bytes):
         path.write_bytes(data)
 
 def prepare(root: Path = ROOT, destination: Path = DESTINATION) -> Path:
+    from runtime_fencing import adapt_dataplane, adapt_rooms, adapt_transport, adapt_decryption, adapt_inbound
     upstream = root / "client/daemon"
+    sources = {path.relative_to(upstream).as_posix(): path.read_bytes()
+        for path in sorted((upstream / "src").rglob("*.rs"))}
+    def source(relative):
+        return sources[relative].decode("utf-8")
     # Validate all anchors before producing any output. An upstream change must
     # never silently select a nearby function or an experimental data path.
-    run = adapt_run((upstream / "src/lib/daemon/run.rs").read_text())
-    dataplane = replace_once((upstream / "src/lib/daemon/dataplane_tasks.rs").read_text(),
+    run = adapt_run(source("src/lib/daemon/run.rs"))
+    dataplane = replace_once(source("src/lib/daemon/dataplane_tasks.rs"),
         "        tun: Option<TunDevice>,", "        tun: Option<mc_embed::PacketInterface>,", "dataplane-type")
-    library = (upstream / "src/lib.rs").read_text()
+    dataplane = replace_once(dataplane,
+        """            let (dataplane, outbound_rx, inbound_tx) = DataPlane::new_bidirectional(tun, peers);""",
+        """            let application_port = tun.application_gate();
+            let (dataplane, outbound_rx, inbound_tx) = DataPlane::new_bidirectional(tun, peers);
+            let dataplane = dataplane.with_application_port(application_port.clone());""", "application-port-install")
+    before = """                            inbound_evidence,
+                        )"""
+    if dataplane.count(before) != 3:
+        raise ContractError("upstream_contract_changed:application-inbound-startup")
+    dataplane = dataplane.replace(before, """                            inbound_evidence,
+                            application_port,
+                        )""", 1)
+    dataplane = dataplane.replace(before, """                            inbound_evidence,
+                            None,
+                        )""")
+    adapted = {
+        "src/dataplane/core.rs": adapt_dataplane(source("src/dataplane/core.rs")),
+        "src/transport/inbound.rs": adapt_inbound(source("src/transport/inbound.rs")),
+        "src/transport/sessions/decryption.rs": adapt_decryption(source("src/transport/sessions/decryption.rs")),
+        "src/rooms.rs": adapt_rooms(source("src/rooms.rs")),
+        "src/transport/sessions.rs": adapt_transport(source("src/transport/sessions.rs")),
+    }
+    library = source("src/lib.rs")
     if "pub mod mc_embed" in library:
         raise ContractError("upstream_already_defines_packet_adapter")
     library += "\n// Build-only Minecraft port; the upstream source is never edited.\npub mod mc_embed;\n"
@@ -125,21 +159,33 @@ def prepare(root: Path = ROOT, destination: Path = DESTINATION) -> Path:
             for name in directories + files:
                 if (Path(current) / name).is_symlink():
                     raise ContractError("generated_descendant_is_symlink")
-    inputs = {}
-    for path in sorted((upstream / "src").rglob("*.rs")):
-        relative = path.relative_to(upstream)
+    # Generate each overridden file once. Writing the raw file and then its
+    # adaptation creates transient unadapted sources and needless rebuilds.
+    overrides = {"src/lib.rs": library, "src/lib/daemon/run.rs": run,
+        "src/lib/daemon/dataplane_tasks.rs": dataplane} | adapted
+    generated = {relative: content.encode() for relative, content in overrides.items()}
+    adapters = {}
+    for path in sorted((PROJECT / "native/runtime-overlay").glob("*.rs")):
+        relative = "src/" + path.name
+        if relative in sources:
+            raise ContractError("upstream_already_defines_adapter_source")
         data = path.read_bytes()
-        inputs[relative.as_posix()] = hashlib.sha256(data).hexdigest()
+        adapters[path.name] = hashlib.sha256(data).hexdigest()
+        generated[relative] = data
+    # Validate manifest contracts and read build inputs before producing output.
+    package_manifest = manifest(root, destination).encode()
+    build_script = (upstream / "build.rs").read_bytes()
+    inputs = {relative: hashlib.sha256(data).hexdigest() for relative, data in sources.items()}
+    for relative, data in sources.items():
+        write_changed(destination / relative, generated.pop(relative, data))
+    for relative, data in generated.items():
         write_changed(destination / relative, data)
-    write_changed(destination / "src/lib.rs", library.encode())
-    write_changed(destination / "src/lib/daemon/run.rs", run.encode())
-    write_changed(destination / "src/lib/daemon/dataplane_tasks.rs", dataplane.encode())
-    adapter = (PROJECT / "native/runtime-overlay/mc_embed.rs").read_bytes()
-    write_changed(destination / "src/mc_embed.rs", adapter)
-    write_changed(destination / "build.rs", (upstream / "build.rs").read_bytes())
-    write_changed(destination / "Cargo.toml", manifest(root, destination).encode())
+    write_changed(destination / "build.rs", build_script)
+    write_changed(destination / "Cargo.toml", package_manifest)
+    build_tools = {name: hashlib.sha256((PROJECT / "tools" / name).read_bytes()).hexdigest()
+        for name in ("prepare_runtime.py", "runtime_fencing.py", "source_contract.py")}
     metadata = {"schema": 1, "source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
-        "upstream_sources": inputs, "adapter_sha256": hashlib.sha256(adapter).hexdigest()}
+        "upstream_sources": inputs, "adapters_sha256": adapters, "build_tools_sha256": build_tools}
     write_changed(destination / "UPSTREAM.json", (json.dumps(metadata, sort_keys=True, indent=2) + "\n").encode())
     return destination
 

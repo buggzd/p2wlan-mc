@@ -29,6 +29,16 @@ def build_command(command, arguments):
     return result
 
 
+def overlay_format_command(arguments):
+    # Overlay sources are Mod-owned. skip_children forbids rustfmt following
+    # module paths outside these explicit files, just as package selection
+    # prevents Cargo fmt from rewriting upstream path dependencies.
+    result = ["rustfmt", "--edition", "2021", "--config", "skip_children=true"]
+    if "--check" in arguments:
+        result.append("--check")
+    return result + [str(path) for path in sorted((PROJECT / "native/runtime-overlay").glob("*.rs"))]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("test", "check", "build", "fmt", "clippy"))
@@ -38,6 +48,10 @@ def main():
         command = build_command(args.command, args.args)
     except ValueError as error:
         parser.error(str(error))
+    if args.command == "fmt":
+        status = subprocess.call(overlay_format_command(args.args), cwd=PROJECT)
+        if status:
+            return status
     prepare()
     return subprocess.call(command, cwd=PROJECT)
 

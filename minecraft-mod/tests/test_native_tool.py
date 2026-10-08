@@ -23,6 +23,13 @@ class NativeCommandTests(unittest.TestCase):
         self.assertNotIn("p2wlan-mc-runtime", selected)
         self.assertEqual(command[-2:], ["--", "--check"])
 
+    def test_overlay_formatter_never_follows_upstream_module_paths(self):
+        command = native.overlay_format_command(["--all", "--", "--check"])
+        self.assertEqual(command[:6], ["rustfmt", "--edition", "2021", "--config", "skip_children=true", "--check"])
+        files = sorted((PROJECT / "native/runtime-overlay").glob("*.rs"))
+        self.assertEqual(command[6:], [str(path) for path in files])
+        self.assertNotIn("--check", native.overlay_format_command([]))
+
     def test_external_manifest_and_formatter_arguments_are_rejected(self):
         for command in ("fmt", "check", "build", "test", "clippy"):
             for arguments in (["--manifest-path", "Cargo.toml"], ["--manifest-path=Cargo.toml"]):
