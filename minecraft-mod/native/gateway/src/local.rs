@@ -3,7 +3,7 @@ use p2wlan_mc_runtime_port::PeerGrant;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
@@ -61,7 +61,15 @@ impl LocalTarget {
                 .write_all(&self.key.prelude())
                 .await
                 .map_err(GatewayError::Io)?;
+            let mut ready = [0u8; 1];
+            socket
+                .read_exact(&mut ready)
+                .await
+                .map_err(GatewayError::Io)?;
             grant.validate()?;
+            if ready != [1] {
+                return Err(GatewayError::LocalKeyMismatch);
+            }
             Ok(socket)
         })
         .await
@@ -113,7 +121,6 @@ impl LocalPrelude {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::AsyncReadExt;
     use tokio::net::TcpListener;
     #[tokio::test]
     async fn nonce_deadline_is_total_and_never_consumes_following_game_bytes() {

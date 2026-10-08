@@ -25,10 +25,10 @@ def probe_artifacts(messages):
         if item.get("reason") != "compiler-artifact" or not item.get("executable"):
             continue
         name = item.get("target", {}).get("name")
-        if name not in {"frame_probe", "agent_probe"} or name in binaries:
+        if name not in {"frame_probe", "agent_probe", "world_guard_probe"} or name in binaries:
             raise ValueError("native_probe_artifacts_ambiguous")
         binaries[name] = item["executable"]
-    if set(binaries) != {"frame_probe", "agent_probe"}:
+    if set(binaries) != {"frame_probe", "agent_probe", "world_guard_probe"}:
         raise ValueError("native_probe_artifacts_missing")
     return binaries
 
@@ -45,11 +45,11 @@ def main():
     if sys.platform == "darwin":
         selected = subprocess.check_output(["/usr/libexec/java_home", "-v", "21"], text=True).strip()
         env["JAVA_HOME"] = selected
-    tasks = {"test": [":common:protocolTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
+    tasks = {"test": [":common:protocolTest", ":common:worldGuardTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
     if args.command == "interop":
         from native import build_command, prepare
         prepare()
-        result = subprocess.run(build_command("build", ["-p", "p2wlan-mc-protocol", "--examples", "--locked", "--message-format=json"]),
+        result = subprocess.run(build_command("build", ["-p", "p2wlan-mc-protocol", "-p", "p2wlan-mc-gateway", "--examples", "--locked", "--message-format=json"]),
                                 cwd=PROJECT, text=True, stdout=subprocess.PIPE)
         try:
             artifacts = cargo_messages(result.stdout)
@@ -58,8 +58,9 @@ def main():
             binaries = probe_artifacts(artifacts)
         except (ValueError, TypeError) as error:
             parser.error(str(error))
-        tasks["interop"] = [":common:codecInteropTest", ":common:agentClientTest",
-                            "-PnativeProbe=" + binaries["frame_probe"], "-PagentProbe=" + binaries["agent_probe"]]
+        tasks["interop"] = [":common:codecInteropTest", ":common:agentClientTest", ":common:worldGuardTest",
+                            "-PnativeProbe=" + binaries["frame_probe"], "-PagentProbe=" + binaries["agent_probe"],
+                            "-PworldGuardProbe=" + binaries["world_guard_probe"]]
     return subprocess.call([gradle, "--no-daemon", *tasks[args.command], *args.args], cwd=PROJECT / "java", env=env)
 
 if __name__ == "__main__":

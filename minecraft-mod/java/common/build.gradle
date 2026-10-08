@@ -37,3 +37,12 @@ tasks.register('agentClientTest', JavaExec) {
         if (!probe.isPresent()) throw new GradleException('Run minecraft-mod/tools/java.py interop')
     }
 }
+
+tasks.register('worldGuardTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.WorldGuardTests'
+    def probe = providers.gradleProperty('worldGuardProbe')
+    if (probe.isPresent()) args(probe.get())
+}
+check.dependsOn worldGuardTest

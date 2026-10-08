@@ -190,6 +190,7 @@ async fn service_registry_multiplexes_guarded_local_streams_through_original_enc
                     let mut prelude = [0; LOCAL_PRELUDE_BYTES];
                     socket.read_exact(&mut prelude).await.unwrap();
                     assert_eq!(prelude, key.prelude());
+                    socket.write_all(&[1]).await.unwrap();
                     let mut buffer = [0; 8192];
                     loop {
                         let count = socket.read(&mut buffer).await.unwrap();

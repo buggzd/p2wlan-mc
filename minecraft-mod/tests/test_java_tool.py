@@ -17,9 +17,9 @@ def artifact(name):
 
 class JavaToolTests(unittest.TestCase):
     def test_actual_cargo_artifacts_are_required_not_guessed_target_paths(self):
-        messages = [artifact("frame_probe"), artifact("agent_probe")]
+        messages = [artifact("frame_probe"), artifact("agent_probe"), artifact("world_guard_probe")]
         self.assertEqual(java.probe_artifacts(messages),
-                         {"frame_probe": "fixture/frame_probe", "agent_probe": "fixture/agent_probe"})
+                         {"frame_probe": "fixture/frame_probe", "agent_probe": "fixture/agent_probe", "world_guard_probe": "fixture/world_guard_probe"})
         for items in ([], [artifact("frame_probe")], messages + [artifact("frame_probe")],
                       messages + [artifact("unexpected")]):
             with self.assertRaises(ValueError):
