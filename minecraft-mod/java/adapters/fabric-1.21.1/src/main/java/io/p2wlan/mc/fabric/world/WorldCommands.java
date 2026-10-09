@@ -49,7 +49,7 @@ public final class WorldCommands {
     }
     private static int disconnect(ServerCommandSource source) {
         var world = FabricWorlds.current(source.getServer()); var client = FabricP2wlan.AGENT.current().orElse(null);
-        var runtime = client == null ? null : RuntimeView.ready(client).orElse(null);
+        var runtime = client == null ? null : RuntimeView.active(client).orElse(null);
         if (world == null || runtime == null) { source.sendError(Text.literal("NOT_READY")); return 0; }
         // All command admission is serialized on this exact server thread.
         if (world.commands().busy()) { source.sendError(Text.literal("CAPACITY")); return 0; }

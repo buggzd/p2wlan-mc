@@ -54,6 +54,22 @@ abstract class AgentScreen extends Screen {
                     && phase.getAsString().equals("idle");
         }).orElse(false);
     }
+    protected java.util.function.BooleanSupplier viewFence() { AtomicBoolean captured = view; return captured::get; }
+    protected interface TaskAction<T> { void accept(T value) throws AgentException; }
+    protected <T> void task(java.util.function.Supplier<java.util.concurrent.CompletableFuture<T>> source, java.util.function.BooleanSupplier scope, TaskAction<T> callback) {
+        AgentClient agent = agent();
+        if (agent == null) { message = "NOT_READY"; return; }
+        AtomicBoolean captured = view;
+        message = "处理中 / Working…";
+        try {
+            REQUESTS.submitTask(source, () -> FabricP2wlan.AGENT.isCurrent(agent) && scope.getAsBoolean(), captured::get,
+                action -> client.execute(() -> { if (client.currentScreen != this) captured.set(false); action.run(); }),
+                (value, error) -> {
+                    if (error != null) { message = UiCompletionGate.reason(error); return; }
+                    try { callback.accept(value); } catch (AgentException invalid) { message = UiCompletionGate.reason(invalid); }
+                });
+        } catch (AgentException invalid) { message = UiCompletionGate.reason(invalid); }
+    }
     protected boolean actionsEnabled() { return idle(); }
     protected interface ReplyAction { void accept(AgentReply reply) throws AgentException; }
     protected void request(String operation, JsonObject arguments, ReplyAction callback) {

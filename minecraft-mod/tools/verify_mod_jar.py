@@ -21,13 +21,16 @@ MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.fabric.mixin", "compa
 BIND_MAPPING = {"io/p2wlan/mc/fabric/mixin/ServerNetworkIoMixin": {"bind": "Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V"}}
 REFMAP = {"mappings": BIND_MAPPING, "data": {"named:intermediary": BIND_MAPPING}}
 CLIENT_MIXIN = "io/p2wlan/mc/fabric/mixin/ClientConnectionMixin.class"
+INTEGRATED_MIXIN = "io/p2wlan/mc/fabric/mixin/IntegratedServerMixin.class"
 CLIENT_MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.fabric.mixin", "compatibilityLevel": "JAVA_21",
-                       "client": ["ClientConnectionMixin"], "injectors": {"defaultRequire": 1},
+                       "client": ["ClientConnectionMixin", "IntegratedServerMixin"], "injectors": {"defaultRequire": 1},
                        "refmap": "client-p2wlan-fabric-1.21.1-refmap.json"}
 CONNECT_MAPPING = {"io/p2wlan/mc/fabric/mixin/ClientConnectionMixin": {
     "connect(Ljava/net/InetSocketAddress;ZLnet/minecraft/network/ClientConnection;)Lio/netty/channel/ChannelFuture;":
     "Lnet/minecraft/class_2535;method_52271(Ljava/net/InetSocketAddress;ZLnet/minecraft/class_2535;)Lio/netty/channel/ChannelFuture;"}}
-CLIENT_REFMAP = {"mappings": CONNECT_MAPPING, "data": {"named:intermediary": CONNECT_MAPPING}}
+INTEGRATED_MAPPING = {"io/p2wlan/mc/fabric/mixin/IntegratedServerMixin": {"isRemote": "Lnet/minecraft/class_1132;method_3860()Z"}}
+CLIENT_MAPPING = CONNECT_MAPPING | INTEGRATED_MAPPING
+CLIENT_REFMAP = {"mappings": CLIENT_MAPPING, "data": {"named:intermediary": CLIENT_MAPPING}}
 MIXINS = ["p2wlan.mixins.json", {"config": "p2wlan.client.mixins.json", "environment": "client"}]
 FIELDS = {"schema", "protocol", "version", "source-revision", "source-sha256", "build-kind", "os", "arch",
           "executable-sha256", "executable-size", "verification-platform"}
@@ -129,6 +132,7 @@ def verify(path, development=False):
         if metadata(archive, CLIENT_MIXIN_CONFIG["refmap"]) != CLIENT_REFMAP:
             raise VerificationError("mod_client_mixin_refmap")
         classfile(archive, CLIENT_MIXIN, 65)
+        classfile(archive, INTEGRATED_MIXIN, 65)
         server_mixin = classfile(archive, SERVER_MIXIN, 65)
         if b"net/minecraft/client/" in server_mixin or b"io/p2wlan/mc/fabric/client/" in server_mixin:
             raise VerificationError("mod_dedicated_client_reference")

@@ -24,6 +24,7 @@ public final class FabricP2wlanClient implements ClientModInitializer {
     @Override public void onInitializeClient() {
         // Force the required exact-version transformation before any join intent.
         MinecraftConnect.supported();
+        FabricWorlds.IntegratedHooks.class.isAssignableFrom(net.minecraft.server.integrated.IntegratedServer.class);
         ClientTickEvents.END_CLIENT_TICK.register(FabricGameJoins::tick);
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> FabricP2wlan.AGENT.start());
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> { AccountScreen.shutdownRequests(); FabricGameJoins.shutdown(); FabricWorlds.shutdown(); FabricP2wlan.AGENT.close(); });

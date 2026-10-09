@@ -44,7 +44,7 @@ class ModJarTests(unittest.TestCase):
         top = {"fabric.mod.json": json.dumps(metadata), "p2wlan.mixins.json": json.dumps(verify.MIXIN_CONFIG),
                verify.MIXIN_CONFIG["refmap"]: json.dumps(verify.REFMAP), verify.SERVER_MIXIN: bytecode(65), verify.MAIN: bytecode(65), verify.CLIENT: bytecode(65),
                "p2wlan.client.mixins.json": json.dumps(verify.CLIENT_MIXIN_CONFIG),
-               verify.CLIENT_MIXIN_CONFIG["refmap"]: json.dumps(verify.CLIENT_REFMAP), verify.CLIENT_MIXIN: bytecode(65),
+               verify.CLIENT_MIXIN_CONFIG["refmap"]: json.dumps(verify.CLIENT_REFMAP), verify.CLIENT_MIXIN: bytecode(65), verify.INTEGRATED_MIXIN: bytecode(65),
                "META-INF/jars/common.jar": jar(common), "META-INF/jars/native.jar": jar(native)}
         return top, metadata, common, native
 
@@ -114,6 +114,23 @@ class ModJarTests(unittest.TestCase):
             top, _, _, _ = self.fixture()
             top[verify.MIXIN_CONFIG["refmap"]] = json.dumps(mapping)
             with self.assertRaisesRegex(verify.VerificationError, "mod_mixin_refmap"):
+                self.check(top)
+
+    def test_integrated_pause_hook_is_required_and_exactly_mapped(self):
+        top, _, _, _ = self.fixture()
+        del top[verify.INTEGRATED_MIXIN]
+        with self.assertRaises(verify.VerificationError):
+            self.check(top)
+        top, _, _, _ = self.fixture()
+        config = verify.CLIENT_MIXIN_CONFIG | {"client": ["ClientConnectionMixin"]}
+        top["p2wlan.client.mixins.json"] = json.dumps(config)
+        with self.assertRaisesRegex(verify.VerificationError, "mod_client_mixin_contract"):
+            self.check(top)
+        for mapping in ({"mappings": verify.CONNECT_MAPPING, "data": {"named:intermediary": verify.CONNECT_MAPPING}},
+                        {"mappings": verify.CLIENT_MAPPING | {"io/p2wlan/mc/fabric/mixin/IntegratedServerMixin": {"isRemote": "Lnet/minecraft/class_1132;method_3860(I)Z"}}, "data": {"named:intermediary": verify.CLIENT_MAPPING}}):
+            top, _, _, _ = self.fixture()
+            top[verify.CLIENT_MIXIN_CONFIG["refmap"]] = json.dumps(mapping)
+            with self.assertRaisesRegex(verify.VerificationError, "mod_client_mixin_refmap"):
                 self.check(top)
 
     def test_client_hook_is_required_client_only_and_exactly_mapped(self):

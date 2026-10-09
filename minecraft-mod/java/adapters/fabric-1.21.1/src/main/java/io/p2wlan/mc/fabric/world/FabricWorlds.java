@@ -2,6 +2,8 @@ package io.p2wlan.mc.fabric.world;
 
 import io.p2wlan.mc.common.AgentClient;
 import io.p2wlan.mc.common.RuntimeView;
+import io.p2wlan.mc.common.ScheduledTaskGate;
+import java.time.Duration;
 import io.p2wlan.mc.common.UiCompletionGate;
 import io.p2wlan.mc.common.WorldHost;
 import io.p2wlan.mc.common.WorldHostException;
@@ -16,27 +18,35 @@ import net.minecraft.server.ServerNetworkIo;
 /** Sole local Minecraft-world owner. All mutable access is on the server thread;
  * workers receive only a revocable identity and final server network handle. */
 public final class FabricWorlds {
+    /** Required client-only IntegratedServer hook, never a dedicated dependency. */
+    public interface IntegratedHooks {}
     public static final class World {
         private final MinecraftServer server;
         private final ServerNetworkIo network;
         private final AtomicBoolean live = new AtomicBoolean(true);
         private volatile WorldHost host;
+        private final ScheduledTaskGate intents = new ScheduledTaskGate(Duration.ofSeconds(3));
         private final UiCompletionGate commands = new UiCompletionGate();
         private World(MinecraftServer server) { this.server = server; network = server.getNetworkIo(); }
         public boolean isCurrent() { return live.get() && CURRENT.get() == this; }
         public MinecraftServer server() { return server; }
+        public ScheduledTaskGate intents() { return intents; }
         public UiCompletionGate commands() { return commands; }
         public WorldHost.Status status() { WorldHost value = host; return value == null ? null : value.status(); }
         public void host() throws WorldHostException {
-            if (!isCurrent()) throw new WorldHostException(WorldHostException.Code.WORLD_CHANGED);
+            host(RuntimeView.ready(FabricP2wlan.AGENT.current().orElse(null)).orElse(null));
+        }
+        /** Captured runtime is not reacquired after a queued client intent. */
+        public void host(RuntimeView runtime) throws WorldHostException {
+            if (!isCurrent() || !server.isOnThread()) throw new WorldHostException(WorldHostException.Code.WORLD_CHANGED);
             if (host != null && !host.isReleased()) throw new WorldHostException(WorldHostException.Code.CAPACITY);
             AgentClient client = FabricP2wlan.AGENT.current().orElse(null);
-            RuntimeView runtime = client == null ? null : RuntimeView.ready(client).orElse(null);
-            if (runtime == null) throw new WorldHostException(WorldHostException.Code.RUNTIME_CHANGED);
-            host = WorldHost.start(client, runtime, this::isCurrent, fence -> new LoopbackBind(network, fence));
+            if (runtime == null || !runtime.isCurrent(client)) throw new WorldHostException(WorldHostException.Code.RUNTIME_CHANGED);
+            host = WorldHost.start(client, runtime, () -> isCurrent() && FabricP2wlan.AGENT.isCurrent(client), fence -> new LoopbackBind(network, fence));
         }
         public void unhost() { WorldHost value = host; if (value != null) value.revoke(); }
-        private void revoke() { live.set(false); commands.close(); unhost(); }
+        private boolean hosted() { WorldHost value = host; return isCurrent() && value != null && value.status().phase() == WorldHost.Phase.HOSTED && value.isCurrent(); }
+        private void revoke() { live.set(false); intents.close(); commands.close(); unhost(); }
         private void tick() {
             WorldHost value = host;
             if (value != null && !value.isCurrent()) value.revoke();
@@ -49,6 +59,8 @@ public final class FabricWorlds {
     public static World current(MinecraftServer server) {
         World value = CURRENT.get(); return value != null && value.server == server && value.isCurrent() ? value : null;
     }
+    /** Derived from the one exact local world/publication owner, never cached. */
+    public static boolean hosted(MinecraftServer server) { World value = current(server); return value != null && value.hosted(); }
     public static void initialize() {
         // Force required hook transformation during bootstrap, without binding
         // a listener, loading a world or accepting the Minecraft EULA.
