@@ -21,6 +21,10 @@
     "fabric-api": "*"
   },
   "mixins": [
-    "p2wlan.mixins.json"
+    "p2wlan.mixins.json",
+    {
+      "config": "p2wlan.client.mixins.json",
+      "environment": "client"
+    }
   ]
 }

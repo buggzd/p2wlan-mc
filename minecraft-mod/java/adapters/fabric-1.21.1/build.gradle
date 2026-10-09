@@ -67,3 +67,10 @@ tasks.register('joinTransportTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.fabric.connect.ProxyPreludeTests'
 }
 check.dependsOn joinTransportTest
+
+tasks.register('clientBootstrapTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.fabric.connect.ScopedClientConnectTests'
+}
+check.dependsOn clientBootstrapTest

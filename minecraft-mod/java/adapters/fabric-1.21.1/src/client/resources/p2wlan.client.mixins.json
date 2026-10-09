@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "io.p2wlan.mc.fabric.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": ["ClientConnectionMixin"],
+  "injectors": {"defaultRequire": 1}
+}

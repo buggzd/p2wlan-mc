@@ -105,6 +105,12 @@ The Fabric adapter's `ProxyPrelude` component wraps one Netty initializer/socket
 
 The component fences inbound/outbound pipeline delivery against its attempt owner and closes on out-of-order traffic, wrong target, expiry or revocation. Actual Netty/socket tests check delayed initialization, ordering, timeout, cancellation, late write completion, target mismatch, revoked buffer release and a 128 KB round trip. The component is **not yet wired to Minecraft's connection screen/initializer**; these tests do not establish game joining, loader startup, online authentication or remote world ticking.
 
+## Scoped Minecraft client bootstrap hook
+
+The client-only, required `ClientConnectionMixin` redirects the exact Fabric 1.21.1 `ClientConnection.connect(InetSocketAddress, boolean, ClientConnection)` initializer installation. `ScopedClientConnect` captures one exact connection identity and loopback capability in a synchronous thread-local scope before asynchronous channel initialization. The hook installs `ProxyPrelude` only for this explicit operation; ordinary Vanilla connections and queries keep their original initializer. Missing transformation, nested/repeated consumption, wrong connection/target and retired attempts fail with stable `JOIN_BOOTSTRAP_*` codes. No address-matching registry, background work queue or transport retry is added.
+
+The client configuration is explicitly client-only in Fabric metadata and has its own required refmap. Archive verification checks both configurations, their exact game-method mappings and class versions. Bootstrap admission tests use fake marker identities, not Minecraft transformation; they do not prove real client startup or gameplay. The game connection screen has not yet been connected to this hook.
+
 ## Java world guard
 
 `WorldGuard` owns one immutable world identity and capability-protected loopback endpoint. A single nonblocking selector thread forwards at most 32 accepted connections, with two 8 KiB buffers per connection. The guard reads exactly the 40-byte capability prelude, connects only to a validated loopback game target, and sends a one-byte readiness acknowledgement only after that target connects. Handshake/target readiness has a two-second total deadline; stream-byte inactivity is bounded to 120 seconds. Partial writes retain their buffers and TCP half-close is preserved.
