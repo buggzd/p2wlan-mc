@@ -74,3 +74,21 @@ tasks.register('clientBootstrapTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.fabric.connect.ScopedClientConnectTests'
 }
 check.dependsOn clientBootstrapTest
+
+// Test-only source set/mod/run. It is absent from every ordinary build and run,
+// never included/remapped into the production artifact or enabled by default.
+if (providers.gradleProperty('clientHookFixture').isPresent()) {
+    def fixture = sourceSets.create('clientFixture')
+    fixture.compileClasspath += sourceSets.client.output + sourceSets.client.compileClasspath
+    fixture.runtimeClasspath += sourceSets.client.output + sourceSets.client.runtimeClasspath
+    loom.mods.register('p2wlan_client_hook_test') { sourceSet fixture }
+    loom.runs.register('clientFixture') {
+        inherit loom.runs.client
+        name 'P2WLAN isolated client hook fixture'
+        source fixture
+        runDir providers.gradleProperty('clientFixtureDirectory').get()
+        property 'p2wlan.fixture.run', providers.gradleProperty('clientFixtureRun').get()
+        property 'p2wlan.fixture.result', providers.gradleProperty('clientFixtureResult').get()
+        ideConfigGenerated false
+    }
+}

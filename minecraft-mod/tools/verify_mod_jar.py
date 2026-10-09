@@ -115,6 +115,8 @@ def native_manifest(archive, name, version, development):
 def verify(path, development=False):
     with zipfile.ZipFile(path) as archive:
         entries(archive)
+        if any(name.startswith("io/p2wlan/mc/fabric/fixture/") for name in archive.namelist()):
+            raise VerificationError("mod_test_fixture_present")
         info = metadata(archive)
         depends = info.get("depends")
         if type(info.get("schemaVersion")) is not int or info.get("schemaVersion") != 1 or not isinstance(depends, dict) or info.get("id") != "p2wlan" or info.get("version") != "0.1.0" \

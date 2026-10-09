@@ -116,6 +116,12 @@ class ModJarTests(unittest.TestCase):
             with self.assertRaisesRegex(verify.VerificationError, "mod_mixin_refmap"):
                 self.check(top)
 
+    def test_isolated_client_fixture_cannot_leak_into_production_archive(self):
+        top, _, _, _ = self.fixture()
+        top["io/p2wlan/mc/fabric/fixture/ClientHookFixture.class"] = bytecode(65)
+        with self.assertRaisesRegex(verify.VerificationError, "mod_test_fixture_present"):
+            self.check(top)
+
     def test_integrated_pause_hook_is_required_and_exactly_mapped(self):
         top, _, _, _ = self.fixture()
         del top[verify.INTEGRATED_MIXIN]

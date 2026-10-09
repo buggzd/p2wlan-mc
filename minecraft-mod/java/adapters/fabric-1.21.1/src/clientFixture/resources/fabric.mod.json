@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "p2wlan_client_hook_test",
+  "version": "1.0.0",
+  "name": "P2WLAN isolated client hook fixture",
+  "environment": "client",
+  "entrypoints": {"client": ["io.p2wlan.mc.fabric.fixture.ClientHookFixture"]},
+  "depends": {"p2wlan": "*", "minecraft": "1.21.1", "java": ">=21"}
+}
