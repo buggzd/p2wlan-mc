@@ -38,7 +38,7 @@ class JavaToolTests(unittest.TestCase):
 
     def test_account_commands_do_not_configure_or_launch_minecraft(self):
         for command, expected in (("account-test", ":account-cli:accountTest"),
-                                  ("account-build", ":account-cli:installDist")):
+                                  ("account-build", ":account-cli:verifyAccountDistribution")):
             with patch("sys.argv", ["java.py", command, "--offline"]), \
                     patch.object(java.subprocess, "check_output", return_value="fixture-jdk\n"), \
                     patch.object(java.subprocess, "call", return_value=0) as run:

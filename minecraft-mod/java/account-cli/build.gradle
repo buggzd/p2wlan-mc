@@ -20,3 +20,16 @@ tasks.register('accountTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.account.AccountToolTests'
 }
 check.dependsOn accountTest
+
+distributions.main.distributionBaseName = 'p2wlan-account'
+// Installed launchers and the zip must contain identical, source-bound native
+// resources. No development bundle is silently admitted into a release build.
+tasks.register('verifyAccountDistribution', Exec) {
+    dependsOn installDist, distZip
+    doFirst {
+        commandLine 'python3', rootProject.file('../tools/verify_account_dist.py'),
+                tasks.named('installDist').get().destinationDir,
+                '--zip', tasks.named('distZip').get().archiveFile.get().asFile
+        if (providers.gradleProperty('developmentNative').isPresent()) args '--development'
+    }
+}

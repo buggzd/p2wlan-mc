@@ -1,5 +1,12 @@
 plugins { id 'java-library' }
 
+// Resources only. Do not inherit the build JDK's Java-21 variant requirement:
+// common/account consumers are Java-17, while loader adapters may use Java-21.
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
 // The tracked entry point produces host-specific resources, never downloads an
 // executable. No successful empty jar is allowed when packaging has not run.
 sourceSets.main.resources.srcDir layout.buildDirectory.dir('generatedResources')
