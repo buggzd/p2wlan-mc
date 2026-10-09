@@ -121,3 +121,11 @@ tasks.register('joinProxyTest', JavaExec) {
         if (!probe.isPresent()) throw new GradleException('Run minecraft-mod/tools/java.py interop')
     }
 }
+
+// Explicit harness: success requires the bounded scheduling assertions to run.
+tasks.register('scheduledTaskTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.ScheduledTaskGateTests'
+}
+check.dependsOn scheduledTaskTest

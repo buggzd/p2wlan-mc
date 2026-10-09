@@ -78,6 +78,7 @@ public final class UiCompletionGate implements AutoCloseable {
     /** Stable code only, never a server body, URL, credential or stderr. */
     public static String reason(Throwable error) {
         error = unwrap(error);
+        if (error instanceof ScheduledTaskException scheduled) return scheduled.code().name();
         if (error instanceof AgentException agent) return agent.remoteCode() == null ? agent.code().name() : agent.remoteCode();
         if (error instanceof NativeBundleException nativeError) return nativeError.code().name();
         return "INVALID_REPLY";

@@ -45,7 +45,7 @@ def main():
     if sys.platform == "darwin":
         selected = subprocess.check_output(["/usr/libexec/java_home", "-v", "21"], text=True).strip()
         env["JAVA_HOME"] = selected
-    tasks = {"test": [":common:protocolTest", ":common:worldGuardTest", ":common:nativeBundleTest", ":common:agentLifecycleTest", ":common:accountCatalogTest", ":common:networkCatalogTest"], "fabric-build": ["-PfabricAdapter", ":fabric:build"], "fabric-server": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runServer"], "fabric-client": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runClient"], "bundle-test": [":common:bundledAgentTest", ":common:bundledLifecycleTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
+    tasks = {"test": [":common:protocolTest", ":common:worldGuardTest", ":common:nativeBundleTest", ":common:agentLifecycleTest", ":common:accountCatalogTest", ":common:networkCatalogTest", ":common:scheduledTaskTest"], "fabric-build": ["-PfabricAdapter", ":fabric:build"], "fabric-server": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runServer"], "fabric-client": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runClient"], "bundle-test": [":common:bundledAgentTest", ":common:bundledLifecycleTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
     if args.command == "interop":
         from native import build_command, prepare
         prepare()
