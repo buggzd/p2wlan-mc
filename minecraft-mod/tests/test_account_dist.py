@@ -13,6 +13,9 @@ import test_mod_jar as fixtures
 
 class AccountDistributionTests(unittest.TestCase):
     def setUp(self):
+        self.jna_binding = fixtures.jna_fixture_binding()
+        self.jna_binding.start()
+        self.addCleanup(self.jna_binding.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
@@ -22,7 +25,8 @@ class AccountDistributionTests(unittest.TestCase):
         _, _, self.common, self.native = fixtures.ModJarTests().fixture()
         self.cli = {verify.MAIN + ".class": fixtures.bytecode(61)}
         for filename, values in (("account-cli-0.1.0.jar", self.cli), ("common-0.1.0.jar", self.common),
-                                 ("native-bundle-0.1.0.jar", self.native), ("gson-2.10.1.jar", {"META-INF/MANIFEST.MF": b"fixture"})):
+                                 ("native-bundle-0.1.0.jar", self.native), ("gson-2.10.1.jar", {"META-INF/MANIFEST.MF": b"fixture"}),
+                                 ("jna-5.14.0.jar", fixtures.JNA_FIXTURE)):
             self.write(filename, values)
         script = verify.MAIN.replace("/", ".") + " " + " ".join(sorted(verify.LIBRARIES))
         for name in ("p2wlan-account", "p2wlan-account.bat"):
@@ -46,6 +50,14 @@ class AccountDistributionTests(unittest.TestCase):
         verify.verify_zip(self.archive, self.directory)
         with self.assertRaisesRegex(verify.VerificationError, "mod_development_native_disabled"):
             verify.verify(self.directory)
+
+    def test_jna_payload_and_standalone_dependency_are_required(self):
+        self.write("jna-5.14.0.jar", {"META-INF/MANIFEST.MF": b"empty dependency"})
+        with self.assertRaisesRegex(verify.VerificationError, "mod_jna_payload"):
+            verify.verify(self.directory, True)
+        (self.directory / "lib/jna-5.14.0.jar").unlink()
+        with self.assertRaisesRegex(verify.VerificationError, "account_distribution_layout"):
+            verify.verify(self.directory, True)
 
     def test_windows_native_name_and_zip_are_exact(self):
         _, _, _, native = fixtures.ModJarTests().fixture(platform="windows-x86_64")

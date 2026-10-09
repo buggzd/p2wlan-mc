@@ -1,6 +1,9 @@
 plugins { id 'java-library' }
 
-dependencies { api 'com.google.code.gson:gson:2.10.1' }
+dependencies {
+    api 'com.google.code.gson:gson:2.10.1'
+    implementation 'net.java.dev.jna:jna:5.14.0'
+}
 
 tasks.withType(JavaCompile).configureEach {
     options.release = 17
@@ -136,3 +139,17 @@ tasks.register('scheduledTaskTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.common.ScheduledTaskGateTests'
 }
 check.dependsOn scheduledTaskTest
+
+// Portable security/identity decisions, not a substitute for real Windows.
+tasks.register('windowsNativePolicyTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.WindowsNativePolicyTests'
+}
+check.dependsOn windowsNativePolicyTest
+
+tasks.register('windowsNativeFilesystemTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.WindowsNativeFilesystemTests'
+}

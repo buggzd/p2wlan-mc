@@ -17,6 +17,9 @@ import test_mod_jar as fixtures
 
 class HmclPackTests(unittest.TestCase):
     def setUp(self):
+        self.jna_binding = fixtures.jna_fixture_binding()
+        self.jna_binding.start()
+        self.addCleanup(self.jna_binding.stop)
         self.api = fixtures.jar({"fabric.mod.json": json.dumps({"id": "fabric-api", "version": pack.API_VERSION})})
         # Synthetic archives test the contract only. The production checksum has
         # no CLI override, and an actual Maven artifact is required by Gradle.

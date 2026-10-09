@@ -48,6 +48,20 @@ def metadata(archive, name="fabric.mod.json"):
     return value
 
 
+# Critical JNA 5.14.0 payloads are byte-bound even when Loom adds Fabric
+# metadata to the enclosing dependency jar. This is integrity, not a signature.
+JNA_PAYLOADS = {
+    "com/sun/jna/Native.class": "527878811901063e116e0e9ac5ae41c4fccd73405931a821ec913f9c2cb4f922",
+    "com/sun/jna/win32-x86-64/jnidispatch.dll": "69c45175ecfd25af023f96ac0bb2c45e6a95e3ba8a5a50ee7969ccab14825c44",
+}
+
+
+def jna_payloads(archive):
+    for name, expected in JNA_PAYLOADS.items():
+        if name not in archive.namelist() or hashlib.sha256(read(archive, name, 1024 * 1024)).hexdigest() != expected:
+            raise VerificationError("mod_jna_payload")
+
+
 def native_manifest(archive, name, version, development):
     raw = read(archive, name, 4096)
     if not raw.endswith(b"\n") or any(value != 10 and not 32 <= value <= 126 for value in raw):

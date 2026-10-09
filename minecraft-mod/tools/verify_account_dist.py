@@ -7,12 +7,12 @@ import os
 import subprocess
 from pathlib import Path
 import zipfile
-from artifact_checks import MAX_BINARY, VerificationError, bind_sources, classfile, entries, native_manifest, read, PLATFORMS, executable_name
+from artifact_checks import MAX_BINARY, VerificationError, bind_sources, classfile, entries, native_manifest, read, PLATFORMS, executable_name, jna_payloads
 
 VERSION = "0.1.0"
 MAIN = "io/p2wlan/mc/account/AccountTool"
 COMMON = "io/p2wlan/mc/common/BundledAgent.class"
-LIBRARIES = {f"account-cli-{VERSION}.jar", f"common-{VERSION}.jar", f"native-bundle-{VERSION}.jar", "gson-2.10.1.jar"}
+LIBRARIES = {f"account-cli-{VERSION}.jar", f"common-{VERSION}.jar", f"native-bundle-{VERSION}.jar", "gson-2.10.1.jar", "jna-5.14.0.jar"}
 PREFIXES = (b"net/minecraft/", b"net/fabricmc/", b"net/neoforged/", b"net/minecraftforge/")
 
 
@@ -42,6 +42,8 @@ def verify(directory, development=False):
                 for name in names:
                     if name.endswith(".class") and any(value in classfile(archive, name, 61) for value in PREFIXES):
                         raise VerificationError("account_distribution_game_dependency")
+            if filename == "jna-5.14.0.jar":
+                jna_payloads(archive)
             if filename.startswith("native-bundle-"):
                 manifests = sorted(name for name in names if name.startswith("p2wlan/native/") and name.endswith("/manifest.properties"))
                 natives = [native_manifest(archive, name, VERSION, development) for name in manifests]

@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import zipfile
 
-from artifact_checks import MAX_BINARY, VerificationError, entries, read, classfile, metadata, native_manifest, bind_sources, PLATFORMS, executable_name
+from artifact_checks import MAX_BINARY, VerificationError, entries, read, classfile, metadata, native_manifest, bind_sources, PLATFORMS, executable_name, jna_payloads
 
 MAIN = "io/p2wlan/mc/fabric/FabricP2wlan.class"
 CLIENT = "io/p2wlan/mc/fabric/client/FabricP2wlanClient.class"
@@ -66,6 +66,7 @@ def verify(path, development=False):
         if not isinstance(children, list) or not 1 <= len(children) <= 8:
             raise VerificationError("mod_nested_resources_missing")
         common_count = 0
+        jna_count = 0
         natives = []
         child_names = set()
         for item in children:
@@ -75,6 +76,9 @@ def verify(path, development=False):
             child_names.add(item["file"])
             with zipfile.ZipFile(io.BytesIO(read(archive, item["file"], MAX_BINARY))) as child:
                 names = entries(child)
+                if "com/sun/jna/Native.class" in names:
+                    jna_payloads(child)
+                    jna_count += 1
                 if COMMON in names:
                     common_count += 1
                     for name in names:
@@ -89,6 +93,8 @@ def verify(path, development=False):
                     raise VerificationError("mod_native_resource_unexpected")
                 natives.extend(resources)
         platforms = [item["verification-platform"] for item in natives]
+        if jna_count != 1:
+            raise VerificationError("mod_jna_resources_ambiguous")
         if common_count != 1 or not natives or len(platforms) > len(PLATFORMS) or len(set(platforms)) != len(platforms):
             raise VerificationError("mod_native_resources_ambiguous")
         return natives

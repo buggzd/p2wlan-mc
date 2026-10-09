@@ -47,6 +47,17 @@ class JavaToolTests(unittest.TestCase):
             self.assertIn("-PhmclPlatform=windows-x86_64", command)
             self.assertFalse(any("runClient" in item or "runServer" in item for item in command))
 
+    def test_windows_native_harness_is_explicit_and_never_launches_a_game(self):
+        with patch("sys.argv", ["java.py", "windows-native-test", "--offline"]), \
+                patch.object(java.subprocess, "check_output", return_value="fixture-jdk\n"), \
+                patch.object(java.subprocess, "call", return_value=1) as run:
+            self.assertEqual(java.main(), 1)
+            command = run.call_args.args[0]
+            self.assertIn(":common:windowsNativePolicyTest", command)
+            self.assertIn(":common:windowsNativeFilesystemTest", command)
+            self.assertIn("--offline", command)
+            self.assertFalse(any("fabric" in item or "runClient" in item or "runServer" in item for item in command))
+
     def test_account_commands_do_not_configure_or_launch_minecraft(self):
         for command, expected in (("account-test", ":account-cli:accountTest"),
                                   ("account-build", ":account-cli:verifyAccountDistribution")):

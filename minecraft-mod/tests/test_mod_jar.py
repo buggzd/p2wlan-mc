@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import unittest
 import zipfile
+from unittest.mock import patch
 
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / "tools"))
@@ -26,7 +27,20 @@ def bytecode(major):
     return b"\xca\xfe\xba\xbe\x00\x00" + major.to_bytes(2, "big") + b"fixture"
 
 
+JNA_FIXTURE = {"com/sun/jna/Native.class": bytecode(52),
+               "com/sun/jna/win32-x86-64/jnidispatch.dll": b"synthetic JNI payload"}
+
+
+def jna_fixture_binding():
+    return patch("artifact_checks.JNA_PAYLOADS", {name: hashlib.sha256(value).hexdigest() for name, value in JNA_FIXTURE.items()})
+
+
 class ModJarTests(unittest.TestCase):
+    def setUp(self):
+        self.binding = jna_fixture_binding()
+        self.binding.start()
+        self.addCleanup(self.binding.stop)
+
     def fixture(self, binary=b"fixture", platform="macos-aarch64"):
         prefix = f"p2wlan/native/{platform}/"
         system, arch = platform.split("-", 1)
@@ -41,12 +55,13 @@ class ModJarTests(unittest.TestCase):
                     "entrypoints": {"main": [verify.MAIN.removesuffix(".class").replace("/", ".")],
                                     "client": [verify.CLIENT.removesuffix(".class").replace("/", ".")]},
                     "depends": {"minecraft": "1.21.1", "java": ">=21"}, "mixins": verify.MIXINS,
-                    "jars": [{"file": "META-INF/jars/common.jar"}, {"file": "META-INF/jars/native.jar"}]}
+                    "jars": [{"file": "META-INF/jars/common.jar"}, {"file": "META-INF/jars/native.jar"}, {"file": "META-INF/jars/jna.jar"}]}
         top = {"fabric.mod.json": json.dumps(metadata), "p2wlan.mixins.json": json.dumps(verify.MIXIN_CONFIG),
                verify.MIXIN_CONFIG["refmap"]: json.dumps(verify.REFMAP), verify.SERVER_MIXIN: bytecode(65), verify.MAIN: bytecode(65), verify.CLIENT: bytecode(65),
                "p2wlan.client.mixins.json": json.dumps(verify.CLIENT_MIXIN_CONFIG),
                verify.CLIENT_MIXIN_CONFIG["refmap"]: json.dumps(verify.CLIENT_REFMAP), verify.CLIENT_MIXIN: bytecode(65), verify.INTEGRATED_MIXIN: bytecode(65),
-               "META-INF/jars/common.jar": jar(common), "META-INF/jars/native.jar": jar(native)}
+               "META-INF/jars/common.jar": jar(common), "META-INF/jars/native.jar": jar(native),
+               "META-INF/jars/jna.jar": jar(JNA_FIXTURE)}
         return top, metadata, common, native
 
     def check(self, top, development=True):
@@ -57,6 +72,20 @@ class ModJarTests(unittest.TestCase):
         self.assertEqual(self.check(top)[0]["verification-platform"], "macos-aarch64")
         with self.assertRaisesRegex(verify.VerificationError, "mod_development_native_disabled"):
             self.check(top, False)
+
+    def test_jna_is_required_and_critical_windows_payload_is_byte_bound(self):
+        top, metadata, _, _ = self.fixture()
+        metadata["jars"] = metadata["jars"][:2]
+        top["fabric.mod.json"] = json.dumps(metadata)
+        with self.assertRaisesRegex(verify.VerificationError, "mod_jna_resources_ambiguous"):
+            self.check(top)
+        for missing in JNA_FIXTURE:
+            top, _, _, _ = self.fixture()
+            for values in ({name: value for name, value in JNA_FIXTURE.items() if name != missing},
+                           JNA_FIXTURE | {missing: b"altered"}):
+                top["META-INF/jars/jna.jar"] = jar(values)
+                with self.assertRaisesRegex(verify.VerificationError, "mod_jna_"):
+                    self.check(top)
 
     def test_windows_resources_have_one_exact_exe_name_and_no_stray_programs(self):
         top, _, _, native = self.fixture(platform="windows-x86_64")

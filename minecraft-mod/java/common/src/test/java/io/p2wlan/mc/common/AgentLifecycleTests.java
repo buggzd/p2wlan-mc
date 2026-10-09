@@ -1,8 +1,6 @@
 package io.p2wlan.mc.common;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -15,12 +13,8 @@ public final class AgentLifecycleTests {
         try { future.get(5, TimeUnit.SECONDS); throw new AssertionError("expected failure"); }
         catch (ExecutionException error) { checks++; return error.getCause(); }
     }
-    private static void disposeProfile(Path profile) throws Exception {
-        try (var files = Files.list(profile)) { for (Path file : files.toList()) Files.delete(file); }
-        Files.delete(profile);
-    }
     public static void main(String[] arguments) throws Exception {
-        Path profile = Files.createTempDirectory("p2wlan-lifecycle-test-", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        Path profile = TestProfiles.create("p2wlan-lifecycle-test-");
         try {
             try { new AgentLifecycle(Path.of("relative"), false); throw new AssertionError("relative profile accepted"); }
             catch (IllegalArgumentException expected) { checks++; }
@@ -84,7 +78,7 @@ public final class AgentLifecycleTests {
                 if (!ended) Thread.sleep(10);
             } while (!ended && System.nanoTime() - deadline < 0);
             check(ended);
-        } finally { disposeProfile(profile); }
+        } finally { TestProfiles.dispose(profile); }
         System.out.println("PASS application agent lifecycle: " + checks + " explicit checks" + (arguments.length == 1 ? " against actual packaged agents" : ""));
     }
 }
