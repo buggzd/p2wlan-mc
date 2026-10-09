@@ -54,14 +54,18 @@ abstract class AgentScreen extends Screen {
                     && phase.getAsString().equals("idle");
         }).orElse(false);
     }
+    protected boolean actionsEnabled() { return idle(); }
     protected interface ReplyAction { void accept(AgentReply reply) throws AgentException; }
     protected void request(String operation, JsonObject arguments, ReplyAction callback) {
+        request(operation, arguments, () -> true, callback);
+    }
+    protected void request(String operation, JsonObject arguments, java.util.function.BooleanSupplier scope, ReplyAction callback) {
         AgentClient agent = agent();
         if (agent == null) { message = "助手未就绪 / Helper not ready"; return; }
         AtomicBoolean captured = view;
         message = "处理中 / Working…";
         try {
-            REQUESTS.submit(agent, operation, arguments, () -> FabricP2wlan.AGENT.isCurrent(agent), captured::get,
+            REQUESTS.submit(agent, operation, arguments, () -> FabricP2wlan.AGENT.isCurrent(agent) && scope.getAsBoolean(), captured::get,
                 task -> client.execute(() -> { if (client.currentScreen == this) task.run(); else { captured.set(false); task.run(); } }),
                 (reply, error) -> {
                     if (error != null) { message = UiCompletionGate.reason(error); return; }
@@ -72,7 +76,7 @@ abstract class AgentScreen extends Screen {
     }
     @Override public void tick() {
         super.tick();
-        boolean enabled = agent() != null && idle() && !REQUESTS.busy();
+        boolean enabled = agent() != null && actionsEnabled() && !REQUESTS.busy();
         for (ButtonWidget button : actions) button.active = enabled;
     }
     @Override public void removed() { view.set(false); }

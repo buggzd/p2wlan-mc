@@ -4,6 +4,9 @@ import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.fabric.FabricP2wlan;
 import io.p2wlan.mc.fabric.world.FabricWorlds;
 import io.p2wlan.mc.fabric.client.screen.AccountScreen;
+import io.p2wlan.mc.fabric.client.connect.FabricGameJoins;
+import io.p2wlan.mc.fabric.client.connect.MinecraftConnect;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.gui.screen.TitleScreen;
@@ -19,18 +22,21 @@ import net.minecraft.text.Text;
 /** Client lifecycle is application-scoped, not recreated for each local world. */
 public final class FabricP2wlanClient implements ClientModInitializer {
     @Override public void onInitializeClient() {
+        // Force the required exact-version transformation before any join intent.
+        MinecraftConnect.supported();
+        ClientTickEvents.END_CLIENT_TICK.register(FabricGameJoins::tick);
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> FabricP2wlan.AGENT.start());
-        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> { AccountScreen.shutdownRequests(); FabricWorlds.shutdown(); FabricP2wlan.AGENT.close(); });
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> { AccountScreen.shutdownRequests(); FabricGameJoins.shutdown(); FabricWorlds.shutdown(); FabricP2wlan.AGENT.close(); });
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
             if (screen instanceof TitleScreen || screen instanceof MultiplayerScreen || screen instanceof GameMenuScreen) {
-                Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("P2WLAN"), button -> client.setScreen(new AccountScreen(screen)))
+                Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("P2WLAN"), button -> client.setScreen(AccountScreen.entry(screen)))
                         .dimensions(Math.max(4, width - 104), 4, 100, 20).build());
             }
         });
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registry) -> dispatcher.register(
                 ClientCommandManager.literal("p2wlan-client").executes(context -> {
                     var client = context.getSource().getClient();
-                    client.setScreen(new AccountScreen(client.currentScreen)); return 1;
+                    client.setScreen(AccountScreen.entry(client.currentScreen)); return 1;
                 }).then(ClientCommandManager.literal("status").executes(context -> {
                     AgentLifecycle.Status status = FabricP2wlan.AGENT.status();
                     context.getSource().sendFeedback(Text.literal("P2WLAN helper: " + status.phase()

@@ -1,6 +1,8 @@
 package io.p2wlan.mc.fabric.client.screen;
 
 import com.google.gson.JsonObject;
+import io.p2wlan.mc.common.RuntimeView;
+import io.p2wlan.mc.fabric.FabricP2wlan;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
@@ -11,6 +13,10 @@ public final class AccountScreen extends AgentScreen {
     private PasswordField password;
     private boolean roomsNext;
     public AccountScreen(Screen parent) { super(parent, "P2WLAN 账号 / Account"); }
+    public static Screen entry(Screen parent) {
+        var runtime = RuntimeView.active(FabricP2wlan.AGENT.current().orElse(null));
+        return runtime.<Screen>map(value -> new RuntimeScreen(parent, value)).orElseGet(() -> new AccountScreen(parent));
+    }
     @Override protected void init() {
         if (password != null) password.setText("");
         super.init();
@@ -34,6 +40,8 @@ public final class AccountScreen extends AgentScreen {
     }
     @Override public void tick() {
         super.tick();
+        var runtime = RuntimeView.active(agent());
+        if (runtime.isPresent()) { client.setScreen(new RuntimeScreen(parent, runtime.get())); return; }
         if (roomsNext && !REQUESTS.busy()) { roomsNext = false; client.setScreen(new RoomsScreen(this)); }
     }
     @Override public void removed() { if (password != null) password.setText(""); super.removed(); }

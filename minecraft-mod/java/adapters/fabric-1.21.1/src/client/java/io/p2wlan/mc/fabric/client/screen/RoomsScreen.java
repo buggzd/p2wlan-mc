@@ -2,6 +2,8 @@ package io.p2wlan.mc.fabric.client.screen;
 
 import com.google.gson.JsonObject;
 import io.p2wlan.mc.common.AccountCatalog;
+import io.p2wlan.mc.common.AgentException;
+import io.p2wlan.mc.common.RuntimeView;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 
@@ -15,7 +17,7 @@ final class RoomsScreen extends AgentScreen {
     RoomsScreen(Screen parent) { super(parent, "P2WLAN 房间成员 / Room membership"); }
     @Override protected void init() {
         super.init();
-        rows = Math.max(1, Math.min(4, (height - top - 186) / 24));
+        rows = Math.max(1, Math.min(4, (height - top - 212) / 24));
         if (catalog != null) page = Math.min(page, Math.max(0, (catalog.rooms().size() - 1) / rows));
         if (catalog != null && (agent() == null || !agent().isCurrent(catalog.evidence()))) catalog = null;
         if (catalog != null) {
@@ -35,8 +37,9 @@ final class RoomsScreen extends AgentScreen {
         action("新房间 / Create", left, controls + 26, formWidth / 2 - 3, button -> client.setScreen(new RoomFormScreen(this, true)));
         action("加入成员 / Join", left + formWidth / 2 + 3, controls + 26, formWidth / 2 - 3, button -> client.setScreen(new RoomFormScreen(this, false)));
         action("离开选中房间 / Leave selected", left, controls + 52, formWidth, button -> leave());
-        action("退出账号 / Sign out", left, controls + 78, formWidth, button -> request("logout", new JsonObject(), reply -> { catalog = null; selected = null; refresh = false; message = "已退出 / Signed out"; }));
-        back(controls + 104);
+        action("连接选中房间 / Connect selected", left, controls + 78, formWidth, button -> connect());
+        action("退出账号 / Sign out", left, controls + 104, formWidth, button -> request("logout", new JsonObject(), reply -> { catalog = null; selected = null; refresh = false; message = "已退出 / Signed out"; }));
+        back(controls + 130);
     }
     void refreshMembership() { refresh = true; }
     @Override public void tick() {
@@ -45,6 +48,18 @@ final class RoomsScreen extends AgentScreen {
             refresh = false;
             request("rooms", new JsonObject(), reply -> { catalog = AccountCatalog.parse(reply); page = 0; selected = null; clearAndInit(); message = "房间数 / Rooms: " + catalog.rooms().size(); });
         }
+    }
+    private void connect() {
+        if (selected == null || catalog == null || agent() == null || !agent().isCurrent(catalog.evidence())) { message = "请先选房间 / Select a room"; return; }
+        JsonObject arguments = new JsonObject(); arguments.addProperty("room", selected);
+        request("connect_room", arguments, reply -> {
+            String identity = RuntimeView.text(reply.data(), "runtime");
+            if (identity == null || !identity.matches("[a-f0-9]{32}") || !"starting".equals(RuntimeView.text(reply.data(), "phase"))) throw new AgentException(AgentException.Code.INVALID_REPLY);
+            // Replies precede the next native status event. This is an intent
+            // selection only; RuntimeScreen waits for a matching live snapshot.
+            RuntimeView runtime = new RuntimeView(reply.owner(), identity);
+            client.setScreen(new RuntimeScreen(this, runtime));
+        });
     }
     private void leave() {
         if (selected == null || catalog == null || agent() == null || !agent().isCurrent(catalog.evidence())) { message = "请先选房间 / Select a room"; return; }
