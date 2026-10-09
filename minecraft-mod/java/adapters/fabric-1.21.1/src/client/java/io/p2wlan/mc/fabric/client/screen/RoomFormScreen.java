@@ -2,6 +2,7 @@ package io.p2wlan.mc.fabric.client.screen;
 
 import com.google.gson.JsonObject;
 import io.p2wlan.mc.common.RoomPassword;
+import io.p2wlan.mc.common.AccountPresentation;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 
@@ -11,24 +12,28 @@ final class RoomFormScreen extends AgentScreen {
     private TextFieldWidget value;
     private PasswordField password;
     private boolean done;
-    RoomFormScreen(RoomsScreen parent, boolean create) { super(parent, create ? "新建 P2WLAN 房间 / Create" : "加入 P2WLAN 房间成员 / Join"); this.create = create; this.rooms = parent; }
+    RoomFormScreen(RoomsScreen parent, boolean create) { super(parent, create ? "新建 P2WLAN 房间 / Create" : "加入 P2WLAN 房间 / Join"); this.create = create; this.rooms = parent; }
+    @Override protected boolean actionsEnabled() { return AccountPresentation.canUseAccount(accountState(), idle(), REQUESTS.busy()); }
     @Override protected void init() {
+        String entered = value == null ? "" : value.getText();
         if (password != null) password.setText("");
         super.init();
-        value = field(top + 10, create ? "房间名 / Name" : "8 位房间码 / 8-digit code", create ? 80 : 8);
-        password = addDrawableChild(new PasswordField(textRenderer, left, top + 38, formWidth, Text.literal("房间密码 / Room password (8–72 UTF-8 bytes)")));
-        password.setPlaceholder(Text.literal("房间密码 / 8–72 UTF-8 bytes"));
-        action(create ? "创建成员房间 / Create" : "加入成员房间 / Join", left, top + 68, formWidth, button -> {
+        value = field(layout.row(0), create ? "房间名" : "8 位房间码", create ? 80 : 8); value.setText(entered);
+        password = passwordField(layout.row(1), "房间密码");
+        password.setPlaceholder(Text.literal("8–72 UTF-8 字节"));
+        action(create ? "创建房间 / Create" : "加入房间 / Join", left, layout.row(2), formWidth, this::validInput, button -> {
             String secret = password.getText(); password.setText("");
-            if (!RoomPassword.isValid(secret)) {
-                message = "房间密码须为 8–72 UTF-8 字节 / Password: 8–72 UTF-8 bytes"; return;
-            }
-            JsonObject args = new JsonObject(); args.addProperty(create ? "name" : "code", value.getText());
-            args.addProperty("password", secret);
+            if (!RoomPassword.isValid(secret)) { message = "房间密码须为 8–72 UTF-8 字节。"; return; }
+            JsonObject args = new JsonObject(); args.addProperty(create ? "name" : "code", value.getText()); args.addProperty("password", secret);
             request(create ? "create_room" : "join_room", args, reply -> done = true);
         });
-        back(top + 96);
+        back(); setInitialFocus(value);
     }
+    private boolean validInput() {
+        return value != null && password != null && (create ? !value.getText().isBlank() : value.getText().matches("[0-9]{8}"))
+                && RoomPassword.isValid(password.getText());
+    }
+    @Override protected String hint() { return "房间密码须为 8–72 UTF-8 字节；成功后返回房间列表。"; }
     @Override public void tick() { super.tick(); if (done && !REQUESTS.busy()) { done = false; rooms.refreshMembership(); client.setScreen(rooms); } }
     @Override public void removed() { if (password != null) password.setText(""); super.removed(); }
 }

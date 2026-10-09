@@ -9,9 +9,7 @@ import io.p2wlan.mc.fabric.world.FabricWorlds;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.server.integrated.IntegratedServer;
 import io.p2wlan.mc.common.RuntimeView;
-import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
 
 /** One selected native runtime and at most 128 immutable member rows. A member
  * is not a ready game server; discovery is a separate one-peer user intent. */
@@ -22,28 +20,31 @@ final class RuntimeScreen extends AgentScreen {
     private int page, rows = 4;
     RuntimeScreen(Screen parent, RuntimeView runtime) { super(parent, "P2WLAN 房间连接 / Room runtime"); this.runtime = runtime; }
     @Override protected boolean actionsEnabled() { return !stopAcknowledged && runtime.isActive(agent()); }
+    private boolean membersCurrent() { var current = agent(); return current != null && runtime.isCurrent(current) && members != null && current.isCurrent(members.evidence()); }
+    private boolean worldPresent() { var server = client.getServer(); return server != null && FabricWorlds.current(server) != null; }
+    private boolean publicationPresent() { var server = client.getServer(); var world = server == null ? null : FabricWorlds.current(server); return world != null && world.status() != null && world.isCurrent(); }
     @Override protected void init() {
         super.init();
-        rows = Math.max(1, Math.min(4, (height - top - 216) / 24));
-        if (members != null && (!runtime.isCurrent(agent()) || !agent().isCurrent(members.evidence()))) members = null;
+        rows = layout.listRows(3, 4);
+        if (!membersCurrent()) members = null;
         if (members != null) {
             page = Math.min(page, Math.max(0, (members.peers().size() - 1) / rows));
             for (int row = 0; row < rows && page * rows + row < members.peers().size(); row++) {
                 String peer = members.peers().get(page * rows + row);
-                action(textRenderer.trimToWidth(peer, formWidth - 10), left, top + row * 24, formWidth, button -> {
+                action(textRenderer.trimToWidth(peer, formWidth - 10), left, layout.row(row), formWidth, this::membersCurrent, button -> {
                     if (!runtime.isCurrent(agent())) { message = "RUNTIME_CHANGED"; return; }
                     client.setScreen(new ServicesScreen(this, runtime, peer));
                 });
             }
         }
-        int controls = top + rows * 24 + 4;
-        action("<", left, controls, 35, button -> { if (page > 0) { page--; clearAndInit(); } });
-        action(">", left + 40, controls, 35, button -> { if (members != null && (page + 1) * rows < members.peers().size()) { page++; clearAndInit(); } });
-        action("刷新成员 / Refresh", left + 80, controls, formWidth - 80, button -> refresh = true);
-        action("断开房间 / Stop room", left, controls + 26, formWidth, button -> stop());
-        action("托管当前世界 / Host world", left, controls + 52, formWidth / 2 - 3, button -> publication(true));
-        action("取消托管 / Unhost", left + formWidth / 2 + 3, controls + 52, formWidth / 2 - 3, button -> publication(false));
-        back(controls + 104);
+        int controls = layout.controls(rows);
+        action("上一页", left, controls, 42, () -> membersCurrent() && page > 0, button -> { page--; clearAndInit(); });
+        action("下一页", left + 50, controls, 42, () -> membersCurrent() && (page + 1) * rows < members.peers().size(), button -> { page++; clearAndInit(); });
+        action("刷新成员 / Refresh", left + 100, controls, formWidth - 100, () -> runtime.isCurrent(agent()), button -> refresh = true);
+        action("断开房间 / Stop room", left, controls + 52, formWidth, button -> stop());
+        action("托管世界 / Host", left, controls + 26, layout.halfWidth(), () -> runtime.isCurrent(agent()) && worldPresent(), button -> publication(true));
+        action("取消托管 / Unhost", layout.right(), controls + 26, layout.halfWidth(), this::publicationPresent, button -> publication(false));
+        back();
     }
     private void publication(boolean host) {
         var server = client.getServer();
@@ -101,14 +102,14 @@ final class RuntimeScreen extends AgentScreen {
             });
         }
     }
-    @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
-        String phase = runtime.isActive(agent()) ? agent().snapshot().map(value -> RuntimeView.text(value.data(), "phase")).orElse("NOT_READY") : "RUNTIME_CHANGED";
+    @Override protected String hint() { return "成员在线不代表游戏就绪；选择成员后发现游戏服务。"; }
+    @Override protected String liveSummary() {
+        var current = agent();
+        String phase = runtime.isActive(current) ? current.snapshot().map(value -> RuntimeView.text(value.data(), "phase")).orElse("NOT_READY") : "RUNTIME_CHANGED";
         var server = client.getServer();
         var world = server == null ? null : FabricWorlds.current(server);
-        var hosted = world == null ? null : world.status();
+        var hosted = world == null || !world.isCurrent() ? null : world.status();
         String publication = hosted == null ? "NOT_PUBLISHED" : hosted.phase() + (hosted.reason() == null ? "" : " / " + hosted.reason());
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth("World: " + publication, formWidth)), width / 2, top + rows * 24 + 89, 0xa0a0a0);
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal("Native: " + phase + (members == null ? "" : " / " + members.peers().size() + " members / Page " + (page + 1))), width / 2, top - 15, 0xa0a0a0);
+        return "房间：" + phase + " / 世界：" + publication + (members == null ? " / 成员待读取" : " / " + members.peers().size() + " 位成员，第 " + (page + 1) + " 页");
     }
 }

@@ -14,26 +14,28 @@ final class ServicesScreen extends AgentScreen {
     private int page, rows = 4;
     ServicesScreen(Screen parent, RuntimeView runtime, String peer) { super(parent, "P2WLAN 游戏服务 / Game services"); this.runtime = runtime; this.peer = peer; }
     @Override protected boolean actionsEnabled() { return runtime.isCurrent(agent()); }
+    private boolean servicesCurrent() { var current = agent(); return current != null && runtime.isCurrent(current) && services != null && current.isCurrent(services.evidence()); }
     @Override protected void init() {
         super.init();
-        rows = Math.max(1, Math.min(4, (height - top - 138) / 24));
-        if (services != null && (!runtime.isCurrent(agent()) || !agent().isCurrent(services.evidence()))) services = null;
+        rows = layout.listRows(1, 4);
+        if (!servicesCurrent()) services = null;
         if (services != null) {
             page = Math.min(page, Math.max(0, (services.services().size() - 1) / rows));
             for (int row = 0; row < rows && page * rows + row < services.services().size(); row++) {
                 var service = services.services().get(page * rows + row);
-                action("加入 / Join " + service.port(), left, top + row * 24, formWidth, button -> {
+                action("加入 / Join " + service.port(), left, layout.row(row), formWidth, this::servicesCurrent, button -> {
                     if (!runtime.isCurrent(agent())) { message = "RUNTIME_CHANGED"; return; }
                     client.setScreen(new JoinGameScreen(this, service));
                 });
             }
         }
-        int controls = top + rows * 24 + 4;
-        action("<", left, controls, 35, button -> { if (page > 0) { page--; clearAndInit(); } });
-        action(">", left + 40, controls, 35, button -> { if (services != null && (page + 1) * rows < services.services().size()) { page++; clearAndInit(); } });
-        action("刷新服务 / Refresh", left + 80, controls, formWidth - 80, button -> refresh = true);
-        back(controls + 26);
+        int controls = layout.controls(rows);
+        action("上一页", left, controls, 42, () -> servicesCurrent() && page > 0, button -> { page--; clearAndInit(); });
+        action("下一页", left + 50, controls, 42, () -> servicesCurrent() && (page + 1) * rows < services.services().size(), button -> { page++; clearAndInit(); });
+        action("刷新服务 / Refresh", left + 100, controls, formWidth - 100, button -> refresh = true);
+        back();
     }
+    @Override protected String hint() { return "服务来自选中成员的发现结果；成员在线不代表其游戏可加入。"; }
     @Override public void tick() {
         super.tick();
         if (!runtime.isCurrent(agent())) { services = null; message = "RUNTIME_CHANGED"; return; }

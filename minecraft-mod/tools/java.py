@@ -37,7 +37,7 @@ def main():
     parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client", "account-test", "account-build", "hmcl-pack", "windows-native-test"))
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
-    wrapper = PROJECT / "java/gradlew"
+    wrapper = PROJECT / "java" / ("gradlew.bat" if sys.platform == "win32" else "gradlew")
     gradle = str(wrapper) if wrapper.is_file() else shutil.which("gradle")
     if not gradle:
         parser.error("Gradle is required to bootstrap the wrapper")
@@ -45,7 +45,7 @@ def main():
     if sys.platform == "darwin":
         selected = subprocess.check_output(["/usr/libexec/java_home", "-v", "21"], text=True).strip()
         env["JAVA_HOME"] = selected
-    tasks = {"windows-native-test": [":common:windowsNativePolicyTest", ":common:windowsNativeFilesystemTest"], "hmcl-pack": ["-PfabricAdapter", ":fabric:buildHmclPack"], "account-test": [":account-cli:accountTest"], "account-build": [":account-cli:check", ":account-cli:verifyAccountDistribution"], "test": [":common:protocolTest", ":common:worldGuardTest", ":common:nativeBundleTest", ":common:windowsNativePolicyTest", ":common:agentLifecycleTest", ":common:accountCatalogTest", ":common:controlTransportTest", ":common:networkCatalogTest", ":common:scheduledTaskTest", ":account-cli:accountTest"], "fabric-build": ["-PfabricAdapter", ":fabric:build"], "fabric-server": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runServer"], "fabric-client": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runClient"], "bundle-test": [":common:bundledAgentTest", ":common:bundledLifecycleTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
+    tasks = {"windows-native-test": [":common:windowsNativePolicyTest", ":common:windowsNativeFilesystemTest"], "hmcl-pack": ["-PfabricAdapter", ":fabric:buildHmclPack"], "account-test": [":account-cli:accountTest"], "account-build": [":account-cli:check", ":account-cli:verifyAccountDistribution"], "test": [":common:protocolTest", ":common:worldGuardTest", ":common:nativeBundleTest", ":common:windowsNativePolicyTest", ":common:agentLifecycleTest", ":common:accountCatalogTest", ":common:controlTransportTest", ":common:screenPresentationTest", ":common:networkCatalogTest", ":common:scheduledTaskTest", ":account-cli:accountTest"], "fabric-build": ["-PfabricAdapter", ":fabric:build"], "fabric-server": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runServer"], "fabric-client": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runClient"], "bundle-test": [":common:bundledAgentTest", ":common:bundledLifecycleTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
     if args.command == "interop":
         from native import build_command, prepare
         prepare()

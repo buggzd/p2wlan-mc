@@ -70,6 +70,20 @@ class JavaToolTests(unittest.TestCase):
                 self.assertIn("--offline", arguments)
                 self.assertFalse(any("fabric" in item or "Loom" in item for item in arguments))
 
+    def test_presentation_regressions_run_with_the_standard_java_test_entry(self):
+        with patch("sys.argv", ["java.py", "test", "--offline"]), \
+                patch.object(java.subprocess, "check_output", return_value="fixture-jdk\n"), \
+                patch.object(java.subprocess, "call", return_value=0) as run:
+            self.assertEqual(java.main(), 0)
+            self.assertIn(":common:screenPresentationTest", run.call_args.args[0])
+
+    def test_windows_uses_the_tracked_batch_wrapper(self):
+        with patch("sys.argv", ["java.py", "test", "--offline"]), \
+                patch.object(java.sys, "platform", "win32"), \
+                patch.object(java.subprocess, "call", return_value=0) as run:
+            self.assertEqual(java.main(), 0)
+            self.assertEqual(Path(run.call_args.args[0][0]).name, "gradlew.bat")
+
     def test_compiler_diagnostics_are_not_lost_while_capturing_json_artifacts(self):
         output = json.dumps({"reason": "compiler-message", "message": {"rendered": "fixture diagnostic\n"}})
         with patch("sys.stderr", new_callable=io.StringIO) as stream:

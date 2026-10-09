@@ -153,3 +153,11 @@ tasks.register('windowsNativeFilesystemTest', JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'io.p2wlan.mc.common.WindowsNativeFilesystemTests'
 }
+
+// Pure account/receipt policy and minimum-viewport geometry, no native/network.
+tasks.register('screenPresentationTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.ScreenPresentationTests'
+}
+check.dependsOn screenPresentationTest
