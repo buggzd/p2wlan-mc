@@ -62,7 +62,12 @@ impl PrivateDirectory {
             if index != 0 {
                 handles::create_directory(&path, &security)?;
             }
-            let directory = handles::open(&path, Kind::Directory, OPEN_EXISTING, None)?;
+            let kind = if path == root {
+                Kind::PrivateDirectory
+            } else {
+                Kind::Directory
+            };
+            let directory = handles::open(&path, kind, OPEN_EXISTING, None)?;
             let identity = handles::identity(&directory, true, 0)?;
             handles::require_acls(&directory)?;
             directories.push((path, directory, identity));

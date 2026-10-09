@@ -58,6 +58,40 @@ fn private_roundtrip_atomic_replace_lock_and_reopen() {
 }
 
 #[test]
+fn only_private_leaf_allows_atomic_rename_parent_write_access() {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ADD_FILE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, READ_CONTROL,
+    };
+
+    let fixture = Fixture::new();
+    let path = fixture.profile();
+    let storage = PrivateDirectory::open(&path).unwrap();
+    let parent_writer = |directory: &std::path::Path| {
+        fs::OpenOptions::new()
+            .access_mode(FILE_ADD_FILE | FILE_READ_ATTRIBUTES | READ_CONTROL)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(directory)
+    };
+    // Rename needs write access to exactly the destination parent. It must
+    // not require relaxing ancestor sharing or closing any pinned handle.
+    assert!(parent_writer(&path).is_ok());
+    assert_eq!(
+        parent_writer(path.parent().unwrap())
+            .unwrap_err()
+            .raw_os_error(),
+        Some(32)
+    );
+    storage.write("account.json", b"first").unwrap();
+    storage.write("account.json", b"replacement").unwrap();
+    assert_eq!(storage.read("account.json").unwrap().unwrap(), b"replacement");
+    assert!(fs::rename(&path, path.with_file_name("moved")).is_err());
+    assert!(fs::remove_file(path.join("profile.lock")).is_err());
+    assert_eq!(fs::read_dir(&path).unwrap().count(), 2);
+}
+#[test]
 fn pins_directory_ancestors_and_lock_until_owner_release() {
     let fixture = Fixture::new();
     let path = fixture.profile();
