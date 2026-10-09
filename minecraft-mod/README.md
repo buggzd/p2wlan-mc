@@ -109,7 +109,7 @@ The component fences inbound/outbound pipeline delivery against its attempt owne
 
 The client-only, required `ClientConnectionMixin` redirects the exact Fabric 1.21.1 `ClientConnection.connect(InetSocketAddress, boolean, ClientConnection)` initializer installation. `ScopedClientConnect` captures one exact connection identity and loopback capability in a synchronous thread-local scope before asynchronous channel initialization. The hook installs `ProxyPrelude` only for this explicit operation; ordinary Vanilla connections and queries keep their original initializer. Missing transformation, nested/repeated consumption, wrong connection/target and retired attempts fail with stable `JOIN_BOOTSTRAP_*` codes. No address-matching registry, background work queue or transport retry is added.
 
-The client configuration is explicitly client-only in Fabric metadata and has its own required refmap. Archive verification checks both configurations, their exact game-method mappings and class versions. Bootstrap admission tests use fake marker identities, not Minecraft transformation; they do not prove real client startup or gameplay. The game connection screen has not yet been connected to this hook.
+The client configuration is explicitly client-only in Fabric metadata and has its own required refmap. Archive verification checks both configurations, their exact game-method mappings and class versions. Bootstrap admission tests use fake marker identities, not Minecraft transformation; they do not prove real client startup or gameplay. The game connection screen uses this scope to admit protected joins; ordinary Vanilla connections do not gain a P2WLAN scope. The real-client hook fixture below is narrower than two-end gameplay acceptance.
 
 ## Java world guard
 
@@ -222,6 +222,44 @@ python3 minecraft-mod/tools/java.py bundle-test
 
 This checks bundle validation, private extraction, replacement/symlink/hard-link rejection, exact subprocess readiness/IPC, immediate-close races and cleanup. It does not start Minecraft or prove loader compatibility.
 
+## Dedicated-server account console
+
+The independent `account-cli` distribution initializes the **P2WLAN Control account**, not a Microsoft/Minecraft account. It imports no game/loader classes, uses Java 17 bytecode and the same common IPC/lifecycle and verified native resource as the Mod. The project build still uses Java 21. It does not connect a room runtime, publish a world, change Minecraft authentication settings or accept any terms.
+
+From a clean checkout, build the host resource and distribution:
+
+```sh
+python3 minecraft-mod/tools/native_bundle.py --offline
+python3 minecraft-mod/tools/java.py account-build --offline
+```
+
+The installed distribution is `java/account-cli/build/install/p2wlan-account/`; the matching zip is `java/account-cli/build/distributions/p2wlan-account-0.1.0.zip`, both beneath this directory. Verification requires matching installed/zip bytes, Java 17 game-independent console/common classes, fixed dependencies, native executable hashes and current source binding. Native targets are limited to resources actually packaged on the build host, not inferred cross-platform coverage. For an explicitly labelled development bundle use `native_bundle.py --development --offline` and `java.py account-build -PdevelopmentNative --offline`.
+
+Stop the Minecraft server first. Run as the same OS user that runs it, and pass that server's exact private-profile directory explicitly. For this Fabric adapter it is `SERVER_ROOT/config/p2wlan-private`. Do not copy profiles between servers/devices or scan another application's credentials. From the installed or extracted distribution root:
+
+```sh
+./bin/p2wlan-account status --profile-dir /absolute/path/to/server/config/p2wlan-private
+./bin/p2wlan-account login --profile-dir /absolute/path/to/server/config/p2wlan-private
+./bin/p2wlan-account rooms --profile-dir /absolute/path/to/server/config/p2wlan-private
+./bin/p2wlan-account join-room --profile-dir /absolute/path/to/server/config/p2wlan-private
+```
+
+`register` creates a P2WLAN account; `create-room` creates a room; `logout` clears the saved account without deleting retained room identities. Login/register prompt for the root Control origin, identifier and password; room operations prompt for name/code and optional password. Passwords use the real Java console with hidden input. No password, token, identifier or Control URL option/environment variable is supported. Password operations require a terminal; there is no echoing stdin fallback. `status`, `rooms` and explicit `logout` need no interactive credential input.
+
+Input is collected and validated before any helper starts. Fields use the native API's 256-byte UTF-8 limit; malformed surrogates, NUL/newlines, empty required fields and invalid eight-digit codes fail before launch. Returned console character arrays are cleared, and JSON argument references are discarded after encoding. Java strings and IPC buffers cannot be securely zeroized; terminal editing and hostile same-user code remain outside this boundary.
+
+One lifecycle owns one helper and one request, with no mutation retry. Startup/request waits are at most 41/6 seconds (the underlying owner/client deadlines are 40/5 seconds); cleanup waits at most 20 seconds, including a bounded shutdown hook. Replies are checked against the exact lifecycle/native owner before capture. Output is a bounded historical command receipt, emitted after child/extraction cleanup, not a live room/path cache: status exposes authenticated/signed-out, and room operations expose only eight-digit codes. URLs, user IDs, JWTs, arbitrary room names and child stderr are not projected. An uncertain mutation emits `DELIVERY_UNKNOWN`; inspect `status`/`rooms` before deciding whether to retry. Profile-lock/privacy failures can terminate the native helper before hello and therefore surface as a generic typed startup/exit failure, not a diagnosis inferred from logs.
+
+After setup, start the server normally and use the operator commands below to connect the chosen room and explicitly host it. The console does not bypass the native profile lock or become another writer of credentials/network state.
+
+The opt-in console fixture uses the installed launchers and packaged native executable against the unchanged Go Control, disposable accounts and real POSIX terminals. It checks password masking/no echo, EOF/no-console rejection before helper launch, room/account persistence, same-profile exclusion and helper cleanup during an in-flight mutation. With the Go executable built as described above:
+
+```sh
+python3 minecraft-mod/tests/account_console_fixture.py --distribution minecraft-mod/java/account-cli/build/install/p2wlan-account --zip minecraft-mod/java/account-cli/build/distributions/p2wlan-account-0.1.0.zip --control minecraft-mod/native/target/server/p2wlan-control
+```
+
+A development distribution requires explicit `--development` on this fixture and admits development resources only for its child invocations. Diagnostic retention is capped at 64 KiB per child. Console/sequence execution deadlines are 72/300 seconds, followed by at most 23 seconds of graceful child-group cleanup and a three-second kill/reap wait; exact child groups and extracted files must be gone before success. No transcript, credentials or acceptance evidence is committed. The real terminal fixture is verified on macOS/aarch64; Linux terminal/device acceptance and Windows private-profile ACL/package support remain incomplete. This is account-console acceptance, not Minecraft authentication/login/play or a loader/version matrix.
+
 ## Fabric adapter bootstrap
 
 The explicit Fabric adapter targets **Minecraft 1.21.1**, with Fabric Loader 0.16.14, Fabric API 0.116.7+1.21.1, Yarn 1.21.1+build.3 and Loom 1.10.5 as its pinned build inputs. Its loader metadata accepts 1.21.1 only; it does not claim support for other game versions, NeoForge or Forge. Loader/version references are confined to `java/adapters/fabric-1.21.1/`; common Java and native networking remain game-independent.
@@ -278,7 +316,7 @@ Operator/console commands (permission level 4):
 - `/p2wlan disconnect`: revoke the local world before requesting native runtime stop, retaining account/membership. A failed stop reports that local revocation already occurred; it is not silently undone.
 - `/p2wlan unhost`: immediately revoke the local world capability and perform bounded cleanup off the game thread. This does not change room membership or claim to roll back an already delivered native mutation.
 
-The subprocess/world tests check capacity, native-owner/runtime fencing, cancellation during setup, cleanup of late host replies and malformed registration failure. Protected-target socket tests check that both local capability handshakes disappear before game bytes. Fabric transport tests use actual Netty pipelines with fragmented/coalesced input, virtual-time expiry, capacity, revocation and delayed Vanilla initialization, plus a real 128,000-byte TCP exchange between the Java guard and a protected Netty echo target. The echo target is not Minecraft. They are **not** Minecraft world/login acceptance. A safe dedicated-server account setup workflow remains unavailable. Remote Minecraft authentication/login, sustained gameplay, integrated hosting/pause, cancellation during actual configuration and world-replacement acceptance remain incomplete. No EULA/account term is accepted by any build/test entry point.
+The subprocess/world tests check capacity, native-owner/runtime fencing, cancellation during setup, cleanup of late host replies and malformed registration failure. Protected-target socket tests check that both local capability handshakes disappear before game bytes. Fabric transport tests use actual Netty pipelines with fragmented/coalesced input, virtual-time expiry, capacity, revocation and delayed Vanilla initialization, plus a real 128,000-byte TCP exchange between the Java guard and a protected Netty echo target. The echo target is not Minecraft. They are **not** Minecraft world/login acceptance. Dedicated-server accounts can be initialized with the independent console above while the server is stopped. Remote Minecraft authentication/login, sustained gameplay, integrated hosting/pause, cancellation during actual configuration and world-replacement acceptance remain incomplete. No EULA/account term is accepted by any build/test entry point.
 
 
 ## Isolated real-client hook verification

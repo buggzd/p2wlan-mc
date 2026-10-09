@@ -27,9 +27,16 @@ public final class AccountTool {
     private record ConsoleInput(Console console) implements AccountCommand.Input {
         public boolean available() { return console != null; }
         public char[] read(String prompt, boolean secret) {
-            if (secret) return console.readPassword("%s", prompt);
-            String value = console.readLine("%s", prompt);
-            return value == null ? null : value.toCharArray();
+            char[] input;
+            if (secret) input = console.readPassword("%s", prompt);
+            else {
+                String value = console.readLine("%s", prompt);
+                input = value == null ? null : value.toCharArray();
+            }
+            // EOF does not necessarily echo a newline. Keep the stable failure
+            // receipt on its own line rather than appending it to a prompt.
+            if (input == null) console.printf("%n");
+            return input;
         }
     }
     static int run(String[] arguments, AccountCommand.Input input, PrintWriter output, Factory factory) {
