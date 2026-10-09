@@ -6,10 +6,15 @@ import java.util.Set;
 
 /** Pure strict schema decoding. No process, Minecraft, or path-state ownership. */
 final class AgentMessages {
-    sealed interface Message permits Hello, Reply, Status { String owner(); }
-    record Hello(String owner) implements Message {}
-    record Reply(String owner, long id, JsonObject result, String error) implements Message {}
-    record Status(String owner, long revision, JsonObject data) implements Message {}
+    sealed interface Message permits Owned, StartupError {}
+    sealed interface Owned extends Message permits Hello, Reply, Status { String owner(); }
+    record StartupError(String error) implements Message {}
+    record Hello(String owner) implements Owned {}
+    record Reply(String owner, long id, JsonObject result, String error) implements Owned {}
+    record Status(String owner, long revision, JsonObject data) implements Owned {}
+    private static final Set<String> STARTUP_CODES = Set.of("PROFILE_IO", "PROFILE_INVALID", "PROFILE_BUSY",
+            "PROFILE_CAPACITY", "PROFILE_UNSUPPORTED_PLATFORM", "CONTROL_UNAVAILABLE", "ENTROPY_UNAVAILABLE");
+    static boolean startupCode(String code) { return code != null && STARTUP_CODES.contains(code); }
 
     private static AgentException invalid() { return new AgentException(AgentException.Code.INVALID_REPLY); }
     private static String text(JsonElement value) throws AgentException {
@@ -31,6 +36,12 @@ final class AgentMessages {
     static Message parse(JsonObject message) throws AgentException {
         if (integer(message.get("version")) != FrameCodec.VERSION) {
             throw new AgentException(AgentException.Code.PROTOCOL_MISMATCH);
+        }
+        if (message.has("event") && text(message.get("event")).equals("startup_error")) {
+            fields(message, "version", "event", "error");
+            String error = text(message.get("error"));
+            if (!startupCode(error)) throw invalid();
+            return new StartupError(error);
         }
         String owner = text(message.get("owner"));
         if (!owner.matches("[a-f0-9]{32}")) throw invalid();

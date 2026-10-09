@@ -120,7 +120,12 @@ abstract class AgentScreen extends Screen {
         }
         var state = FabricP2wlan.AGENT.status();
         String helper = "IPC: " + state.phase() + (state.reason() == null ? "" : " / " + state.reason());
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(helper, width - 20)), width / 2, height - 34, 0xa0a0a0);
+        var lines = textRenderer.wrapLines(Text.literal(helper), Math.max(120, width - 20));
+        int y = height - 24 - lines.size() * (textRenderer.fontHeight + 2);
+        for (var line : lines) {
+            context.drawTextWithShadow(textRenderer, line, (width - textRenderer.getWidth(line)) / 2, y, 0xa0a0a0);
+            y += textRenderer.fontHeight + 2;
+        }
         context.drawCenteredTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(message, width - 20)), width / 2, height - 20, 0xffcc66);
     }
     static void shutdown() { REQUESTS.close(); }

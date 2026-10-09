@@ -18,9 +18,32 @@ async fn run() -> Result<(), ProtocolError> {
         stall().await;
         return Ok(());
     }
+    if mode == "exit_before_hello" {
+        std::process::exit(23);
+    }
     let mut reader = FrameReader::new(tokio::io::stdin());
     let mut writer = FrameWriter::new(tokio::io::stdout());
+    if mode.starts_with("startup_") && mode != "startup_after_hello" {
+        let mut frame = json!({"version":1, "event":"startup_error", "error":"PROFILE_BUSY"});
+        if mode == "startup_unknown" {
+            frame["error"] = json!("fixture-private-value");
+        }
+        if mode == "startup_extra" {
+            frame["owner"] = json!(owner);
+        }
+        writer.write(&frame).await?;
+        if mode == "startup_hang" {
+            stall().await;
+        }
+        return Err(ProtocolError::Io);
+    }
     writer.write(&json!({"version":if mode == "bad_version" {2} else {1}, "event":"hello", "owner":owner})).await?;
+    if mode == "startup_after_hello" {
+        writer
+            .write(&json!({"version":1, "event":"startup_error", "error":"PROFILE_BUSY"}))
+            .await?;
+        return Err(ProtocolError::Io);
+    }
     if mode == "stderr" {
         let bytes = [b'x'; 8192];
         for _ in 0..32 {

@@ -39,9 +39,10 @@ public final class AgentClient implements AutoCloseable {
     private final SessionFence snapshots = new SessionFence();
     private final CompletableFuture<Void> ready = new CompletableFuture<>();
     private final CompletableFuture<Void> terminated = new CompletableFuture<>();
+    private final CompletableFuture<Void> readerFinished = new CompletableFuture<>();
     private final ScheduledExecutorService watchdog;
     private volatile boolean closed;
-    private volatile AgentException.Code failure;
+    private volatile AgentException failure;
     private String owner;
     private long nextId = 1;
     private long nextHeartbeat;
@@ -85,7 +86,15 @@ public final class AgentClient implements AutoCloseable {
         daemon("p2wlan-agent-reader", this::readLoop).start();
         daemon("p2wlan-agent-writer", this::writeLoop).start();
         daemon("p2wlan-agent-exit", () -> {
-            try { child.waitFor(); fail(AgentException.Code.UNEXPECTED_EXIT); terminated.complete(null); }
+            try {
+                int status = child.waitFor();
+                // Reaping must not overtake a final startup-error frame buffered
+                // in stdout. The reader owns decoding; drain is deadline-bounded.
+                try { readerFinished.get(timeoutNanos, TimeUnit.NANOSECONDS); }
+                catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException ignored) { }
+                fail(AgentException.exited(status));
+                terminated.complete(null);
+            }
             catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
                 fail(AgentException.Code.IO);
@@ -109,7 +118,8 @@ public final class AgentClient implements AutoCloseable {
     public boolean isCurrent(AgentReply reply) {
         synchronized (gate) { return !closed && reply != null && reply.owner().equals(owner); }
     }
-    public Optional<AgentException.Code> failure() { return Optional.ofNullable(failure); }
+    public Optional<AgentException.Code> failure() { return failureDetails().map(AgentException::code); }
+    public Optional<AgentException> failureDetails() { return Optional.ofNullable(failure); }
     public boolean isClosed() { return closed; }
     public long processId() { return child.pid(); }
 
@@ -181,25 +191,37 @@ public final class AgentClient implements AutoCloseable {
             var input = new DataInputStream(child.getInputStream());
             while (!closed) {
                 JsonObject frame = FrameCodec.read(input);
-                if (frame == null) { fail(AgentException.Code.UNEXPECTED_EXIT); return; }
+                if (frame == null) { fail(exitFailure()); return; }
                 receive(AgentMessages.parse(frame));
             }
-        } catch (AgentException error) { fail(error.code()); }
+        } catch (AgentException error) { fail(error); }
         catch (ProtocolException error) { fail(AgentException.Code.INVALID_REPLY); }
         catch (IOException | RuntimeException error) { fail(AgentException.Code.IO); }
+        finally { readerFinished.complete(null); }
+    }
+
+    private AgentException exitFailure() {
+        try {
+            if (child.waitFor(timeoutNanos, TimeUnit.NANOSECONDS)) return AgentException.exited(child.exitValue());
+        } catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+        return new AgentException(AgentException.Code.UNEXPECTED_EXIT);
     }
 
     private void receive(AgentMessages.Message message) throws AgentException {
         Pending completion = null;
         synchronized (gate) {
             if (closed) return;
+            if (message instanceof AgentMessages.StartupError error) {
+                if (owner != null) throw new AgentException(AgentException.Code.INVALID_REPLY);
+                throw new AgentException(AgentException.Code.INITIALIZATION_FAILED, error.error());
+            }
             if (message instanceof AgentMessages.Hello hello) {
                 if (owner != null) throw new AgentException(AgentException.Code.INVALID_REPLY);
                 owner = hello.owner();
                 snapshots.begin(owner);
                 nextHeartbeat = System.nanoTime() + HEARTBEAT_NANOS;
             } else {
-                if (owner == null || !owner.equals(message.owner())) throw new AgentException(AgentException.Code.INVALID_REPLY);
+                if (owner == null || !owner.equals(((AgentMessages.Owned) message).owner())) throw new AgentException(AgentException.Code.INVALID_REPLY);
                 if (message instanceof AgentMessages.Status status) {
                     snapshots.accept(new StatusSnapshot(owner, status.revision(), status.data()));
                 } else if (message instanceof AgentMessages.Reply reply) {
@@ -214,7 +236,7 @@ public final class AgentClient implements AutoCloseable {
         if (message instanceof AgentMessages.Reply reply && completion != null) {
             boolean current;
             synchronized (gate) { current = !closed && reply.owner().equals(owner); }
-            if (!current) completion.future().completeExceptionally(new AgentException(failure == null ? AgentException.Code.CLOSED : failure));
+            if (!current) completion.future().completeExceptionally(failure == null ? new AgentException(AgentException.Code.CLOSED) : failure);
             else if (reply.error() == null) completion.future().complete(new AgentReply(reply.owner(), reply.id(), reply.result()));
             else completion.future().completeExceptionally(new AgentException(AgentException.Code.REMOTE_REJECTED, reply.error()));
         }
@@ -274,7 +296,8 @@ public final class AgentClient implements AutoCloseable {
         });
     }
 
-    private void fail(AgentException.Code reason) {
+    private void fail(AgentException.Code reason) { fail(new AgentException(reason)); }
+    private void fail(AgentException reason) {
         List<Pending> abandoned;
         String oldOwner;
         synchronized (gate) {
@@ -292,8 +315,8 @@ public final class AgentClient implements AutoCloseable {
         // Killing the process unblocks both pipes without waiting under a lock.
         child.destroyForcibly();
         snapshots.close(oldOwner);
-        ready.completeExceptionally(new AgentException(reason));
-        for (Pending item : abandoned) item.future().completeExceptionally(new AgentException(reason));
+        ready.completeExceptionally(reason);
+        for (Pending item : abandoned) item.future().completeExceptionally(reason);
     }
 
     @Override public void close() { fail(AgentException.Code.CLOSED); }

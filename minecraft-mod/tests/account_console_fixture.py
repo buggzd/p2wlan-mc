@@ -251,13 +251,13 @@ def exercise(fixture, distribution, root, server):
         fixture.check(saved.stat().st_size <= 65536 and json.loads(saved.read_bytes())["token"], "PROFILE_PERSISTENCE")
     room_password = secrets.token_hex(16)
     code, text = fixture.invoke("create-room", first,
-                (("Room name: ", "fixture room", False), ("Room password (empty for none): ", room_password, True)))
+                (("Room name: ", "fixture room", False), ("Room password (8-72 UTF-8 bytes): ", room_password, True)))
     matches = re.findall(r"^ROOM_CREATED ([0-9]{8})$", text, re.MULTILINE)
     fixture.check(code == 0 and len(matches) == 1, "ROOM_CREATION")
     room = matches[0]
     fixture.expect("rooms", first, "ROOM " + room)
     fixture.expect("join-room", second, "ROOM_JOINED " + room,
-                (("Eight-digit room code: ", room, False), ("Room password (empty for none): ", room_password, True)))
+                (("Eight-digit room code: ", room, False), ("Room password (8-72 UTF-8 bytes): ", room_password, True)))
     fixture.expect("rooms", second, "ROOM " + room)
     # The lock holder is the actual executable from the verified native jar,
     # not a simulated file lock or a second writer of credential JSON.

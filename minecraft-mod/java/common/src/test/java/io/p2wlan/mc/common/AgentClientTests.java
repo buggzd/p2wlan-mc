@@ -47,6 +47,50 @@ public final class AgentClientTests {
     public static void main(String[] args) throws Exception {
         if (args.length != 1) throw new IllegalArgumentException("AGENT_PROBE_REQUIRED");
         Path probe = Path.of(args[0]);
+        for (String code : List.of("PROFILE_IO", "PROFILE_INVALID", "PROFILE_BUSY", "PROFILE_CAPACITY",
+                "PROFILE_UNSUPPORTED_PLATFORM", "CONTROL_UNAVAILABLE", "ENTROPY_UNAVAILABLE")) {
+            JsonObject frame = new JsonObject(); frame.addProperty("version", 1); frame.addProperty("event", "startup_error"); frame.addProperty("error", code);
+            check(AgentMessages.parse(frame) instanceof AgentMessages.StartupError startup && startup.error().equals(code));
+            frame.addProperty("owner", "a".repeat(32));
+            try { AgentMessages.parse(frame); throw new AssertionError("startup frame granted owner"); }
+            catch (AgentException invalid) { check(invalid.code() == AgentException.Code.INVALID_REPLY); }
+        }
+        check(new AgentException(AgentException.Code.INITIALIZATION_FAILED, "fixture-private-value").diagnostic().equals("INITIALIZATION_FAILED"));
+        // Repeat immediate termination: a waitFor callback must never hide a
+        // valid final startup frame before the protocol reader has drained it.
+        for (int iteration = 0; iteration < 12; iteration++) {
+            try (AgentClient client = AgentClient.launch(probe, List.of("startup_error"), Duration.ofSeconds(1))) {
+                AgentException error = failure(client.ready(), AgentException.Code.INITIALIZATION_FAILED);
+                check("PROFILE_BUSY".equals(error.remoteCode()));
+                check(error.diagnostic().equals("INITIALIZATION_FAILED / PROFILE_BUSY"));
+                ended(client, AgentException.Code.INITIALIZATION_FAILED);
+                client.terminated().get(3, TimeUnit.SECONDS);
+                check(client.failureDetails().orElseThrow().remoteCode().equals("PROFILE_BUSY"));
+            }
+        }
+        for (String mode : List.of("startup_unknown", "startup_extra")) {
+            try (AgentClient client = AgentClient.launch(probe, List.of(mode), Duration.ofSeconds(1))) {
+                AgentException error = failure(client.ready(), AgentException.Code.INVALID_REPLY);
+                check(!error.diagnostic().contains("fixture-private-value"));
+                ended(client, AgentException.Code.INVALID_REPLY);
+            }
+        }
+        try (AgentClient client = AgentClient.launch(probe, List.of("startup_hang"), Duration.ofSeconds(1))) {
+            failure(client.ready(), AgentException.Code.INITIALIZATION_FAILED);
+            client.terminated().get(3, TimeUnit.SECONDS);
+            ended(client, AgentException.Code.INITIALIZATION_FAILED);
+        }
+        try (AgentClient client = AgentClient.launch(probe, List.of("exit_before_hello"), Duration.ofSeconds(1))) {
+            AgentException error = failure(client.ready(), AgentException.Code.UNEXPECTED_EXIT);
+            check(error.exitCode() != null && error.exitCode() == 23);
+            check(error.diagnostic().equals("UNEXPECTED_EXIT / 0x00000017"));
+            ended(client, AgentException.Code.UNEXPECTED_EXIT);
+        }
+        check(AgentException.exited((int) 0xC0000135L).diagnostic().equals("UNEXPECTED_EXIT / 0xC0000135"));
+        try (AgentClient client = AgentClient.launch(probe, List.of("startup_after_hello"), Duration.ofSeconds(1))) {
+            client.ready().get(3, TimeUnit.SECONDS);
+            ended(client, AgentException.Code.INVALID_REPLY);
+        }
         try (AgentClient client = peer(probe, "echo", 2000)) {
             JsonObject object = data(17);
             var reply = client.request("echo", object);

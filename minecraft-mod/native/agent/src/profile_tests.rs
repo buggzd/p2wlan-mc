@@ -352,3 +352,58 @@ fn control_origins_and_room_projection_are_bounded_and_secret_free() {
         assert_eq!(account::room(&bad), Err(AgentError::ControlResponse));
     }
 }
+
+#[tokio::test]
+async fn invalid_room_passwords_are_rejected_before_any_http_mutation() {
+    let directory = Directory::new();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut profile = directory.profile();
+    profile
+        .login(
+            format!("http://{}", listener.local_addr().unwrap()),
+            "fixture-user".into(),
+            "fixture-jwt".into(),
+        )
+        .unwrap();
+    let owner = p2wlan_mc_runtime_port::ScopeOwner::new();
+    let mut state = crate::State {
+        parent: owner.token(),
+        profile: Some(profile),
+        api: AccountApi::new().unwrap(),
+        runtime: None,
+        bindings: std::collections::HashMap::new(),
+        last_failure: None,
+    };
+    for operation in ["create_room", "join_room"] {
+        for password in [
+            String::new(),
+            "short".to_string(),
+            "x".repeat(73),
+            "界".repeat(25),
+            "😀".repeat(19),
+        ] {
+            let args = if operation == "create_room" {
+                json!({"name":"Fixture", "password":password})
+            } else {
+                json!({"code":"12345678", "password":password})
+            };
+            let request = crate::Request {
+                id: 1,
+                operation: operation.into(),
+                arguments: args.as_object().unwrap().clone(),
+            };
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                state.account_command(&request),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result, Err(AgentError::InvalidArguments));
+        }
+    }
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), listener.accept())
+            .await
+            .is_err()
+    );
+}

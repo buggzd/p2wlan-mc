@@ -1,6 +1,7 @@
 package io.p2wlan.mc.fabric.client.screen;
 
 import com.google.gson.JsonObject;
+import io.p2wlan.mc.common.RoomPassword;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 
@@ -15,11 +16,15 @@ final class RoomFormScreen extends AgentScreen {
         if (password != null) password.setText("");
         super.init();
         value = field(top + 10, create ? "房间名 / Name" : "8 位房间码 / 8-digit code", create ? 80 : 8);
-        password = addDrawableChild(new PasswordField(textRenderer, left, top + 38, formWidth, Text.literal("房间密码（可空）/ Optional room password")));
-        password.setPlaceholder(Text.literal("房间密码（可空）/ Optional password"));
+        password = addDrawableChild(new PasswordField(textRenderer, left, top + 38, formWidth, Text.literal("房间密码 / Room password (8–72 UTF-8 bytes)")));
+        password.setPlaceholder(Text.literal("房间密码 / 8–72 UTF-8 bytes"));
         action(create ? "创建成员房间 / Create" : "加入成员房间 / Join", left, top + 68, formWidth, button -> {
+            String secret = password.getText(); password.setText("");
+            if (!RoomPassword.isValid(secret)) {
+                message = "房间密码须为 8–72 UTF-8 字节 / Password: 8–72 UTF-8 bytes"; return;
+            }
             JsonObject args = new JsonObject(); args.addProperty(create ? "name" : "code", value.getText());
-            args.addProperty("password", password.getText()); password.setText("");
+            args.addProperty("password", secret);
             request(create ? "create_room" : "join_room", args, reply -> done = true);
         });
         back(top + 96);

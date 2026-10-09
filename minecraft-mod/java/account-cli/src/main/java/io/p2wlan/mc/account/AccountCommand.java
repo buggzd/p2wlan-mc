@@ -2,6 +2,7 @@ package io.p2wlan.mc.account;
 
 import com.google.gson.JsonObject;
 import io.p2wlan.mc.common.ControlTransport;
+import io.p2wlan.mc.common.RoomPassword;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -72,12 +73,12 @@ final class AccountCommand implements AutoCloseable {
                 }
                 case CREATE_ROOM -> {
                     command.field(input, "name", "Room name: ", false, false);
-                    command.field(input, "password", "Room password (empty for none): ", true, true);
+                    command.roomPassword(input);
                 }
                 case JOIN_ROOM -> {
                     command.field(input, "code", "Eight-digit room code: ", false, false);
                     if (!command.arguments.get("code").getAsString().matches("[0-9]{8}")) throw new Failure("INVALID_INPUT");
-                    command.field(input, "password", "Room password (empty for none): ", true, true);
+                    command.roomPassword(input);
                 }
                 default -> { }
             }
@@ -87,6 +88,10 @@ final class AccountCommand implements AutoCloseable {
             if (error instanceof Failure known) throw known;
             throw new Failure("INPUT_IO");
         }
+    }
+    private void roomPassword(Input input) throws Failure {
+        field(input, "password", "Room password (8-72 UTF-8 bytes): ", true, false);
+        if (!RoomPassword.isValid(arguments.get("password").getAsString())) throw new Failure("INVALID_INPUT");
     }
     private void field(Input input, String key, String prompt, boolean secret, boolean empty) throws Failure {
         char[] value = input.read(prompt, secret);

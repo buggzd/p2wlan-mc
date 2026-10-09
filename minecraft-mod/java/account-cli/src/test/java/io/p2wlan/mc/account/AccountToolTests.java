@@ -6,6 +6,7 @@ import io.p2wlan.mc.common.AgentException;
 import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.common.AgentReply;
 import io.p2wlan.mc.common.ControlTransport;
+import io.p2wlan.mc.common.RoomPassword;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Path;
@@ -99,9 +100,28 @@ public final class AccountToolTests {
                 check(plaintext.masked.equals(List.of(false, false, true))); plaintext.cleared(3);
             }
         }
-        Input create = new Input("fixture room", "");
+        Input create = new Input("fixture room", "fixture-secret");
         try (var command = prepare(CREATE_ROOM, create)) {
-            check(command.arguments().get("password").getAsString().isEmpty()); create.cleared(2);
+            check(command.arguments().get("password").getAsString().equals("fixture-secret")); create.cleared(2);
+        }
+        check(!RoomPassword.isValid(null));
+        for (String password : List.of("12345678", "x".repeat(72), "界".repeat(24), "😀".repeat(18), "        ", "é".repeat(4))) {
+            check(RoomPassword.isValid(password));
+            for (var action : List.of(CREATE_ROOM, JOIN_ROOM)) {
+                Input input = new Input(action == CREATE_ROOM ? "fixture room" : "12345678", password);
+                try (var command = prepare(action, input)) {
+                    check(command.arguments().get("password").getAsString().equals(password));
+                    input.cleared(2);
+                }
+            }
+        }
+        for (String password : List.of("", "1234567", "x".repeat(73), "界".repeat(25), "😀".repeat(19), "é".repeat(3), "\uD800", "\uDC00")) {
+            check(!RoomPassword.isValid(password));
+            for (var action : List.of(CREATE_ROOM, JOIN_ROOM)) {
+                Input input = new Input(action == CREATE_ROOM ? "fixture room" : "12345678", password);
+                failure("INVALID_INPUT", () -> prepare(action, input));
+                check(input.index == 2); input.cleared(2);
+            }
         }
         Input join = new Input("12345678", "fixture-secret");
         try (var command = prepare(JOIN_ROOM, join)) { check(command.action() == JOIN_ROOM); join.cleared(2); }

@@ -35,6 +35,19 @@ public final class AgentLifecycleTests {
                 check(!missing.isCurrent(null));
                 missing.close(); missing.start();
             } else {
+                Path invalidProfile = java.nio.file.Files.createTempFile(profile, "not-a-profile-", ".fixture");
+                AgentLifecycle rejected = new AgentLifecycle(invalidProfile, true);
+                rejected.start();
+                Throwable startup = failed(rejected.ready());
+                check(startup instanceof AgentException agent && agent.code() == AgentException.Code.INITIALIZATION_FAILED
+                        && "PROFILE_INVALID".equals(agent.remoteCode()));
+                rejected.stopped().get(5, TimeUnit.SECONDS);
+                check(rejected.status().phase() == AgentLifecycle.Phase.FAILED);
+                check(rejected.status().reason().equals("INITIALIZATION_FAILED / PROFILE_INVALID"));
+                check(!rejected.status().reason().contains(invalidProfile.toString()));
+                check(rejected.current().isEmpty());
+                rejected.close();
+                java.nio.file.Files.delete(invalidProfile);
                 for (int iteration = 0; iteration < 3; iteration++) {
                     AgentLifecycle lifecycle = new AgentLifecycle(profile, true);
                     lifecycle.start(); lifecycle.start();

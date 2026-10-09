@@ -89,7 +89,7 @@ public final class AgentLifecycle implements AutoCloseable {
     private void finished(BundledAgent owner, Throwable error) {
         boolean unexpected;
         synchronized (gate) { unexpected = !closing && bundle == owner; }
-        if (unexpected) stop(new AgentException(AgentException.Code.UNEXPECTED_EXIT));
+        if (unexpected) stop(owner.client().failureDetails().filter(failure -> failure.code() != AgentException.Code.CLOSED).orElseGet(() -> new AgentException(AgentException.Code.UNEXPECTED_EXIT)));
         synchronized (gate) {
             if (phase == Phase.CLOSING) phase = error == null ? Phase.CLOSED : Phase.FAILED;
             if (error != null) reason = reason(error);
@@ -134,7 +134,7 @@ public final class AgentLifecycle implements AutoCloseable {
     private static String reason(Throwable error) {
         while (error instanceof CompletionException && error.getCause() != null) error = error.getCause();
         if (error instanceof NativeBundleException nativeError) return nativeError.code().name();
-        if (error instanceof AgentException agentError) return agentError.code().name();
+        if (error instanceof AgentException agentError) return agentError.diagnostic();
         if (error instanceof TimeoutException) return "STARTUP_TIMEOUT";
         return "START_FAILED";
     }

@@ -38,6 +38,15 @@ impl AccountApi {
         }
         Ok(url.as_str().trim_end_matches('/').to_string())
     }
+    /// Current Control stores a bcrypt room password of 8..=72 UTF-8 bytes.
+    /// Password-based joins use that same credential, not an empty invite flow.
+    pub fn room_password(value: &str) -> Result<&str, AgentError> {
+        if (8..=72).contains(&value.len()) {
+            Ok(value)
+        } else {
+            Err(AgentError::InvalidArguments)
+        }
+    }
     pub async fn request(
         &self,
         server: &str,

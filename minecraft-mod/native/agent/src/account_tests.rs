@@ -148,3 +148,30 @@ async fn http_does_not_redirect_credentials_to_another_request() {
         .unwrap()
         .unwrap();
 }
+
+#[test]
+fn room_password_policy_counts_utf8_without_normalizing_or_trimming() {
+    for value in [
+        "12345678".to_string(),
+        "x".repeat(72),
+        "界".repeat(24),
+        "😀".repeat(18),
+        "        ".to_string(),
+        "é".repeat(4),
+    ] {
+        assert_eq!(AccountApi::room_password(&value), Ok(value.as_str()));
+    }
+    for value in [
+        String::new(),
+        "1234567".to_string(),
+        "x".repeat(73),
+        "界".repeat(25),
+        "😀".repeat(19),
+        "é".repeat(3),
+    ] {
+        assert_eq!(
+            AccountApi::room_password(&value),
+            Err(AgentError::InvalidArguments)
+        );
+    }
+}

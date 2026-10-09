@@ -145,12 +145,6 @@ fn text<'a>(args: &'a Map<String, Value>, key: &str) -> Result<&'a str, AgentErr
         .filter(|text| !text.is_empty() && text.len() <= 256)
         .ok_or(AgentError::InvalidArguments)
 }
-fn optional_text<'a>(args: &'a Map<String, Value>, key: &str) -> Result<&'a str, AgentError> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .filter(|text| text.len() <= 256)
-        .ok_or(AgentError::InvalidArguments)
-}
 fn port(args: &Map<String, Value>) -> Result<u16, AgentError> {
     args.get("port")
         .and_then(Value::as_u64)
@@ -284,10 +278,11 @@ impl State {
                     },
                 )?;
                 let (server, token, _) = profile.credentials()?;
+                let password = AccountApi::room_password(text(args, "password")?)?;
                 let body = if create {
-                    json!({"name":text(args,"name")?,"password":optional_text(args,"password")?})
+                    json!({"name":text(args,"name")?,"password":password})
                 } else {
-                    json!({"room_code":text(args,"code")?,"password":optional_text(args,"password")?})
+                    json!({"room_code":text(args,"code")?,"password":password})
                 };
                 let response = self
                     .api
@@ -579,10 +574,25 @@ where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin,
 {
-    let profile = directory.map(Profile::open).transpose()?;
-    let api = AccountApi::new()?;
-    let owner = Identity::generate()?;
     let mut writer = FrameWriter::new(output);
+    let initialized = (|| {
+        let profile = directory.map(Profile::open).transpose()?;
+        let api = AccountApi::new()?;
+        let owner = Identity::generate()?;
+        Ok::<_, AgentError>((profile, api, owner))
+    })();
+    let (profile, api, owner) = match initialized {
+        Ok(initialized) => initialized,
+        Err(error) => {
+            // This terminal, ownerless frame grants no process/session authority.
+            // FrameWriter supplies the existing two-second write deadline; no
+            // retry or hello is sent after failed initialization. Stderr is not IPC.
+            let _ = writer
+                .write(&json!({"version":1, "event":"startup_error", "error":error.code()}))
+                .await;
+            return Err(error);
+        }
+    };
     writer
         .write(&json!({"version":1, "event":"hello", "owner":owner.as_str()}))
         .await
@@ -680,3 +690,6 @@ where
 
 #[cfg(all(test, unix))]
 mod profile_tests;
+
+#[cfg(test)]
+mod startup_tests;
