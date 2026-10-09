@@ -1347,6 +1347,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hex",
  "p2wlan-mc-gateway",
+ "p2wlan-mc-private-windows",
  "p2wlan-mc-protocol",
  "p2wlan-mc-runtime-port",
  "reqwest",
@@ -1384,6 +1385,14 @@ dependencies = [
  "subtle",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "p2wlan-mc-private-windows"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

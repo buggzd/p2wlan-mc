@@ -17,7 +17,7 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 
 /// One exclusively locked, pinned directory. Publication stays relative to its
 /// descriptor even if the pathname is replaced. A successor directory never
-/// receives old credentials. Non-Unix profiles fail closed pending ACL support.
+/// receives old credentials. Windows profiles use the isolated Win32 filesystem capability.
 #[cfg(unix)]
 pub struct PrivateDirectory {
     root: PathBuf,
@@ -216,11 +216,45 @@ impl PrivateDirectory {
     }
 }
 
+#[cfg(windows)]
+pub struct PrivateDirectory(p2wlan_mc_private_windows::PrivateDirectory);
+#[cfg(windows)]
+fn windows_error(error: p2wlan_mc_private_windows::Error) -> AgentError {
+    use p2wlan_mc_private_windows::Error;
+    match error {
+        Error::Io | Error::Cleanup => AgentError::ProfileIo,
+        Error::Invalid => AgentError::ProfileInvalid,
+        Error::Busy => AgentError::ProfileBusy,
+        Error::Capacity => AgentError::ProfileCapacity,
+        Error::Entropy => AgentError::Entropy,
+    }
+}
+#[cfg(windows)]
+impl PrivateDirectory {
+    pub fn open(path: &Path) -> Result<Self, AgentError> {
+        p2wlan_mc_private_windows::PrivateDirectory::open(path)
+            .map(Self)
+            .map_err(windows_error)
+    }
+    pub fn path(&self, name: &str) -> Result<PathBuf, AgentError> {
+        self.0.path(name).map_err(windows_error)
+    }
+    pub fn read(&self, name: &str) -> Result<Option<Vec<u8>>, AgentError> {
+        self.0.read(name).map_err(windows_error)
+    }
+    pub fn write(&self, name: &str, bytes: &[u8]) -> Result<(), AgentError> {
+        self.0.write(name, bytes).map_err(windows_error)
+    }
+    pub fn room_count(&self) -> Result<usize, AgentError> {
+        self.0.room_count().map_err(windows_error)
+    }
+}
+
 // Do not persist plaintext credentials on a platform whose private-directory
 // permissions have not been implemented and verified.
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub struct PrivateDirectory;
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 impl PrivateDirectory {
     pub fn open(_: &Path) -> Result<Self, AgentError> {
         Err(AgentError::ProfileUnsupported)

@@ -117,6 +117,12 @@ class NativeBundleTests(unittest.TestCase):
             source.parent.mkdir(parents=True)
             source.write_text("new")
             self.assertNotEqual(bundle.source_digest(root), before)
+            windows = root / "minecraft-mod/native/private-windows/src/security.rs"
+            windows.parent.mkdir(parents=True)
+            windows.write_text("windows permission input")
+            windows_digest = bundle.source_digest(root)
+            windows.write_text("changed permission input")
+            self.assertNotEqual(bundle.source_digest(root), windows_digest)
             source.unlink()
             source.symlink_to(generated)
             with self.assertRaises(bundle.BundleError):

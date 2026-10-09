@@ -38,7 +38,7 @@ def source_digest(root=ROOT):
     mod = root / "minecraft-mod"
     inputs = {root / "Cargo.toml", mod / "native/Cargo.toml", mod / "native/Cargo.lock"}
     trees = [root / "client" / name for name in UPSTREAM]
-    trees += [mod / "native" / name for name in ("bridge", "runtime-port", "protocol", "gateway", "agent", "runtime-overlay")]
+    trees += [mod / "native" / name for name in ("bridge", "runtime-port", "protocol", "gateway", "agent", "private-windows", "runtime-overlay")]
     for tree in trees:
         inputs.update(path for path in tree.rglob("*") if path.suffix in INPUT_SUFFIXES)
     inputs.update(path for path in (mod / "tools").glob("*.py"))

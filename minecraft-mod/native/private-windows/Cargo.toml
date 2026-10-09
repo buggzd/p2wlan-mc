@@ -1,0 +1,9 @@
+[package]
+name = "p2wlan-mc-private-windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+getrandom = "=0.2.17"
+windows-sys = { version = "=0.59.0", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_System_SystemServices"] }

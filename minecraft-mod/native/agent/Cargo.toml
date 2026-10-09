@@ -19,5 +19,8 @@ reqwest = { version = "=0.12.28", default-features = false, features = ["json", 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "=1.1.4", features = ["fs", "process"] }
 
+[target.'cfg(windows)'.dependencies]
+p2wlan-mc-private-windows = { path = "../private-windows" }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["process"] }

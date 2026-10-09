@@ -1,0 +1,183 @@
+//! These tests execute actual NT filesystem/ACL operations on Windows. A
+//! cross-target `check --tests` verifies compilation, NOT their execution.
+use crate::{handles, security::Security, Error, PrivateDirectory};
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+
+struct Fixture(PathBuf);
+impl Fixture {
+    fn new() -> Self {
+        let mut nonce = [0; 16];
+        getrandom::getrandom(&mut nonce).unwrap();
+        let name = nonce
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let root = std::env::temp_dir().join(format!("p2wlan-private-test-{name}"));
+        // The fixture is unique, contains no real account or game data, and is
+        // created with the same atomic private descriptor as production.
+        handles::create_directory(&root, &Security::current_user().unwrap()).unwrap();
+        Self(root)
+    }
+    fn profile(&self) -> PathBuf {
+        self.0.join("游戏配置").join("profile")
+    }
+}
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+
+#[test]
+fn private_roundtrip_atomic_replace_lock_and_reopen() {
+    let fixture = Fixture::new();
+    let path = fixture.profile();
+    let storage = PrivateDirectory::open(&path).unwrap();
+    assert_eq!(storage.read("account.json").unwrap(), None);
+    assert!(matches!(PrivateDirectory::open(&path), Err(Error::Busy)));
+    storage.write("account.json", b"private-fixture").unwrap();
+    assert_eq!(
+        storage.read("account.json").unwrap().unwrap(),
+        b"private-fixture"
+    );
+    storage.write("account.json", b"replacement").unwrap();
+    assert_eq!(
+        storage.read("account.json").unwrap().unwrap(),
+        b"replacement"
+    );
+    assert_eq!(fs::read_dir(&path).unwrap().count(), 2);
+    assert_eq!(storage.room_count().unwrap(), 0);
+    drop(storage);
+    let reopened = PrivateDirectory::open(&path).unwrap();
+    assert_eq!(
+        reopened.read("account.json").unwrap().unwrap(),
+        b"replacement"
+    );
+}
+
+#[test]
+fn pins_directory_ancestors_and_lock_until_owner_release() {
+    let fixture = Fixture::new();
+    let path = fixture.profile();
+    let storage = PrivateDirectory::open(&path).unwrap();
+    assert!(fs::rename(&path, path.with_file_name("moved")).is_err());
+    assert!(fs::rename(path.parent().unwrap(), fixture.0.join("moved-ancestor")).is_err());
+    assert!(fs::remove_file(path.join("profile.lock")).is_err());
+    storage.write("account.json", b"still-current").unwrap();
+    drop(storage);
+    fs::rename(&path, path.with_file_name("moved")).unwrap();
+}
+
+#[test]
+fn hardlinks_directories_widened_acls_and_size_are_not_credentials() {
+    let fixture = Fixture::new();
+    let path = fixture.profile();
+    let storage = PrivateDirectory::open(&path).unwrap();
+    let target = path.join("account.json");
+    storage.write("account.json", b"private-original").unwrap();
+    let alias = fixture.0.join("alias");
+    fs::hard_link(&target, &alias).unwrap();
+    assert_eq!(storage.read("account.json"), Err(Error::Invalid));
+    assert_eq!(
+        storage.write("account.json", b"must-not-write"),
+        Err(Error::Invalid)
+    );
+    assert_eq!(fs::read(&alias).unwrap(), b"private-original");
+    fs::remove_file(&alias).unwrap();
+    storage.write("account.json", b"private-original").unwrap();
+    crate::security::widen_for_test(&target);
+    assert_eq!(storage.read("account.json"), Err(Error::Invalid));
+    assert_eq!(
+        storage.write("account.json", b"must-not-write"),
+        Err(Error::Invalid)
+    );
+    fs::remove_file(&target).unwrap();
+    fs::create_dir(&target).unwrap();
+    assert_eq!(storage.read("account.json"), Err(Error::Invalid));
+    fs::remove_dir(&target).unwrap();
+    assert_eq!(
+        storage.write("account.json", &[0; 65537]),
+        Err(Error::Invalid)
+    );
+    storage.write("account.json", b"small").unwrap();
+    fs::write(&target, vec![0; 65537]).unwrap();
+    assert_eq!(storage.read("account.json"), Err(Error::Invalid));
+}
+
+#[test]
+fn traversal_device_paths_ads_junctions_and_unprotected_roots_are_rejected() {
+    let fixture = Fixture::new();
+    let storage = PrivateDirectory::open(&fixture.profile()).unwrap();
+    for name in [
+        "",
+        ".",
+        "..",
+        "../other",
+        "other\\name",
+        "a:secret",
+        "CON",
+        "con.json",
+        "LPT1",
+        "COM9.lock",
+        "trailing.",
+    ] {
+        assert_eq!(storage.path(name), Err(Error::Invalid));
+    }
+    for path in [
+        r"C:relative",
+        r"\relative",
+        r"\\server\share\profile",
+        r"\\.\C:\profile",
+        r"C:\data:stream\profile",
+    ] {
+        assert!(matches!(
+            PrivateDirectory::open(&PathBuf::from(path)),
+            Err(Error::Invalid)
+        ));
+    }
+    let unprotected = fixture.0.join("unprotected");
+    fs::create_dir(&unprotected).unwrap();
+    assert!(matches!(
+        PrivateDirectory::open(&unprotected),
+        Err(Error::Invalid)
+    ));
+    let alias = fixture.0.join("junction");
+    // NTFS junction creation requires no symlink/developer-mode privilege.
+    let result = Command::new("cmd.exe")
+        .args(["/D", "/C", "mklink", "/J"])
+        .arg(&alias)
+        .arg(storage.path("account.json").unwrap().parent().unwrap())
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "junction fixture could not be created"
+    );
+    assert!(matches!(
+        PrivateDirectory::open(&alias),
+        Err(Error::Invalid)
+    ));
+    // Non-recursive remove_dir deletes only the fixture junction, not its target.
+    fs::remove_dir(alias).unwrap();
+}
+
+#[test]
+fn bounded_enumeration_has_explicit_capacity_failure() {
+    let fixture = Fixture::new();
+    let path = fixture.profile();
+    let storage = PrivateDirectory::open(&path).unwrap();
+    for index in 0..255 {
+        fs::write(path.join(format!("fixture-{index}")), b"").unwrap();
+    }
+    assert_eq!(storage.room_count().unwrap(), 0); // 255 entries + lock = 256.
+    assert_eq!(
+        storage.write("account.json", b"must-not-create"),
+        Err(Error::Capacity)
+    );
+    assert!(!path.join("account.json").exists());
+    assert_eq!(fs::read_dir(&path).unwrap().count(), 256);
+    fs::write(path.join("one-extra"), b"").unwrap();
+    assert_eq!(storage.room_count(), Err(Error::Capacity));
+}
