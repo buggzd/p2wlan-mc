@@ -336,3 +336,19 @@ python3 minecraft-mod/tools/client_hooks.py --offline --development
 The tool serializes native packaging before Loom verification/startup, creates a fresh private client run directory and reads only a bounded, exact-schema, run-bound result—not log strings or Gradle exit alone. One process group and diagnostic reader have a 240-second execution deadline; retained diagnostics are limited to 1 MiB with explicit truncation. Native helper cleanup is checked before completion. macOS/Linux POSIX hosts are admitted by the tool; Linux display/device execution is not yet verified.
 
 The fixture starts the actual pinned Minecraft/Fabric client and executes 61 checks against required Mixin transformations, the exact connection/address scope, a capability prefix followed by real Vanilla handshake/LoginHello encoding, an ordinary unwrapped Vanilla bootstrap, the actual Vanilla-screen retirement policy, cancellation and retired-owner cleanup that cannot close a replacement channel. Its bounded loopback receiver sends no ACK and performs no Minecraft authentication. It creates no world/server, joins no remote game, accepts no EULA/account terms and does not establish gameplay or integrated-pause acceptance. Two-end Minecraft/world tests, forced Relay/public NAT, Windows, other loaders/versions and independent security review remain outside this fixture.
+
+## Isolated dedicated-world verification
+
+The test-only `serverFixture` Mod/source set/run is excluded from ordinary builds; the archive checker rejects fixture classes in production. Its wrapper requires an explicit **disposable** server run directory, an already manually accepted `eula.txt`, a loopback `server-ip`, online authentication, status queries enabled and RCON/query disabled. It loads/saves that test world and stops the server. It never writes/accepts the EULA; the existing file must remain byte-identical. Do not use a production world/directory.
+
+With current source-bound native resources already generated, and the disposable directory prepared as above:
+
+```sh
+python3 minecraft-mod/tests/server_boot_fixture.py --run-directory minecraft-mod/java/adapters/fabric-1.21.1/run --offline
+```
+
+An explicitly labelled development resource requires `--development`. Missing consent/configuration/resources fail before successful execution, not as a skipped test. Loom fixture directories are canonicalized and expressed relative to the adapter so the game's actual working directory is the selected directory. Ordinary and fixture game launch tasks depend on production-archive verification, not merely argument order.
+
+The fixture executes 29 checks against the actual dedicated Minecraft world and required server transformation: current world ownership, native helper readiness/idle status, an additional guarded loopback listener, wrong-capability rejection, coalesced capability plus real Vanilla status handshake/response, listener revocation, ordinary Vanilla status after private-listener cleanup, exact native-child cleanup and world-owner retirement on server stop. `online-mode` remains enabled, but no player authentication/login is performed. The private test listener is not a native room publication; no P2WLAN game tunnel, Direct/Relay selection, Minecraft client play, sustained traffic, integrated-world hosting/pause or public NAT is accepted by these checks.
+
+The wrapper accepts only a bounded, exact-schema, run-bound result with the full case set, exact nonzero check count and cleanup flags. It shares the bounded 240-second process-group/1 MiB diagnostic runner with the client fixture; logs and Gradle exit are not the result contract. Dedicated-world execution is verified on macOS/aarch64 only; the remaining platform/version/gameplay limits above still apply.

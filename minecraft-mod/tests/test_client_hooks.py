@@ -5,6 +5,8 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+from contextlib import redirect_stdout
 
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / "tools"))
@@ -57,3 +59,22 @@ class ClientHookContractTests(unittest.TestCase):
         target = io.BytesIO()
         hooks.drain_diagnostics(io.BytesIO(b"fixture"), target)
         self.assertEqual(target.getvalue(), b"fixture")
+
+    def test_loom_run_directory_is_relative_to_adapter_not_an_absolute_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            adapter = project / "java/adapters/fabric-1.21.1"
+            adapter.mkdir(parents=True)
+            observed = []
+            with patch.object(hooks, "PROJECT", project), \
+                    patch("sys.argv", ["client_hooks.py", "--offline", "--development"]), \
+                    patch.object(hooks.subprocess, "call", return_value=0), \
+                    patch.object(hooks.subprocess, "check_output", return_value="fixture-jdk\n"), \
+                    patch.object(hooks, "run_bounded", side_effect=lambda command, *args: observed.append(command) or 0), \
+                    patch.object(hooks, "verify_result", return_value={"checks": 61}), redirect_stdout(io.StringIO()):
+                self.assertEqual(hooks.main(), 0)
+            command = observed[0]
+            directory = Path(next(value.split("=", 1)[1] for value in command if value.startswith("-PclientFixtureDirectory=")))
+            result = Path(next(value.split("=", 1)[1] for value in command if value.startswith("-PclientFixtureResult=")))
+            self.assertFalse(directory.is_absolute())
+            self.assertEqual((adapter / directory).resolve(), (result.parent / "game").resolve())

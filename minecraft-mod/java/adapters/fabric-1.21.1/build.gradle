@@ -92,3 +92,27 @@ if (providers.gradleProperty('clientHookFixture').isPresent()) {
         ideConfigGenerated false
     }
 }
+
+// Dedicated world fixture is opt-in and absent from ordinary jars/runs. The
+// wrapper requires an already accepted EULA and an explicit loopback test run.
+if (providers.gradleProperty('serverBootFixture').isPresent()) {
+    def fixture = sourceSets.create('serverFixture')
+    fixture.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    fixture.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    loom.mods.register('p2wlan_server_boot_test') { sourceSet fixture }
+    loom.runs.register('serverFixture') {
+        inherit loom.runs.server
+        name 'P2WLAN isolated dedicated world fixture'
+        source fixture
+        runDir providers.gradleProperty('serverFixtureDirectory').get()
+        property 'p2wlan.fixture.run', providers.gradleProperty('serverFixtureRun').get()
+        property 'p2wlan.fixture.result', providers.gradleProperty('serverFixtureResult').get()
+        ideConfigGenerated false
+    }
+}
+
+// Argument order is not a task dependency. Never start an ordinary/fixture JVM
+// before the source-bound production archive check has actually succeeded.
+tasks.matching { it.name in ['runServer', 'runClient', 'runClientFixture', 'runServerFixture'] }.configureEach {
+    dependsOn tasks.named('verifyModJar')
+}

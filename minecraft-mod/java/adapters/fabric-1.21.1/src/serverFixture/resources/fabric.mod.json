@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "p2wlan_server_boot_test",
+  "version": "1.0.0",
+  "name": "P2WLAN isolated dedicated world fixture",
+  "environment": "server",
+  "entrypoints": {"main": ["io.p2wlan.mc.fabric.fixture.ServerBootFixture"]},
+  "depends": {"p2wlan": "*", "minecraft": "1.21.1", "java": ">=21"}
+}

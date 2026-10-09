@@ -121,7 +121,7 @@ def main():
     game.mkdir(mode=0o700)
     result = job / "result.json"
     command = [str(PROJECT / "java/gradlew"), "--no-daemon", "-PfabricAdapter", "-PclientHookFixture",
-               "-PclientFixtureDirectory=" + str(game), "-PclientFixtureRun=" + identity,
+               "-PclientFixtureDirectory=" + os.path.relpath(game.resolve(), (PROJECT / "java/adapters/fabric-1.21.1").resolve()), "-PclientFixtureRun=" + identity,
                "-PclientFixtureResult=" + str(result), ":fabric:verifyModJar", ":fabric:runClientFixture"]
     if args.offline:
         command.append("--offline")
