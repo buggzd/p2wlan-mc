@@ -82,6 +82,13 @@ tasks.register('accountCatalogTest', JavaExec) {
 }
 check.dependsOn accountCatalogTest
 
+tasks.register('controlTransportTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.ControlTransportTests'
+}
+check.dependsOn controlTransportTest
+
 tasks.register('uiCompletionTest', JavaExec) {
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath

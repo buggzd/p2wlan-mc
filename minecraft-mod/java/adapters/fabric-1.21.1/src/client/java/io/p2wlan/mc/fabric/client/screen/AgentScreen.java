@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import io.p2wlan.mc.common.AgentClient;
 import io.p2wlan.mc.common.AgentException;
 import io.p2wlan.mc.common.AgentReply;
+import io.p2wlan.mc.common.ControlTransport;
 import io.p2wlan.mc.common.UiCompletionGate;
 import io.p2wlan.mc.fabric.FabricP2wlan;
 import java.util.ArrayList;
@@ -95,6 +96,15 @@ abstract class AgentScreen extends Screen {
         boolean enabled = agent() != null && actionsEnabled() && !REQUESTS.busy();
         for (ButtonWidget button : actions) button.active = enabled;
     }
+    /** Risk display comes from the exact current native snapshot, not a cached
+     * UI account flag. Revalidate the lifecycle owner at the display boundary. */
+    protected boolean insecureControl() {
+        AgentClient current = agent();
+        if (current == null) return false;
+        var snapshot = current.snapshot().orElse(null);
+        return snapshot != null && ControlTransport.accountIsPlaintext(snapshot.data().get("account"))
+                && FabricP2wlan.AGENT.isCurrent(current) && !current.isClosed();
+    }
     @Override public void removed() { view.set(false); }
     @Override public void close() { client.setScreen(parent); }
     @Override public boolean shouldPause() { return false; }
@@ -102,6 +112,12 @@ abstract class AgentScreen extends Screen {
         renderBackground(context, mouseX, mouseY, delta);
         super.render(context, mouseX, mouseY, delta);
         context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 15, 0xffffff);
+        if (insecureControl()) {
+            context.drawCenteredTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(ControlTransport.BANNER, width - 20)), width / 2, 26, 0xffaa00);
+            if (mouseY >= 26 && mouseY < 26 + textRenderer.fontHeight) {
+                context.drawTooltip(textRenderer, Text.literal(ControlTransport.BANNER), mouseX, mouseY);
+            }
+        }
         var state = FabricP2wlan.AGENT.status();
         String helper = "IPC: " + state.phase() + (state.reason() == null ? "" : " / " + state.reason());
         context.drawCenteredTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(helper, width - 20)), width / 2, height - 34, 0xa0a0a0);

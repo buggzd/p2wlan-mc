@@ -2,6 +2,7 @@ package io.p2wlan.mc.fabric.client.screen;
 
 import com.google.gson.JsonObject;
 import io.p2wlan.mc.common.RuntimeView;
+import io.p2wlan.mc.common.ControlTransport;
 import io.p2wlan.mc.fabric.FabricP2wlan;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
@@ -20,7 +21,7 @@ public final class AccountScreen extends AgentScreen {
     @Override protected void init() {
         if (password != null) password.setText("");
         super.init();
-        server = field(top + 0, "Control URL (https://example.com)", 2048);
+        server = field(top + 0, "Control URL (http:// or https://)", 2048);
         identifier = field(top + 26, "P2WLAN 邮箱 / Identifier", 320);
         password = addDrawableChild(new PasswordField(textRenderer, left, top + 52, formWidth, Text.literal("P2WLAN 密码 / Password")));
         password.setPlaceholder(Text.literal("P2WLAN 密码 / Password"));
@@ -29,6 +30,9 @@ public final class AccountScreen extends AgentScreen {
         action("已保存账号的房间 / Saved account rooms", left, top + 104, formWidth, button -> client.setScreen(new RoomsScreen(this)));
         back(top + 130);
         setInitialFocus(server);
+    }
+    @Override protected boolean insecureControl() {
+        return server != null && ControlTransport.isPlaintext(server.getText()) || super.insecureControl();
     }
     private void authenticate(String operation) {
         JsonObject arguments = new JsonObject();

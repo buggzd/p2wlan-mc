@@ -24,8 +24,9 @@ impl AccountApi {
             return Err(AgentError::InvalidArguments);
         }
         let url = Url::parse(value).map_err(|_| AgentError::InvalidArguments)?;
-        let local = matches!(url.host_str(), Some("127.0.0.1" | "[::1]" | "localhost"));
-        if !(url.scheme() == "https" || url.scheme() == "http" && local)
+        // HTTP is an explicit supported transport, not a TLS-verification
+        // bypass. User-facing entry points warn before credential submission.
+        if !matches!(url.scheme(), "https" | "http")
             || !url.username().is_empty()
             || url.password().is_some()
             || url.query().is_some()
@@ -159,3 +160,7 @@ pub fn room(value: &Value) -> Result<Value, AgentError> {
     };
     Ok(json!({"id":id,"code":code,"name":name,"cidr":cidr,"role":role}))
 }
+
+#[cfg(test)]
+#[path = "account_tests.rs"]
+mod tests;

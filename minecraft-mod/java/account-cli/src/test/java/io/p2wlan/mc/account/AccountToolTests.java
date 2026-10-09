@@ -5,6 +5,7 @@ import com.google.gson.JsonParser;
 import io.p2wlan.mc.common.AgentException;
 import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.common.AgentReply;
+import io.p2wlan.mc.common.ControlTransport;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Path;
@@ -30,6 +31,7 @@ public final class AccountToolTests {
     private static final class Input implements AccountCommand.Input {
         final List<char[]> values = new ArrayList<>();
         final List<Boolean> masked = new ArrayList<>();
+        final List<String> warnings = new ArrayList<>();
         int index;
         boolean available = true;
         Input(String... texts) { for (String text : texts) values.add(text == null ? null : text.toCharArray()); }
@@ -44,6 +46,12 @@ public final class AccountToolTests {
                 check(Arrays.equals(values.get(i), new char[values.get(i).length]));
             }
         }
+    }
+    private static AccountCommand prepare(AccountCommand.Action action, Input input) throws AccountCommand.Failure {
+        return AccountCommand.prepare(action, input, warning -> {
+            check(input.index == 1); // Warn before identifier/password collection.
+            input.warnings.add(warning);
+        });
     }
     private static AgentReply reply(String json) {
         return new AgentReply("0123456789abcdef0123456789abcdef", 1, JsonParser.parseString(json).getAsJsonObject());
@@ -72,7 +80,7 @@ public final class AccountToolTests {
     }
     private static void input() throws Exception {
         Input login = new Input("https://example.com", "fixture-account", "fixture-secret");
-        try (var command = AccountCommand.prepare(LOGIN, login)) {
+        try (var command = prepare(LOGIN, login)) {
             check(command.arguments().keySet().equals(java.util.Set.of("server", "identifier", "password")));
             check(command.arguments().get("password").getAsString().equals("fixture-secret"));
             check(login.masked.equals(List.of(false, false, true)));
@@ -80,29 +88,39 @@ public final class AccountToolTests {
             command.close(); check(command.arguments().size() == 0);
         }
         Input register = new Input("https://example.com", "fixture-account", "fixture-secret");
-        try (var command = AccountCommand.prepare(REGISTER, register)) { check(command.action() == REGISTER); register.cleared(3); }
+        try (var command = prepare(REGISTER, register)) { check(command.action() == REGISTER); register.cleared(3); }
+        check(login.warnings.isEmpty() && register.warnings.isEmpty());
+        for (var action : List.of(LOGIN, REGISTER)) {
+            Input plaintext = new Input("http://control.example.com:18080", "fixture-account", "fixture-secret");
+            try (var command = prepare(action, plaintext)) {
+                check(command.arguments().get("server").getAsString().equals("http://control.example.com:18080"));
+                check(command.arguments().get("password").getAsString().equals("fixture-secret"));
+                check(plaintext.warnings.equals(List.of(ControlTransport.WARNING)));
+                check(plaintext.masked.equals(List.of(false, false, true))); plaintext.cleared(3);
+            }
+        }
         Input create = new Input("fixture room", "");
-        try (var command = AccountCommand.prepare(CREATE_ROOM, create)) {
+        try (var command = prepare(CREATE_ROOM, create)) {
             check(command.arguments().get("password").getAsString().isEmpty()); create.cleared(2);
         }
         Input join = new Input("12345678", "fixture-secret");
-        try (var command = AccountCommand.prepare(JOIN_ROOM, join)) { check(command.action() == JOIN_ROOM); join.cleared(2); }
+        try (var command = prepare(JOIN_ROOM, join)) { check(command.action() == JOIN_ROOM); join.cleared(2); }
         Input badCode = new Input("1234567x", "fixture-secret");
-        failure("INVALID_INPUT", () -> AccountCommand.prepare(JOIN_ROOM, badCode));
+        failure("INVALID_INPUT", () -> prepare(JOIN_ROOM, badCode));
         check(badCode.index == 1); badCode.cleared(1);
         for (int end = 0; end < 3; end++) {
             String[] values = {"https://example.com", "fixture-account", "fixture-secret"}; values[end] = null;
             Input cancelled = new Input(values);
-            failure("INPUT_CANCELLED", () -> AccountCommand.prepare(LOGIN, cancelled));
+            failure("INPUT_CANCELLED", () -> prepare(LOGIN, cancelled));
             check(cancelled.index == end + 1); cancelled.cleared(end + 1);
         }
         Input unavailable = new Input(); unavailable.available = false;
         for (var action : List.of(LOGIN, REGISTER, CREATE_ROOM, JOIN_ROOM)) {
-            failure("CONSOLE_REQUIRED", () -> AccountCommand.prepare(action, unavailable));
+            failure("CONSOLE_REQUIRED", () -> prepare(action, unavailable));
             check(unavailable.index == 0);
         }
         for (var action : List.of(STATUS, ROOMS, LOGOUT)) {
-            try (var command = AccountCommand.prepare(action, null)) { check(command.arguments().size() == 0); }
+            try (var command = prepare(action, null)) { check(command.arguments().size() == 0); }
         }
         AccountCommand.validate("x".repeat(256).toCharArray(), false); checks++;
         AccountCommand.validate("界".repeat(85).toCharArray(), false); checks++;
@@ -111,7 +129,7 @@ public final class AccountToolTests {
             failure("INVALID_INPUT", () -> AccountCommand.validate(value.toCharArray(), false));
         }
         Input oversized = new Input("https://example.com", "fixture-account", "😀".repeat(65));
-        failure("INVALID_INPUT", () -> AccountCommand.prepare(LOGIN, oversized)); oversized.cleared(3);
+        failure("INVALID_INPUT", () -> prepare(LOGIN, oversized)); oversized.cleared(3);
     }
     private static void receipts() throws Exception {
         String signedIn = "{\"authenticated\":true,\"server\":\"https://example.com\",\"user_id\":\"fixture-secret\"}";
@@ -119,6 +137,12 @@ public final class AccountToolTests {
         check(AccountReceipt.parse(LOGIN, reply(signedIn)).equals(List.of("LOGIN_OK")));
         check(AccountReceipt.parse(REGISTER, reply(signedIn)).equals(List.of("REGISTER_OK")));
         check(AccountReceipt.parse(LOGOUT, reply(signedOut)).equals(List.of("LOGOUT_OK")));
+        String plaintext = signedIn.replace("https://example.com", "http://example.com:18080");
+        check(AccountReceipt.parse(LOGIN, reply(plaintext)).equals(List.of(ControlTransport.WARNING, "LOGIN_OK")));
+        check(AccountReceipt.parse(REGISTER, reply(plaintext)).equals(List.of(ControlTransport.WARNING, "REGISTER_OK")));
+        check(AccountReceipt.parse(STATUS, reply("{\"phase\":\"idle\",\"failure\":null,\"account\":" + plaintext + "}"))
+                .equals(List.of(ControlTransport.WARNING, "STATUS AUTHENTICATED")));
+        check(AccountReceipt.parse(LOGIN, reply(plaintext)).stream().noneMatch(line -> line.contains("example.com") || line.contains("fixture-secret")));
         check(AccountReceipt.parse(STATUS, reply("{\"phase\":\"idle\",\"failure\":null,\"account\":" + signedOut + "}"))
                 .equals(List.of("STATUS SIGNED_OUT")));
         check(AccountReceipt.parse(STATUS, reply("{\"phase\":\"idle\",\"failure\":\"CONTROL_TIMEOUT\",\"account\":" + signedIn + "}"))
@@ -159,6 +183,22 @@ public final class AccountToolTests {
         text = new StringWriter();
         check(AccountTool.run(args("login"), unexpected, new PrintWriter(text, true), (p, d) -> { throw new IllegalStateException("fixture-secret"); }) == 1);
         check(text.toString().equals("ERROR ACCOUNT_TOOL_IO\n")); unexpected.cleared(3);
+        StringWriter warned = new StringWriter();
+        Input http = new Input("http://control.example.com", "fixture-account", "fixture-secret");
+        check(AccountTool.run(args("login"), http, new PrintWriter(warned, true), (p, d) -> {
+            check(warned.toString().equals(ControlTransport.WARNING + "\n"));
+            throw new IllegalStateException("fixture-secret");
+        }) == 1);
+        check(warned.toString().equals(ControlTransport.WARNING + "\nERROR ACCOUNT_TOOL_IO\n"));
+        check(!warned.toString().contains("control.example.com") && !warned.toString().contains("fixture-secret"));
+        http.cleared(3);
+        Input cannotWarn = new Input("http://control.example.com", "fixture-account", "fixture-secret");
+        var blockedOutput = new PrintWriter(new java.io.Writer() {
+            public void write(char[] value, int offset, int length) throws java.io.IOException { throw new java.io.IOException("unwritable"); }
+            public void flush() {} public void close() {}
+        });
+        check(AccountTool.run(args("login"), cannotWarn, blockedOutput, (p, d) -> { throw new AssertionError("warning failure launched helper"); }) == 1);
+        check(cannotWarn.index == 1); cannotWarn.cleared(1);
         // Resources are intentionally absent. Verify failure cleanup completes,
         // no receipt/unknown delivery is printed, and no helper starts.
         text = new StringWriter();

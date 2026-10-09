@@ -1,6 +1,7 @@
 package io.p2wlan.mc.account;
 
 import com.google.gson.JsonObject;
+import io.p2wlan.mc.common.ControlTransport;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -51,19 +52,21 @@ final class AccountCommand implements AutoCloseable {
         boolean available();
         char[] read(String prompt, boolean secret);
     }
+    interface Warnings { void show(String message) throws Failure; }
     static final class Failure extends Exception {
         Failure(String code) { super(code); }
     }
     private final Action action;
     private final JsonObject arguments = new JsonObject();
     private AccountCommand(Action action) { this.action = action; }
-    static AccountCommand prepare(Action action, Input input) throws Failure {
+    static AccountCommand prepare(Action action, Input input, Warnings warnings) throws Failure {
         AccountCommand command = new AccountCommand(action);
         try {
             if (action.input && (input == null || !input.available())) throw new Failure("CONSOLE_REQUIRED");
             switch (action) {
                 case LOGIN, REGISTER -> {
                     command.field(input, "server", "Control base URL: ", false, false);
+                    if (ControlTransport.isPlaintext(command.arguments.get("server").getAsString())) warnings.show(ControlTransport.WARNING);
                     command.field(input, "identifier", "Account: ", false, false);
                     command.field(input, "password", "Password: ", true, false);
                 }

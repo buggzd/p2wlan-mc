@@ -69,6 +69,44 @@ fn account_restore_logout_locking_and_redacted_status() {
     assert_eq!(profile.status(), json!({"authenticated":false}));
 }
 #[test]
+fn saved_public_http_account_and_room_config_remain_durable() {
+    let directory = Directory::new();
+    let mut profile = directory.profile();
+    profile
+        .login(
+            "http://control.example.com:18080".into(),
+            "fixture-user".into(),
+            "fixture-token".into(),
+        )
+        .unwrap();
+    let config = profile
+        .room_config("room-http-fixture", "10.40.1.0/24")
+        .unwrap();
+    assert_eq!(
+        config.control.server_url,
+        "http://control.example.com:18080"
+    );
+    let key = config.node.public_key;
+    drop(profile);
+    let profile = directory.profile();
+    assert_eq!(
+        profile.credentials().unwrap(),
+        (
+            "http://control.example.com:18080",
+            "fixture-token",
+            "fixture-user"
+        )
+    );
+    assert_eq!(
+        profile
+            .room_config("room-http-fixture", "10.40.1.0/24")
+            .unwrap()
+            .node
+            .public_key,
+        key
+    );
+}
+#[test]
 fn room_identity_is_durable_scoped_and_never_uses_host_name() {
     let directory = Directory::new();
     let mut profile = directory.profile();
@@ -244,7 +282,7 @@ fn disk_state_limits_unknown_fields_versions_and_unsafe_server_urls() {
     let storage = PrivateDirectory::open(&directory.0).unwrap();
     for state in [
         json!({"version":2,"user_id":"fixture","server":"https://control.example.com","token":"jwt"}),
-        json!({"version":1,"user_id":"fixture","server":"http://control.example.com","token":"jwt"}),
+        json!({"version":1,"user_id":"fixture","server":"ftp://control.example.com","token":"jwt"}),
         json!({"version":1,"user_id":"fixture","server":"https://control.example.com","token":"jwt","unknown":1}),
     ] {
         storage
@@ -276,7 +314,7 @@ fn disk_state_limits_unknown_fields_versions_and_unsafe_server_urls() {
 #[test]
 fn control_origins_and_room_projection_are_bounded_and_secret_free() {
     for invalid in [
-        "http://control.example.com",
+        "http://name:password@example.com",
         "https://name:password@example.com",
         "https://example.com/api",
         "https://example.com?token=x",
@@ -290,6 +328,8 @@ fn control_origins_and_room_projection_are_bounded_and_secret_free() {
     }
     for valid in [
         "https://control.example.com",
+        "http://control.example.com",
+        "http://203.0.113.1:18080",
         "http://127.0.0.1:12345",
         "http://[::1]:12345",
         "http://localhost:12345",

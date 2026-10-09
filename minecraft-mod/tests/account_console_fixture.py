@@ -126,6 +126,8 @@ class ConsoleFixture:
                         raise FixtureError("PASSWORD_ECHO_ENABLED")
                     pump()
                 if hidden:
+                    if action in {"login", "register"} and inputs and inputs[0][1] and inputs[0][1].lower().startswith("http:"):
+                        self.check(b"WARNING HTTP_UNENCRYPTED: " in output[:cursor], "HTTP_WARNING_BEFORE_PASSWORD")
                     self.check(not termios.tcgetattr(master)[3] & termios.ECHO, "PASSWORD_MASK")
                 os.write(master, b"\x04" if value is None else value.encode("utf-8") + b"\n")
             if after_input:
@@ -241,7 +243,8 @@ def exercise(fixture, distribution, root, server):
     accounts = [(secrets.token_hex(8) + "@example.com", secrets.token_hex(16)) for _ in range(2)]
     for path, (identifier, password) in zip((first, second), accounts):
         fixture.expect("register", path, "REGISTER_OK", account_inputs(server, identifier, password))
-        fixture.expect("status", path, "STATUS AUTHENTICATED")
+        saved_status = fixture.expect("status", path, "STATUS AUTHENTICATED")
+        fixture.check("WARNING HTTP_UNENCRYPTED: " in saved_status, "SAVED_HTTP_WARNING")
         fixture.check(path.stat().st_mode & 0o777 == 0o700, "PROFILE_DIRECTORY_PRIVACY")
         saved = path / "account.json"
         fixture.check(saved.stat().st_mode & 0o777 == 0o600, "PROFILE_FILE_PRIVACY")

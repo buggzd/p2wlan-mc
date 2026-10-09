@@ -25,6 +25,19 @@ class AccountConsoleFixtureTests(unittest.TestCase):
     def fake(self, script):
         return patch.object(self.console, "command", return_value=[sys.executable, "-c", script])
 
+    def test_http_warning_is_required_before_password_prompt(self):
+        script = "import getpass;input('Control base URL: ');input('Account: ');getpass.getpass('Password: ');print('REGISTER_OK')"
+        with self.fake(script), self.assertRaisesRegex(fixture.FixtureError, "HTTP_WARNING_BEFORE_PASSWORD"):
+            self.console.invoke("register", self.root / "unused", fixture.account_inputs("http://example.com", "fixture-account", "fixture-secret"))
+
+    def test_http_warning_continues_without_confirmation_or_password_echo(self):
+        script = "import getpass;input('Control base URL: ');print('WARNING HTTP_UNENCRYPTED: synthetic warning');input('Account: ');getpass.getpass('Password: ');print('REGISTER_OK')"
+        with self.fake(script):
+            code, text = self.console.invoke("register", self.root / "unused", fixture.account_inputs("http://example.com", "fixture-account", "fixture-secret"))
+        self.assertEqual(code, 0)
+        self.assertIn("REGISTER_OK", text)
+        self.assertNotIn("fixture-secret", text)
+
     def test_credentials_not_arguments_and_java_injection_removed(self):
         command = self.console.command("login", self.root / "profile")
         self.assertEqual(command[-1], "--allow-development-native")

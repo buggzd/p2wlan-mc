@@ -3,6 +3,7 @@ package io.p2wlan.mc.account;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import io.p2wlan.mc.common.AccountCatalog;
+import io.p2wlan.mc.common.ControlTransport;
 import io.p2wlan.mc.common.AgentClient;
 import io.p2wlan.mc.common.AgentException;
 import io.p2wlan.mc.common.AgentLifecycle;
@@ -32,11 +33,13 @@ final class AccountReceipt {
                 JsonElement failure = data.get("failure");
                 if (!failure.isJsonNull() && !text(failure, 48).matches("[A-Z][A-Z0-9_]{0,47}")) throw invalid();
                 boolean signedIn = account(data.getAsJsonObject("account"));
-                yield List.of("STATUS " + (signedIn ? "AUTHENTICATED" : "SIGNED_OUT"));
+                String receipt = "STATUS " + (signedIn ? "AUTHENTICATED" : "SIGNED_OUT");
+                yield ControlTransport.accountIsPlaintext(data.get("account")) ? List.of(ControlTransport.WARNING, receipt) : List.of(receipt);
             }
             case LOGIN, REGISTER, LOGOUT -> {
                 if (account(data) != (action != AccountCommand.Action.LOGOUT)) throw invalid();
-                yield List.of(action.name() + "_OK");
+                String receipt = action.name() + "_OK";
+                yield ControlTransport.accountIsPlaintext(data) ? List.of(ControlTransport.WARNING, receipt) : List.of(receipt);
             }
             case ROOMS -> {
                 var catalog = AccountCatalog.parse(reply);

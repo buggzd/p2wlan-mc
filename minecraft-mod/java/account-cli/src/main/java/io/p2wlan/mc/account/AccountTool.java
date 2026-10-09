@@ -50,7 +50,10 @@ public final class AccountTool {
             action = options.action();
             // Input cancellation/no terminal/invalid UTF-8 is rejected before
             // profile extraction, locking, process creation or shutdown hooks.
-            try (AccountCommand command = AccountCommand.prepare(action, input)) {
+            try (AccountCommand command = AccountCommand.prepare(action, input, warning -> {
+                output.println(warning); output.flush();
+                if (output.checkError()) throw new AccountCommand.Failure("WARNING_OUTPUT_FAILED");
+            })) {
                 AgentLifecycle owner = factory.create(options.profile(), options.development());
                 Thread hook = new Thread(() -> { owner.close(); try { cleanup(owner); } catch (Exception ignored) { } },
                         "p2wlan-account-shutdown");
