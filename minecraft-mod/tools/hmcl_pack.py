@@ -57,11 +57,13 @@ def guide(platform):
             f"Minecraft {MINECRAFT} / Fabric Loader {LOADER} / Fabric API {API_VERSION}\r\n"
             "1. 在 HMCL 的整合包安装入口选择本 ZIP，不要把 ZIP 放进 mods 文件夹。\r\n"
             "2. 使用独立游戏实例、64 位操作系统和 64 位 Java 21。\r\n"
+            "Windows 目标是 x86-64（Intel/AMD 64 位），实例及临时目录须放在本地 NTFS；不支持 32 位 Java/Windows。\r\n"
             "3. 使用自己的正版账号启动；包内不含游戏本体、Java、账号或凭据。\r\n"
             "4. 在主菜单打开 P2WLAN，设置服务端提供的 Control 地址，登录或注册。\r\n"
             "5. 加入服务端提供的房间，刷新服务列表，再选择其世界连接。\r\n"
             "HTTP 可以使用，但账号、房间和信令可能被监听或篡改；界面只提示风险。\r\n"
-            "摘要校验不是签名，也不代表 Windows、真实双机或公网游戏已验收。\r\n").encode("utf-8")
+            "P2WLAN-PACK.json 记录原生程序构建身份的执行核验方式。\r\n"
+            "Wine 构建身份核验不是 Windows 设备测试；摘要也不是签名或双机/公网游戏验收。\r\n").encode("utf-8")
 
 
 def verify_api(value):
@@ -85,6 +87,8 @@ def native_info(value, platform):
             "platform": platform, "source_revision": natives[0]["source-revision"],
             "native_source_sha256": natives[0]["source-sha256"],
             "native_targets": sorted(item["verification-platform"] for item in natives),
+            "native_verification_methods": [{"platform": item["verification-platform"], "method": item["verification-method"]}
+                                             for item in sorted(natives, key=lambda item: item["verification-platform"])],
             "verification": "archive-structure/source-binding"}
 
 

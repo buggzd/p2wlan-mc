@@ -22,9 +22,9 @@ public final class NativeBundleTests {
     }
     private static String text() throws Exception {
         String checksum = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(CONTENT));
-        return "schema=1\nprotocol=1\nversion=0.1.0\nsource-revision=" + "a".repeat(40)
+        return "schema=2\nprotocol=1\nversion=0.1.0\nsource-revision=" + "a".repeat(40)
             + "\nsource-sha256=" + "b".repeat(64) + "\nbuild-kind=development\nos=macos\narch=aarch64\nexecutable-sha256="
-            + checksum + "\nexecutable-size=" + CONTENT.length + "\nverification-platform=macos-aarch64\n";
+            + checksum + "\nexecutable-size=" + CONTENT.length + "\nverification-platform=macos-aarch64\nverification-method=native-build-info\n";
     }
     private static NativeManifest parse(String value, boolean development) throws Exception {
         return NativeManifest.read(new ByteArrayInputStream(value.getBytes(StandardCharsets.UTF_8)), "macos-aarch64", development);
@@ -43,18 +43,21 @@ public final class NativeBundleTests {
             .replace("verification-platform=macos-aarch64", "verification-platform=windows-x86_64");
         NativeManifest windowsManifest = NativeManifest.read(new ByteArrayInputStream(windows.getBytes(StandardCharsets.US_ASCII)), "windows-x86_64", true);
         check(windowsManifest.executableName().equals("p2wlan-mc-agent.exe"));
+        NativeManifest.read(new ByteArrayInputStream(windows.replace("native-build-info", "wine-build-info").getBytes(StandardCharsets.US_ASCII)), "windows-x86_64", true); checks++;
+        reject(Code.MANIFEST_INVALID, () -> parse(text().replace("native-build-info", "wine-build-info"), true));
+        reject(Code.MANIFEST_INVALID, () -> parse(text().replace("native-build-info", "not-executed"), true));
         check(parse(text(), true).executableName().equals("p2wlan-mc-agent"));
         reject(Code.PLATFORM_UNSUPPORTED, () -> NativeManifest.platform("Linux", "riscv64"));
         check(parse(text(), true).size() == CONTENT.length);
         reject(Code.DEVELOPMENT_DISABLED, () -> parse(text(), false));
         check(parse(text().replace("development", "release"), false).buildKind().equals("release"));
-        for (String bad : new String[] {text().replace("schema=1", "schema=2"), text().replace("protocol=1", "protocol=2"),
+        for (String bad : new String[] {text().replace("schema=2", "schema=1"), text().replace("protocol=1", "protocol=2"),
                 text().replace("version=0.1.0", "version=9.0.0"), text().replace("arch=aarch64", "arch=x86_64"),
                 text().replace("verification-platform=macos-aarch64", "verification-platform=linux-aarch64"),
                 text().replace("executable-size=18", "executable-size=0"), text().replace("executable-size=18", "executable-size=134217729"),
                 text().replace("build-kind=development", "build-kind=unknown"), text().replace("protocol=1", "schema=1"),
-                text() + "extra=x\n", text().replace("\n", "\r\n"), "x".repeat(4097), text().replace("schema=1", "schema=é"),
-                text().replace("schema=1", "schema=1=2"), text().substring(0, text().length() - 1)}) {
+                text() + "extra=x\n", text().replace("\n", "\r\n"), "x".repeat(4097), text().replace("schema=2", "schema=é"),
+                text().replace("schema=2", "schema=2=3"), text().substring(0, text().length() - 1)}) {
             reject(Code.MANIFEST_INVALID, () -> parse(bad, true));
         }
         if (NativeManifest.currentPlatform().equals("windows-x86_64")) {

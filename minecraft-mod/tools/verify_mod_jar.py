@@ -119,7 +119,8 @@ def main():
                       "version": natives[0]["version"], "minecraft": "1.21.1",
                       "build_mode": "development" if args.development else "release",
                       "verification": "archive-structure/source-binding",
-                      "native_targets": [item["verification-platform"] for item in natives]}, sort_keys=True))
+                      "native_targets": [item["verification-platform"] for item in natives],
+                      "native_verification_methods": [{"platform": item["verification-platform"], "method": item["verification-method"]} for item in natives]}, sort_keys=True))
 
 
 if __name__ == "__main__":

@@ -49,6 +49,17 @@ class HmclPackTests(unittest.TestCase):
     def check(self, values):
         return pack.verify_zip(io.BytesIO(fixtures.jar(values)), "windows-x86_64")
 
+    def test_wine_build_info_provenance_is_preserved_in_the_verified_zip(self):
+        top, _, _, native = fixtures.ModJarTests().fixture(platform="windows-x86_64")
+        key = "p2wlan/native/windows-x86_64/manifest.properties"
+        native[key] = native[key].replace("build-kind=development", "build-kind=release").replace("native-build-info", "wine-build-info")
+        top["META-INF/jars/native.jar"] = fixtures.jar(native)
+        archive = pack.build_bytes(fixtures.jar(top), self.api, "windows-x86_64")
+        index = pack.verify_zip(io.BytesIO(archive), "windows-x86_64")
+        self.assertEqual(index["native_verification_methods"], [{"platform": "windows-x86_64", "method": "wine-build-info"}])
+        self.assertIn("不是 Windows 设备测试", pack.guide("windows-x86_64").decode())
+        self.assertIn("Intel/AMD 64 位", pack.guide("windows-x86_64").decode())
+
     def test_pack_is_deterministic_source_bound_and_has_no_game_or_profile(self):
         value = self.build()
         self.assertEqual(value, self.build())

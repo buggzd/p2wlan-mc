@@ -14,7 +14,7 @@ record NativeManifest(String platform, String version, String revision, String s
                       String buildKind, String checksum, long size) {
     static final long MAX_BINARY = 128L * 1024 * 1024;
     private static final Set<String> KEYS = Set.of("schema", "protocol", "version", "source-revision",
-            "source-sha256", "build-kind", "os", "arch", "executable-sha256", "executable-size", "verification-platform");
+            "source-sha256", "build-kind", "os", "arch", "executable-sha256", "executable-size", "verification-platform", "verification-method");
     static String currentPlatform() throws NativeBundleException {
         return platform(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
     }
@@ -45,7 +45,7 @@ record NativeManifest(String platform, String version, String revision, String s
             String[] pair = lines[index].split("=", -1);
             if (pair.length != 2 || !KEYS.contains(pair[0]) || fields.putIfAbsent(pair[0], pair[1]) != null) throw invalid();
         }
-        if (!fields.keySet().equals(KEYS) || !"1".equals(fields.get("schema"))
+        if (!fields.keySet().equals(KEYS) || !"2".equals(fields.get("schema"))
                 || !Integer.toString(FrameCodec.VERSION).equals(fields.get("protocol"))
                 || !"0.1.0".equals(fields.get("version"))
                 || !fields.get("source-revision").matches("[0-9a-f]{40}")
@@ -54,6 +54,9 @@ record NativeManifest(String platform, String version, String revision, String s
                 || !fields.get("executable-size").matches("[1-9][0-9]{0,8}")
                 || !platform.equals(fields.get("os") + "-" + fields.get("arch"))
                 || !platform.equals(fields.get("verification-platform"))) throw invalid();
+        String method = fields.get("verification-method");
+        if (!Set.of("native-build-info", "wine-build-info").contains(method)
+                || method.equals("wine-build-info") && !platform.equals("windows-x86_64")) throw invalid();
         String kind = fields.get("build-kind");
         if (!Set.of("release", "development").contains(kind)) throw invalid();
         if (kind.equals("development") && !development) throw new NativeBundleException(Code.DEVELOPMENT_DISABLED);

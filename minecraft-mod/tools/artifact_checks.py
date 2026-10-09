@@ -4,10 +4,11 @@ import hashlib
 import json
 import re
 import subprocess
+from native_execution import check_method, ExecutionError
 from native_bundle import MAX_BINARY, PLATFORMS, ROOT, source_digest, strict_object, executable_name
 
 FIELDS = {"schema", "protocol", "version", "source-revision", "source-sha256", "build-kind", "os", "arch",
-          "executable-sha256", "executable-size", "verification-platform"}
+          "executable-sha256", "executable-size", "verification-platform", "verification-method"}
 
 
 class VerificationError(ValueError):
@@ -71,7 +72,7 @@ def native_manifest(archive, name, version, development):
         raise VerificationError("mod_native_manifest")
     fields = strict_object(pairs)
     platform = fields.get("os", "") + "-" + fields.get("arch", "")
-    if set(fields) != FIELDS or fields["schema"] != "1" or fields["protocol"] != "1" or fields["version"] != version \
+    if set(fields) != FIELDS or fields["schema"] != "2" or fields["protocol"] != "1" or fields["version"] != version \
             or platform not in PLATFORMS or fields["verification-platform"] != platform \
             or name != f"p2wlan/native/{platform}/manifest.properties" \
             or not re.fullmatch("[0-9a-f]{40}", fields["source-revision"]) \
@@ -81,6 +82,10 @@ def native_manifest(archive, name, version, development):
             or not 0 < int(fields["executable-size"]) <= MAX_BINARY \
             or fields["build-kind"] not in {"release", "development"}:
         raise VerificationError("mod_native_manifest")
+    try:
+        check_method(platform, fields["verification-method"])
+    except ExecutionError as error:
+        raise VerificationError("mod_native_verification_method") from error
     if fields["build-kind"] != "release" and not development:
         raise VerificationError("mod_development_native_disabled")
     binary_name = name.removesuffix("manifest.properties") + executable_name(platform)

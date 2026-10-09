@@ -22,9 +22,9 @@ public final class WindowsNativeFilesystemTests {
     }
     private static NativeManifest manifest(byte[] bytes) throws Exception {
         String checksum = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
-        String text = "schema=1\nprotocol=1\nversion=0.1.0\nsource-revision=" + "a".repeat(40)
+        String text = "schema=2\nprotocol=1\nversion=0.1.0\nsource-revision=" + "a".repeat(40)
                 + "\nsource-sha256=" + "b".repeat(64) + "\nbuild-kind=development\nos=windows\narch=x86_64\nexecutable-sha256="
-                + checksum + "\nexecutable-size=" + bytes.length + "\nverification-platform=windows-x86_64\n";
+                + checksum + "\nexecutable-size=" + bytes.length + "\nverification-platform=windows-x86_64\nverification-method=native-build-info\n";
         return NativeManifest.read(new ByteArrayInputStream(text.getBytes(StandardCharsets.US_ASCII)), "windows-x86_64", true);
     }
     private static NativeInstallation extract(Path parent, byte[] bytes) throws Exception {

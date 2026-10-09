@@ -104,7 +104,8 @@ def main():
     print(json.dumps({"schema": 1, "artifact_sha256": digest, "source_revision": natives[0]["source-revision"],
                       "version": VERSION, "build_mode": "development" if args.development else "release",
                       "verification": "archive-structure/source-binding",
-                      "native_targets": [item["verification-platform"] for item in natives]}, sort_keys=True))
+                      "native_targets": [item["verification-platform"] for item in natives],
+                      "native_verification_methods": [{"platform": item["verification-platform"], "method": item["verification-method"]} for item in natives]}, sort_keys=True))
 
 
 if __name__ == "__main__":

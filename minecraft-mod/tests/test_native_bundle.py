@@ -19,6 +19,30 @@ class NativeBundleTests(unittest.TestCase):
         return {"schema": 1, "protocol": 1, "version": "0.1.0", "source_revision": "a" * 40,
                 "source_sha256": "b" * 64, "build_kind": "development", "os": "macos", "arch": "aarch64"}
 
+    def test_wine_prefix_cleanup_is_owned_bounded_and_retained_when_uncertain(self):
+        class Probe:
+            wine = True
+            def __init__(self, error=None): self.error = error
+            def run_info(self, binary, prefix):
+                (prefix / "generated.txt").write_text("fixture")
+                if self.error: raise self.error
+                return b"{}"
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory); (project / "native/target").mkdir(parents=True)
+            prefix = project / "native/target/wine-build-info-prefix"
+            with patch.object(bundle, "PROJECT", project):
+                self.assertEqual(bundle.verified_info(Probe(), Path("/fixture/agent")), b"{}")
+                self.assertFalse(prefix.exists())
+                with self.assertRaises(bundle.ExecutionError):
+                    bundle.verified_info(Probe(bundle.ExecutionError("native_build_info_execution_failed")), Path("/fixture/agent"))
+                self.assertFalse(prefix.exists())
+                with self.assertRaisesRegex(bundle.ExecutionError, "cleanup_failed"):
+                    bundle.verified_info(Probe(bundle.ExecutionError("native_wine_cleanup_failed")), Path("/fixture/agent"))
+                self.assertTrue(prefix.is_dir())
+                with self.assertRaisesRegex(bundle.BundleError, "prefix_capacity"):
+                    bundle.verified_info(Probe(), Path("/fixture/agent"))
+                self.assertEqual((prefix / "generated.txt").read_text(), "fixture")
+
     def test_artifacts_are_cargo_reported_and_unambiguous(self):
         item = {"reason": "compiler-artifact", "target": {"name": "p2wlan-mc-agent"}, "executable": "/fixture/agent"}
         self.assertEqual(bundle.select_agent(json.dumps(item)), Path("/fixture/agent"))
@@ -49,6 +73,12 @@ class NativeBundleTests(unittest.TestCase):
             self.assertEqual(fields["verification-platform"], "macos-aarch64")
             self.assertEqual(fields["source-revision"], "a" * 40)
             self.assertEqual(fields["build-kind"], "development")
+            self.assertEqual(fields["schema"], "2")
+            self.assertEqual(fields["verification-method"], "native-build-info")
+            win = self.info() | {"os": "windows", "arch": "x86_64"}
+            self.assertIn(b"verification-method=wine-build-info\n", bundle.manifest(win, binary, "wine-build-info"))
+            with self.assertRaises(bundle.ExecutionError):
+                bundle.manifest(self.info(), binary, "wine-build-info")
             self.assertIn(b"verification-platform=linux-x86_64\n", bundle.manifest(self.info() | {"os": "linux", "arch": "x86_64"}, binary))
             link = Path(directory) / "link"
             link.symlink_to(binary)

@@ -44,10 +44,10 @@ class ModJarTests(unittest.TestCase):
     def fixture(self, binary=b"fixture", platform="macos-aarch64"):
         prefix = f"p2wlan/native/{platform}/"
         system, arch = platform.split("-", 1)
-        manifest = {"schema": "1", "protocol": "1", "version": "0.1.0", "source-revision": "a" * 40,
+        manifest = {"schema": "2", "protocol": "1", "version": "0.1.0", "source-revision": "a" * 40,
                     "source-sha256": "b" * 64, "build-kind": "development", "os": system, "arch": arch,
                     "executable-sha256": hashlib.sha256(binary).hexdigest(), "executable-size": str(len(binary)),
-                    "verification-platform": platform}
+                    "verification-platform": platform, "verification-method": "native-build-info"}
         common = {verify.COMMON: bytecode(61)}
         native = {prefix + "manifest.properties": "".join(f"{key}={value}\n" for key, value in manifest.items()),
                   prefix + verify.executable_name(platform): binary}
@@ -72,6 +72,20 @@ class ModJarTests(unittest.TestCase):
         self.assertEqual(self.check(top)[0]["verification-platform"], "macos-aarch64")
         with self.assertRaisesRegex(verify.VerificationError, "mod_development_native_disabled"):
             self.check(top, False)
+
+    def test_verification_method_is_explicit_and_wine_does_not_masquerade_as_native(self):
+        for platform in ("windows-x86_64", "macos-aarch64"):
+            top, _, _, native = self.fixture(platform=platform)
+            key = f"p2wlan/native/{platform}/manifest.properties"
+            for method in ("wine-build-info", "not-executed"):
+                changed = native.copy()
+                changed[key] = changed[key].replace("verification-method=native-build-info", "verification-method=" + method)
+                top["META-INF/jars/native.jar"] = jar(changed)
+                if method == "wine-build-info" and platform == "windows-x86_64":
+                    self.assertEqual(self.check(top)[0]["verification-method"], method)
+                else:
+                    with self.assertRaisesRegex(verify.VerificationError, "mod_native_verification_method"):
+                        self.check(top)
 
     def test_jna_is_required_and_critical_windows_payload_is_byte_bound(self):
         top, metadata, _, _ = self.fixture()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build, verify and package this host's native agent as ignored Java resources."""
+"""Build, verify and package a source-bound native agent as ignored Java resources."""
 from __future__ import annotations
 
 import argparse
@@ -16,6 +16,7 @@ import tempfile
 import tomllib
 
 from native import PROJECT, build_command, prepare
+from native_execution import select, check_method, check_windows_pe, ExecutionError
 
 ROOT = PROJECT.parent
 OUTPUT = PROJECT / "java/native-bundle/build/generatedResources"
@@ -127,7 +128,8 @@ def check_info(raw, expected):
         raise BundleError("native_build_info_mismatch")
 
 
-def manifest(info, binary):
+def manifest(info, binary, verification="native-build-info"):
+    check_method(info["os"] + "-" + info["arch"], verification)
     if binary.is_symlink() or not binary.is_file():
         raise BundleError("native_binary_not_regular")
     size = binary.stat().st_size
@@ -136,11 +138,12 @@ def manifest(info, binary):
     with binary.open("rb") as stream:
         checksum = hashlib.file_digest(stream, "sha256").hexdigest()
     fields = {
-        "schema": str(info["schema"]), "protocol": str(info["protocol"]), "version": info["version"],
+        "schema": "2", "protocol": str(info["protocol"]), "version": info["version"],
         "source-revision": info["source_revision"], "source-sha256": info["source_sha256"],
         "build-kind": info["build_kind"], "os": info["os"], "arch": info["arch"],
         "executable-sha256": checksum, "executable-size": str(size),
         "verification-platform": f'{info["os"]}-{info["arch"]}',
+        "verification-method": verification,
     }
     if any(not re.fullmatch(r"[a-z0-9._-]+", value) for value in fields.values()):
         raise BundleError("native_manifest_value")
@@ -179,8 +182,35 @@ def publish(binary, metadata, destination):
             shutil.rmtree(temporary)
 
 
-def build(development=False, offline=False):
-    system, arch = host_platform()
+def verified_info(execution, binary):
+    if not execution.wine:
+        return execution.run_info(binary, None)
+    # Capacity one: a previous uncertain Wine cleanup refuses another prefix
+    # rather than accumulating directories/background services across retries.
+    prefix = PROJECT / "native/target/wine-build-info-prefix"
+    try:
+        prefix.mkdir(mode=0o700)
+    except FileExistsError as error:
+        raise BundleError("native_wine_prefix_capacity") from error
+    identity = prefix.lstat()
+    uncertain = False
+    try:
+        return execution.run_info(binary, prefix)
+    except ExecutionError as error:
+        uncertain = error.code == "native_wine_cleanup_failed"
+        raise
+    finally:
+        if not uncertain:
+            actual = prefix.lstat()
+            if prefix.is_symlink() or (actual.st_dev, actual.st_ino) != (identity.st_dev, identity.st_ino):
+                raise BundleError("native_wine_prefix_identity_changed")
+            # Only this create-new, tool-owned generated tree after confirmed
+            # process stop. Never the user's profile or an uncertain instance.
+            shutil.rmtree(prefix)
+
+def build(development=False, offline=False, target=None, wine=None):
+    execution = select("-".join(host_platform()), target, wine)
+    system, arch = execution.platform.split("-", 1)
     status = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=ROOT)
     if status and not development:
         raise BundleError("native_release_requires_clean_checkout")
@@ -189,11 +219,13 @@ def build(development=False, offline=False):
     version = tomllib.loads((PROJECT / "native/Cargo.toml").read_text())["workspace"]["package"]["version"]
     expected = {"schema": 1, "protocol": 1, "version": version, "source_revision": revision,
                 "source_sha256": digest, "build_kind": "development" if development else "release", "os": system, "arch": arch}
-    env = build_environment(os.environ, ROOT, Path.home())
+    env = execution.build_environment(build_environment(os.environ, ROOT, Path.home()))
     env.update(P2WLAN_MC_SOURCE_REVISION=revision, P2WLAN_MC_SOURCE_SHA256=digest,
                P2WLAN_MC_BUILD_KIND=expected["build_kind"])
     prepare()
     arguments = ["-p", "p2wlan-mc-agent", "--bin", "p2wlan-mc-agent", "--release", "--locked", "--message-format=json"]
+    if execution.cargo_target:
+        arguments.extend(["--target", execution.cargo_target])
     if offline:
         arguments.append("--offline")
     result = subprocess.run(build_command("build", arguments), cwd=PROJECT, env=env, text=True, stdout=subprocess.PIPE, timeout=1800)
@@ -203,18 +235,19 @@ def build(development=False, offline=False):
     if binary.is_symlink() or not binary.is_file() or not 0 < binary.stat().st_size <= MAX_BINARY:
         raise BundleError("native_binary_invalid")
     check_private_paths(binary, (ROOT, Path.home()))
-    # stdout is bounded by this locally built binary's fixed --build-info contract.
-    info = subprocess.run([str(binary), "--build-info"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
-    if info.returncode:
-        raise BundleError("native_build_info_failed")
-    check_info(info.stdout, expected)
+    if system == "windows":
+        check_windows_pe(binary)
+    before = manifest(expected, binary, execution.method)
+    check_info(verified_info(execution, binary), expected)
+    if manifest(expected, binary, execution.method) != before:
+        raise BundleError("native_binary_changed_during_verification")
     if source_digest() != digest or subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip() != revision:
         raise BundleError("native_inputs_changed_during_build")
     if not development and subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=ROOT):
         raise BundleError("native_release_checkout_changed")
     destination = OUTPUT / "p2wlan/native" / f"{system}-{arch}"
-    publish(binary, manifest(expected, binary), destination)
-    print(f"Native resource verified: {system}-{arch} ({expected['build_kind']})")
+    publish(binary, before, destination)
+    print(f"Native resource verified: {system}-{arch} ({expected['build_kind']}; {execution.method})")
     return destination
 
 
@@ -222,18 +255,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--development", action="store_true", help="Label a package as development; permit uncommitted source")
     parser.add_argument("--offline", action="store_true", help="Use only the local Cargo dependency cache")
+    parser.add_argument("--target", choices=sorted(PLATFORMS), help="Explicit target; foreign Windows requires a Wine runner")
+    parser.add_argument("--wine", type=Path, help="Absolute trusted Wine executable path for Windows x86-64 build-info execution")
     args = parser.parse_args()
     lock = PROJECT / "native/target/native-bundle.lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
     try:
         with lock.open("x"):
             try:
-                build(args.development, args.offline)
+                build(args.development, args.offline, args.target, args.wine)
             finally:
                 lock.unlink()
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         # Never print local paths or child logs as bundle metadata.
-        parser.exit(1, f"Native bundle failed: {type(error).__name__}: {error.args[0] if isinstance(error, BundleError) else 'BUILD_IO'}\n")
+        parser.exit(1, f"Native bundle failed: {type(error).__name__}: {error.args[0] if isinstance(error, (BundleError, ExecutionError)) else 'BUILD_IO'}\n")
 
 
 if __name__ == "__main__":
