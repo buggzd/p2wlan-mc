@@ -8,6 +8,7 @@ rootProject.name = 'p2wlan-minecraft'
 include 'common'
 
 include 'native-bundle'
+include 'account-cli'
 
 // Loader builds are opt-in, so common protocol tests never fetch Minecraft or
 // load Loom. New loader/version adapters remain independent subprojects.

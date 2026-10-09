@@ -36,6 +36,18 @@ class JavaToolTests(unittest.TestCase):
             self.assertIn("-PdevelopmentNative", command)
             self.assertIn("--offline", command)
 
+    def test_account_commands_do_not_configure_or_launch_minecraft(self):
+        for command, expected in (("account-test", ":account-cli:accountTest"),
+                                  ("account-build", ":account-cli:installDist")):
+            with patch("sys.argv", ["java.py", command, "--offline"]), \
+                    patch.object(java.subprocess, "check_output", return_value="fixture-jdk\n"), \
+                    patch.object(java.subprocess, "call", return_value=0) as run:
+                self.assertEqual(java.main(), 0)
+                arguments = run.call_args.args[0]
+                self.assertIn(expected, arguments)
+                self.assertIn("--offline", arguments)
+                self.assertFalse(any("fabric" in item or "Loom" in item for item in arguments))
+
     def test_compiler_diagnostics_are_not_lost_while_capturing_json_artifacts(self):
         output = json.dumps({"reason": "compiler-message", "message": {"rendered": "fixture diagnostic\n"}})
         with patch("sys.stderr", new_callable=io.StringIO) as stream:

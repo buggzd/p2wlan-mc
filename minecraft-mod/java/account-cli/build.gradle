@@ -1,0 +1,22 @@
+plugins { id 'application' }
+
+application {
+    mainClass = 'io.p2wlan.mc.account.AccountTool'
+    applicationName = 'p2wlan-account'
+}
+dependencies {
+    implementation project(':common')
+    runtimeOnly project(':native-bundle')
+}
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+    options.encoding = 'UTF-8'
+}
+// Unit tests deliberately exclude bundled native resources: input/schema tests
+// cannot launch a helper accidentally or pass because a local bundle exists.
+tasks.register('accountTest', JavaExec) {
+    dependsOn testClasses, ':common:classes'
+    classpath = files(provider { sourceSets.test.output + sourceSets.main.output + project(':common').sourceSets.main.runtimeClasspath })
+    mainClass = 'io.p2wlan.mc.account.AccountToolTests'
+}
+check.dependsOn accountTest

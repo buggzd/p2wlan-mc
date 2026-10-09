@@ -34,7 +34,7 @@ def probe_artifacts(messages):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client"))
+    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client", "account-test", "account-build"))
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     wrapper = PROJECT / "java/gradlew"
@@ -45,7 +45,7 @@ def main():
     if sys.platform == "darwin":
         selected = subprocess.check_output(["/usr/libexec/java_home", "-v", "21"], text=True).strip()
         env["JAVA_HOME"] = selected
-    tasks = {"test": [":common:protocolTest", ":common:worldGuardTest", ":common:nativeBundleTest", ":common:agentLifecycleTest", ":common:accountCatalogTest", ":common:networkCatalogTest", ":common:scheduledTaskTest"], "fabric-build": ["-PfabricAdapter", ":fabric:build"], "fabric-server": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runServer"], "fabric-client": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runClient"], "bundle-test": [":common:bundledAgentTest", ":common:bundledLifecycleTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
+    tasks = {"account-test": [":account-cli:accountTest"], "account-build": [":account-cli:check", ":account-cli:installDist", ":account-cli:distZip"], "test": [":common:protocolTest", ":common:worldGuardTest", ":common:nativeBundleTest", ":common:agentLifecycleTest", ":common:accountCatalogTest", ":common:networkCatalogTest", ":common:scheduledTaskTest", ":account-cli:accountTest"], "fabric-build": ["-PfabricAdapter", ":fabric:build"], "fabric-server": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runServer"], "fabric-client": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runClient"], "bundle-test": [":common:bundledAgentTest", ":common:bundledLifecycleTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
     if args.command == "interop":
         from native import build_command, prepare
         prepare()
