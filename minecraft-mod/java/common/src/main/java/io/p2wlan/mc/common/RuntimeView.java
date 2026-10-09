@@ -11,15 +11,20 @@ public record RuntimeView(String owner, String runtime) {
             throw new IllegalArgumentException("INVALID_RUNTIME_SELECTION");
         }
     }
-    public static Optional<RuntimeView> ready(AgentClient client) {
+    public static Optional<RuntimeView> ready(AgentClient client) { return selected(client, false); }
+    /** Starting runtimes can be stopped before any gateway is ready. */
+    public static Optional<RuntimeView> active(AgentClient client) { return selected(client, true); }
+    private static Optional<RuntimeView> selected(AgentClient client, boolean starting) {
+        if (client == null) return Optional.empty();
         return client.snapshot().flatMap(value -> {
             JsonObject data = value.data();
             String phase = text(data, "phase"), runtime = text(data, "runtime");
-            return "ready".equals(phase) && runtime != null && runtime.matches("[a-f0-9]{32}")
+            return ("ready".equals(phase) || starting && "starting".equals(phase)) && runtime != null && runtime.matches("[a-f0-9]{32}")
                     ? Optional.of(new RuntimeView(value.owner(), runtime)) : Optional.empty();
         });
     }
     public boolean isCurrent(AgentClient client) { return ready(client).filter(this::equals).isPresent(); }
+    public boolean isActive(AgentClient client) { return active(client).filter(this::equals).isPresent(); }
     /** For cleanup requests whose local scope is exactly this runtime. Known
      * unsent/replaced operations cannot justify killing a replacement owner. */
     static boolean staleCleanup(Exception error) {

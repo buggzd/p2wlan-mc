@@ -40,7 +40,7 @@ async fn run() -> Result<(), ProtocolError> {
     let mut hosted = 0_u32;
     let mut closed = 0_u32;
     if world_mode {
-        writer.write(&json!({"version":1,"owner":owner,"event":"status","revision":1,"data":{"phase":"ready","runtime":runtime}})).await?;
+        writer.write(&json!({"version":1,"owner":owner,"event":"status","revision":1,"data":{"phase":if mode == "world_starting" {"starting"} else {"ready"},"runtime":runtime}})).await?;
     }
     while let Some(request) = reader.next().await? {
         if request.as_object().is_none_or(|object| object.len() != 5)

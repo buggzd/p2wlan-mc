@@ -27,6 +27,18 @@ public final class UiCompletionGate implements AutoCloseable {
     public void submit(AgentClient client, String operation, JsonObject arguments,
             BooleanSupplier processCurrent, BooleanSupplier viewCurrent,
             Consumer<Runnable> dispatch, BiConsumer<AgentReply, Throwable> completion) throws AgentException {
+        submitTask(() -> client.request(operation, arguments, () -> !revoked(processCurrent, viewCurrent)),
+                processCurrent, viewCurrent, dispatch, (reply, error) -> {
+                    if (reply != null && !client.isCurrent(reply)) failure.set(Failure.PROCESS_CHANGED);
+                    else completion.accept(reply, error);
+                });
+    }
+    /** One future OR queued completion. The supplier is admitted before it can
+     * create work. Its side effects must revalidate their own scope/deadline at
+     * execution; this gate cannot undo a mutation already submitted elsewhere. */
+    public <T> void submitTask(java.util.function.Supplier<java.util.concurrent.CompletableFuture<T>> source,
+            BooleanSupplier processCurrent, BooleanSupplier viewCurrent,
+            Consumer<Runnable> dispatch, BiConsumer<T, Throwable> completion) throws AgentException {
         if (revoked(processCurrent, viewCurrent)) throw new AgentException(AgentException.Code.CLOSED);
         Object ticket = new Object();
         if (!pending.compareAndSet(null, ticket)) throw new AgentException(AgentException.Code.CAPACITY);
@@ -34,7 +46,15 @@ public final class UiCompletionGate implements AutoCloseable {
             pending.compareAndSet(ticket, null);
             throw new AgentException(AgentException.Code.CLOSED);
         }
-        client.request(operation, arguments).whenComplete((reply, error) -> {
+        java.util.concurrent.CompletableFuture<T> future;
+        try {
+            future = source.get();
+            if (future == null) throw new IllegalArgumentException("INVALID_UI_TASK");
+        } catch (RuntimeException invalid) {
+            pending.compareAndSet(ticket, null);
+            throw new AgentException(AgentException.Code.INVALID_REQUEST);
+        }
+        future.whenComplete((value, error) -> {
             if (revoked(processCurrent, viewCurrent)) {
                 pending.compareAndSet(ticket, null);
                 return;
@@ -42,18 +62,12 @@ public final class UiCompletionGate implements AutoCloseable {
             try {
                 dispatch.accept(() -> {
                     try {
-                        // The actual presentation/game-thread side effect is
-                        // fenced again after crossing the executor boundary.
-                        if (pending.get() == ticket && !revoked(processCurrent, viewCurrent)) {
-                            if (reply != null && !client.isCurrent(reply)) failure.set(Failure.PROCESS_CHANGED);
-                            else completion.accept(reply, unwrap(error));
-                        }
+                        if (pending.get() == ticket && !revoked(processCurrent, viewCurrent)) completion.accept(value, unwrap(error));
                     } finally { pending.compareAndSet(ticket, null); }
                 });
             } catch (RuntimeException rejected) {
                 failure.set(Failure.DISPATCH_REJECTED);
                 pending.compareAndSet(ticket, null);
-                // Do not run a UI callback on the native reader as a fallback.
             }
         });
     }
