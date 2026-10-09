@@ -358,3 +358,46 @@ An explicitly labelled development resource requires `--development`. Missing co
 The fixture executes 29 checks against the actual dedicated Minecraft world and required server transformation: current world ownership, native helper readiness/idle status, an additional guarded loopback listener, wrong-capability rejection, coalesced capability plus real Vanilla status handshake/response, listener revocation, ordinary Vanilla status after private-listener cleanup, exact native-child cleanup and world-owner retirement on server stop. `online-mode` remains enabled, but no player authentication/login is performed. The private test listener is not a native room publication; no P2WLAN game tunnel, Direct/Relay selection, Minecraft client play, sustained traffic, integrated-world hosting/pause or public NAT is accepted by these checks.
 
 The wrapper accepts only a bounded, exact-schema, run-bound result with the full case set, exact nonzero check count and cleanup flags. It shares the bounded 240-second process-group/1 MiB diagnostic runner with the client fixture; logs and Gradle exit are not the result contract. Dedicated-world execution is verified on macOS/aarch64 only; the remaining platform/version/gameplay limits above still apply.
+
+
+## HMCL ZIP packaging
+
+`tools/hmcl_pack.py` creates a CurseForge-format ZIP recognized by HMCL. Its
+`manifest.json` pins Minecraft 1.21.1 and Fabric Loader 0.16.14; `overrides/mods`
+contains only the checked P2WLAN Mod and the exact Fabric API 0.116.7+1.21.1 Maven
+artifact. A short UTF-8 Chinese installation guide is included both outside and
+inside `overrides`. The game, Java, launcher accounts, server addresses, private
+profiles, logs, worlds and EULA files are not copied into the pack. The launcher
+obtains the game and loader; the player uses their own account and Java 21.
+
+After generating current **release-mode** native resources, from the repository
+root, choose a native target actually present in the verified Mod:
+
+```sh
+python3 minecraft-mod/tools/java.py hmcl-pack -PhmclPlatform=windows-x86_64
+```
+
+The task verifies the release Mod before packaging, resolves the original API jar
+through Gradle, and checks its fixed SHA-256. It writes
+`minecraft-mod/java/adapters/fabric-1.21.1/build/distributions/p2wlan-hmcl-fabric-1.21.1-windows-x86_64-0.1.0.zip`.
+A missing Windows resource, development native, changed source binding or wrong
+API artifact fails the task; a Mac-only jar cannot produce a Windows-target pack.
+The other recognized native target names are accepted by the same explicit
+property, but target recognition does not claim runtime support.
+
+Verify that exact pack independently, from the same clean checkout:
+
+```sh
+python3 minecraft-mod/tools/hmcl_pack.py verify minecraft-mod/java/adapters/fabric-1.21.1/build/distributions/p2wlan-hmcl-fabric-1.21.1-windows-x86_64-0.1.0.zip --platform windows-x86_64
+```
+
+`P2WLAN-PACK.json` binds the source revision, native input digest, target and each
+payload's size/SHA-256. Checking rejects extra/missing entries, ZIP links,
+non-matching loader instructions, tampered metadata and stale native resources.
+Publication is create-only and atomic; an identical existing pack is reused, not
+rewritten, and a different existing file is never overwritten. The index and
+printed archive SHA-256 are integrity/identity information, not a signature or
+proof of HMCL import, Windows launch, remote Minecraft login or sustained play.
+Those actual-device checks remain incomplete. This is a ZIP, not an executable
+installer; import it through HMCL's modpack installation entry, not by placing the
+ZIP in `mods`.

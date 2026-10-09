@@ -36,6 +36,17 @@ class JavaToolTests(unittest.TestCase):
             self.assertIn("-PdevelopmentNative", command)
             self.assertIn("--offline", command)
 
+    def test_hmcl_pack_forwards_an_explicit_target_and_does_not_launch_a_game(self):
+        with patch("sys.argv", ["java.py", "hmcl-pack", "-PhmclPlatform=windows-x86_64", "--offline"]), \
+                patch.object(java.subprocess, "check_output", return_value="fixture-jdk\n"), \
+                patch.object(java.subprocess, "call", return_value=0) as run:
+            self.assertEqual(java.main(), 0)
+            command = run.call_args.args[0]
+            self.assertIn("-PfabricAdapter", command)
+            self.assertIn(":fabric:buildHmclPack", command)
+            self.assertIn("-PhmclPlatform=windows-x86_64", command)
+            self.assertFalse(any("runClient" in item or "runServer" in item for item in command))
+
     def test_account_commands_do_not_configure_or_launch_minecraft(self):
         for command, expected in (("account-test", ":account-cli:accountTest"),
                                   ("account-build", ":account-cli:verifyAccountDistribution")):
