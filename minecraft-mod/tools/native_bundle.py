@@ -21,7 +21,7 @@ ROOT = PROJECT.parent
 OUTPUT = PROJECT / "java/native-bundle/build/generatedResources"
 MAX_BINARY = 128 * 1024 * 1024
 UPSTREAM = ("daemon", "tun", "crypto", "wireguard", "nat", "netbind", "relay")
-INPUT_SUFFIXES = {".rs", ".toml", ".lock", ".py"}
+INPUT_SUFFIXES = {".rs", ".toml", ".lock", ".py", ".ps1"}
 PLATFORMS = {"macos-aarch64", "macos-x86_64", "linux-aarch64", "linux-x86_64", "windows-x86_64"}
 
 

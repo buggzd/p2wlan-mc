@@ -15,6 +15,31 @@ overlay = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(overlay)
 
 class RuntimeOverlayTests(unittest.TestCase):
+    def test_windows_embedded_compile_input_is_required_bounded_and_not_a_link(self):
+        declaration = "src/route/windows/helpers.rs"
+        resource = "src/route/windows/icmp_echo.ps1"
+        source = {declaration: b'include_str!("icmp_echo.ps1")'}
+        with tempfile.TemporaryDirectory() as directory:
+            upstream = Path(directory)
+            path = upstream / resource
+            with self.assertRaisesRegex(overlay.ContractError, "embedded_resource_invalid"):
+                overlay.embedded_inputs(upstream, source)
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"fixture script")
+            self.assertEqual(overlay.embedded_inputs(upstream, source), {resource: b"fixture script"})
+            for invalid in ({}, {declaration: b"missing include"}, {declaration: source[declaration] * 2}):
+                with self.assertRaisesRegex(overlay.ContractError, "windows-icmp-resource"):
+                    overlay.embedded_inputs(upstream, invalid)
+            for data in (b"", b"x" * 65537):
+                path.write_bytes(data)
+                with self.assertRaisesRegex(overlay.ContractError, "embedded_resource_size"):
+                    overlay.embedded_inputs(upstream, source)
+            path.unlink()
+            target = upstream / "outside.ps1"; target.write_bytes(b"untrusted target")
+            path.symlink_to(target)
+            with self.assertRaisesRegex(overlay.ContractError, "embedded_resource_invalid"):
+                overlay.embedded_inputs(upstream, source)
+
     def test_changed_or_ambiguous_anchor_fails_closed(self):
         for text in ("absent", "target target"):
             with self.assertRaises(overlay.ContractError):
@@ -22,7 +47,7 @@ class RuntimeOverlayTests(unittest.TestCase):
 
     def test_generated_runtime_does_not_mutate_any_upstream_source(self):
         upstream = ROOT / "client/daemon"
-        files = list(upstream.rglob("*.rs")) + [upstream / "Cargo.toml"]
+        files = list(upstream.rglob("*.rs")) + list(upstream.rglob("*.ps1")) + [upstream / "Cargo.toml"]
         before = {p: hashlib.sha256(p.read_bytes()).digest() for p in files}
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "generated"
@@ -46,6 +71,9 @@ class RuntimeOverlayTests(unittest.TestCase):
             self.assertIn("AdmissionError::UnsupportedLocalFeedback", (destination / "src/dataplane/core.rs").read_text())
             self.assertNotIn("deliver_feedback", (destination / "src/mc_port.rs").read_text())
             metadata = json.loads((destination / "UPSTREAM.json").read_text())
+            resource = "src/route/windows/icmp_echo.ps1"
+            self.assertEqual((destination / resource).read_bytes(), (upstream / resource).read_bytes())
+            self.assertEqual(metadata["upstream_sources"][resource], hashlib.sha256((upstream / resource).read_bytes()).hexdigest())
             for name, digest in metadata["adapters_sha256"].items():
                 self.assertEqual(digest, hashlib.sha256((PROJECT / "native/runtime-overlay" / name).read_bytes()).hexdigest())
             for name, digest in metadata["build_tools_sha256"].items():

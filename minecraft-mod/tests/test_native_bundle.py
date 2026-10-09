@@ -140,6 +140,14 @@ class NativeBundleTests(unittest.TestCase):
             windows_digest = bundle.source_digest(root)
             windows.write_text("changed permission input")
             self.assertNotEqual(bundle.source_digest(root), windows_digest)
+            asset = root / "client/daemon/src/route/windows/icmp_echo.ps1"
+            asset.parent.mkdir(parents=True)
+            before_asset = bundle.source_digest(root)
+            asset.write_text("compile-time Windows input")
+            asset_digest = bundle.source_digest(root)
+            self.assertNotEqual(asset_digest, before_asset)
+            asset.write_text("changed compile-time input")
+            self.assertNotEqual(bundle.source_digest(root), asset_digest)
             source.unlink()
             source.symlink_to(generated)
             with self.assertRaises(bundle.BundleError):

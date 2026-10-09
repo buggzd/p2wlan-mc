@@ -113,11 +113,29 @@ def write_changed(path: Path, data: bytes):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
 
+def embedded_inputs(upstream: Path, sources: dict[str, bytes]) -> dict[str, bytes]:
+    # Compile-time upstream resources are inputs, not optional runtime downloads.
+    # Keep their exact include-site contract and bytes, even on a non-Windows host.
+    declaration = "src/route/windows/helpers.rs"
+    resource = "src/route/windows/icmp_echo.ps1"
+    anchor = b'include_str!("icmp_echo.ps1")'
+    if sources.get(declaration, b"").count(anchor) != 1:
+        raise ContractError("upstream_contract_changed:windows-icmp-resource")
+    path = upstream / resource
+    if path.is_symlink() or not path.is_file():
+        raise ContractError("upstream_embedded_resource_invalid")
+    with path.open("rb") as stream:
+        data = stream.read(65537)
+    if not 0 < len(data) <= 65536:
+        raise ContractError("upstream_embedded_resource_size")
+    return {resource: data}
+
 def prepare(root: Path = ROOT, destination: Path = DESTINATION) -> Path:
     from runtime_fencing import adapt_dataplane, adapt_rooms, adapt_transport, adapt_decryption, adapt_inbound, adapt_udp_business_mtu
     upstream = root / "client/daemon"
     sources = {path.relative_to(upstream).as_posix(): path.read_bytes()
         for path in sorted((upstream / "src").rglob("*.rs"))}
+    sources.update(embedded_inputs(upstream, sources))
     def source(relative):
         return sources[relative].decode("utf-8")
     # Validate all anchors before producing any output. An upstream change must
