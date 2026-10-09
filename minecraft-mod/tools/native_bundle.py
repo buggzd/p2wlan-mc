@@ -22,7 +22,7 @@ OUTPUT = PROJECT / "java/native-bundle/build/generatedResources"
 MAX_BINARY = 128 * 1024 * 1024
 UPSTREAM = ("daemon", "tun", "crypto", "wireguard", "nat", "netbind", "relay")
 INPUT_SUFFIXES = {".rs", ".toml", ".lock", ".py"}
-PLATFORMS = {"macos-aarch64", "macos-x86_64", "linux-aarch64", "linux-x86_64"}
+PLATFORMS = {"macos-aarch64", "macos-x86_64", "linux-aarch64", "linux-x86_64", "windows-x86_64"}
 
 
 class BundleError(ValueError):
@@ -79,12 +79,18 @@ def check_private_paths(binary, prefixes):
 
 
 def host_platform():
-    system = {"Darwin": "macos", "Linux": "linux"}.get(platform.system())
+    system = {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}.get(platform.system())
     arch = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64", "AMD64": "x86_64"}.get(platform.machine())
     name = f"{system}-{arch}"
     if name not in PLATFORMS:
         raise BundleError("native_platform_not_supported")
     return system, arch
+
+
+def executable_name(platform_name):
+    if platform_name not in PLATFORMS:
+        raise BundleError("native_platform_not_supported")
+    return "p2wlan-mc-agent.exe" if platform_name.startswith("windows-") else "p2wlan-mc-agent"
 
 
 def select_agent(output):
@@ -148,9 +154,9 @@ def publish(binary, metadata, destination):
     temporary = Path(tempfile.mkdtemp(prefix="bundle-", dir=destination.parent))
     backup = destination.with_name(destination.name + ".previous")
     try:
-        copied = temporary / "p2wlan-mc-agent"
-        shutil.copyfile(binary, copied)
         fields = dict(line.split("=", 1) for line in metadata.decode("ascii").splitlines())
+        copied = temporary / executable_name(fields["os"] + "-" + fields["arch"])
+        shutil.copyfile(binary, copied)
         with copied.open("rb") as stream:
             checksum = hashlib.file_digest(stream, "sha256").hexdigest()
         if str(copied.stat().st_size) != fields.get("executable-size") or checksum != fields.get("executable-sha256"):

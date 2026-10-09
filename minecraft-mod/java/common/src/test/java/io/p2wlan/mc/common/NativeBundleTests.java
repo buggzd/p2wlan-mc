@@ -35,7 +35,15 @@ public final class NativeBundleTests {
     public static void main(String[] arguments) throws Exception {
         check(NativeManifest.platform("Mac OS X", "aarch64").equals("macos-aarch64"));
         check(NativeManifest.platform("Linux", "amd64").equals("linux-x86_64"));
-        reject(Code.PLATFORM_UNSUPPORTED, () -> NativeManifest.platform("Windows 11", "amd64"));
+        check(NativeManifest.platform("Windows 11", "amd64").equals("windows-x86_64"));
+        check(NativeManifest.platform("Windows Server 2022", "x86_64").equals("windows-x86_64"));
+        reject(Code.PLATFORM_UNSUPPORTED, () -> NativeManifest.platform("Windows 10", "x86"));
+        reject(Code.PLATFORM_UNSUPPORTED, () -> NativeManifest.platform("Windows 11", "aarch64"));
+        String windows = text().replace("os=macos", "os=windows").replace("arch=aarch64", "arch=x86_64")
+            .replace("verification-platform=macos-aarch64", "verification-platform=windows-x86_64");
+        NativeManifest windowsManifest = NativeManifest.read(new ByteArrayInputStream(windows.getBytes(StandardCharsets.US_ASCII)), "windows-x86_64", true);
+        check(windowsManifest.executableName().equals("p2wlan-mc-agent.exe"));
+        check(parse(text(), true).executableName().equals("p2wlan-mc-agent"));
         reject(Code.PLATFORM_UNSUPPORTED, () -> NativeManifest.platform("Linux", "riscv64"));
         check(parse(text(), true).size() == CONTENT.length);
         reject(Code.DEVELOPMENT_DISABLED, () -> parse(text(), false));

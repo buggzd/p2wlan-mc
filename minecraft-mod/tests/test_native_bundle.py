@@ -75,12 +75,29 @@ class NativeBundleTests(unittest.TestCase):
             self.assertTrue(other.is_dir())
             self.assertFalse(destination.with_name(destination.name + ".previous").exists())
 
+    def test_windows_publishes_exe_and_rejects_unknown_platform_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "agent.exe"
+            binary.write_bytes(b"fixture")
+            info = self.info() | {"os": "windows", "arch": "x86_64"}
+            destination = root / "resources/windows-x86_64"
+            bundle.publish(binary, bundle.manifest(info, binary), destination)
+            self.assertEqual({path.name for path in destination.iterdir()}, {"p2wlan-mc-agent.exe", "manifest.properties"})
+            self.assertEqual((destination / "p2wlan-mc-agent.exe").read_bytes(), b"fixture")
+        for platform in ("windows-x86", "windows-aarch64", "unexpected"):
+            with self.assertRaises(bundle.BundleError):
+                bundle.executable_name(platform)
+
     def test_platforms_fail_closed(self):
         with patch.object(bundle.platform, "system", return_value="Darwin"), patch.object(bundle.platform, "machine", return_value="arm64"):
             self.assertEqual(bundle.host_platform(), ("macos", "aarch64"))
-        with patch.object(bundle.platform, "system", return_value="Windows"):
-            with self.assertRaises(bundle.BundleError):
-                bundle.host_platform()
+        with patch.object(bundle.platform, "system", return_value="Windows"), patch.object(bundle.platform, "machine", return_value="AMD64"):
+            self.assertEqual(bundle.host_platform(), ("windows", "x86_64"))
+        for cpu in ("x86", "arm64"):
+            with patch.object(bundle.platform, "system", return_value="Windows"), patch.object(bundle.platform, "machine", return_value=cpu):
+                with self.assertRaises(bundle.BundleError):
+                    bundle.host_platform()
 
     def test_build_paths_are_remapped_without_losing_caller_flags(self):
         env = bundle.build_environment({"RUSTFLAGS": "-C opt-level=2", "CARGO_BUILD_TARGET": "foreign"}, "/fixture/repo", "/fixture/home")

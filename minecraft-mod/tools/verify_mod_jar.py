@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import zipfile
 
-from artifact_checks import MAX_BINARY, VerificationError, entries, read, classfile, metadata, native_manifest, bind_sources
+from artifact_checks import MAX_BINARY, VerificationError, entries, read, classfile, metadata, native_manifest, bind_sources, PLATFORMS, executable_name
 
 MAIN = "io/p2wlan/mc/fabric/FabricP2wlan.class"
 CLIENT = "io/p2wlan/mc/fabric/client/FabricP2wlanClient.class"
@@ -82,11 +82,14 @@ def verify(path, development=False):
                             value = classfile(child, name, 61)
                             if any(prefix in value for prefix in (b"net/minecraft/", b"net/fabricmc/", b"net/neoforged/", b"net/minecraftforge/")):
                                 raise VerificationError("mod_common_game_dependency")
-                for name in sorted(names):
-                    if name.startswith("p2wlan/native/") and name.endswith("/manifest.properties"):
-                        natives.append(native_manifest(child, name, info["version"], development))
+                manifests = sorted(name for name in names if name.startswith("p2wlan/native/") and name.endswith("/manifest.properties"))
+                resources = [native_manifest(child, name, info["version"], development) for name in manifests]
+                admitted = set(manifests) | {f"p2wlan/native/{item['verification-platform']}/{executable_name(item['verification-platform'])}" for item in resources}
+                if any(name.startswith("p2wlan/native/") and not name.endswith("/") and name not in admitted for name in names):
+                    raise VerificationError("mod_native_resource_unexpected")
+                natives.extend(resources)
         platforms = [item["verification-platform"] for item in natives]
-        if common_count != 1 or not natives or len(platforms) > 4 or len(set(platforms)) != len(platforms):
+        if common_count != 1 or not natives or len(platforms) > len(PLATFORMS) or len(set(platforms)) != len(platforms):
             raise VerificationError("mod_native_resources_ambiguous")
         return natives
 

@@ -33,7 +33,7 @@ public final class BundledAgent implements AutoCloseable {
             try (InputStream metadata = resource(prefix + "manifest.properties")) {
                 manifest = NativeManifest.read(metadata, platform, allowDevelopment);
             }
-            try (InputStream bytes = resource(prefix + "p2wlan-mc-agent")) {
+            try (InputStream bytes = resource(prefix + manifest.executableName())) {
                 installation = NativeInstallation.extract(manifest, bytes, Path.of(System.getProperty("java.io.tmpdir")));
             }
             AgentClient client = AgentClient.launch(installation.validatedExecutable(), List.of("--profile-dir", profile.toString()));

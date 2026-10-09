@@ -19,7 +19,8 @@ record NativeManifest(String platform, String version, String revision, String s
         return platform(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
     }
     static String platform(String os, String arch) throws NativeBundleException {
-        String system = switch (os.toLowerCase(Locale.ROOT)) {
+        String name = os.toLowerCase(Locale.ROOT);
+        String system = name.startsWith("windows") ? "windows" : switch (name) {
             case "mac os x", "darwin" -> "macos";
             case "linux" -> "linux";
             default -> throw new NativeBundleException(Code.PLATFORM_UNSUPPORTED);
@@ -29,8 +30,10 @@ record NativeManifest(String platform, String version, String revision, String s
             case "aarch64", "arm64" -> "aarch64";
             default -> throw new NativeBundleException(Code.PLATFORM_UNSUPPORTED);
         };
+        if (system.equals("windows") && !cpu.equals("x86_64")) throw new NativeBundleException(Code.PLATFORM_UNSUPPORTED);
         return system + "-" + cpu;
     }
+    String executableName() { return platform.startsWith("windows-") ? "p2wlan-mc-agent.exe" : "p2wlan-mc-agent"; }
     static NativeManifest read(InputStream input, String platform, boolean development) throws IOException {
         byte[] bytes = input.readNBytes(4097);
         if (bytes.length == 0 || bytes.length > 4096 || bytes[bytes.length - 1] != '\n') throw invalid();

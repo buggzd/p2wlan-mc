@@ -39,7 +39,7 @@ final class NativeInstallation implements AutoCloseable {
 
     private NativeInstallation(Path directory, PosixFileAttributes root, NativeManifest manifest) {
         this.directory = directory;
-        this.executable = directory.resolve("p2wlan-mc-agent");
+        this.executable = directory.resolve(manifest.executableName());
         this.root = root;
         this.manifest = manifest;
     }

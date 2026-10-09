@@ -27,15 +27,16 @@ def bytecode(major):
 
 
 class ModJarTests(unittest.TestCase):
-    def fixture(self, binary=b"fixture"):
-        prefix = "p2wlan/native/macos-aarch64/"
+    def fixture(self, binary=b"fixture", platform="macos-aarch64"):
+        prefix = f"p2wlan/native/{platform}/"
+        system, arch = platform.split("-", 1)
         manifest = {"schema": "1", "protocol": "1", "version": "0.1.0", "source-revision": "a" * 40,
-                    "source-sha256": "b" * 64, "build-kind": "development", "os": "macos", "arch": "aarch64",
+                    "source-sha256": "b" * 64, "build-kind": "development", "os": system, "arch": arch,
                     "executable-sha256": hashlib.sha256(binary).hexdigest(), "executable-size": str(len(binary)),
-                    "verification-platform": "macos-aarch64"}
+                    "verification-platform": platform}
         common = {verify.COMMON: bytecode(61)}
         native = {prefix + "manifest.properties": "".join(f"{key}={value}\n" for key, value in manifest.items()),
-                  prefix + "p2wlan-mc-agent": binary}
+                  prefix + verify.executable_name(platform): binary}
         metadata = {"schemaVersion": 1, "id": "p2wlan", "version": "0.1.0", "environment": "*",
                     "entrypoints": {"main": [verify.MAIN.removesuffix(".class").replace("/", ".")],
                                     "client": [verify.CLIENT.removesuffix(".class").replace("/", ".")]},
@@ -56,6 +57,28 @@ class ModJarTests(unittest.TestCase):
         self.assertEqual(self.check(top)[0]["verification-platform"], "macos-aarch64")
         with self.assertRaisesRegex(verify.VerificationError, "mod_development_native_disabled"):
             self.check(top, False)
+
+    def test_windows_resources_have_one_exact_exe_name_and_no_stray_programs(self):
+        top, _, _, native = self.fixture(platform="windows-x86_64")
+        self.assertEqual(self.check(top)[0]["verification-platform"], "windows-x86_64")
+        prefix = "p2wlan/native/windows-x86_64/"
+        native[prefix + "p2wlan-mc-agent"] = native.pop(prefix + "p2wlan-mc-agent.exe")
+        top["META-INF/jars/native.jar"] = jar(native)
+        with self.assertRaisesRegex(verify.VerificationError, "mod_native_size"):
+            self.check(top)
+        native[prefix + "p2wlan-mc-agent.exe"] = native[prefix + "p2wlan-mc-agent"]
+        top["META-INF/jars/native.jar"] = jar(native)
+        with self.assertRaisesRegex(verify.VerificationError, "mod_native_resource_unexpected"):
+            self.check(top)
+
+    def test_all_recognised_platforms_are_bounded_and_can_share_one_native_jar(self):
+        top, _, _, _ = self.fixture()
+        natives = {}
+        for platform in sorted(verify.PLATFORMS):
+            _, _, _, native = self.fixture(platform=platform)
+            natives.update(native)
+        top["META-INF/jars/native.jar"] = jar(natives)
+        self.assertEqual({item["verification-platform"] for item in self.check(top)}, verify.PLATFORMS)
 
     def test_native_resource_required_and_checksum_checked(self):
         top, _, _, native = self.fixture()

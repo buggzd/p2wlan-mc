@@ -203,7 +203,7 @@ The fixture uses isolated loopback Control/database state, excludes inherited Co
 
 ## Native resource package
 
-A native resource package is built for the current POSIX host, not downloaded at runtime. From the repository root:
+A native resource package is built for the current host, not downloaded at runtime. From the repository root:
 
 ```sh
 python3 minecraft-mod/tools/native_bundle.py --offline
@@ -213,7 +213,7 @@ Release packaging requires a clean checkout. For an explicitly labelled developm
 
 Compilation remaps repository/home source prefixes to generic build paths; a bounded scan rejects executable bytes that still contain those absolute build prefixes.
 
-Generated executable resources remain under the ignored `java/native-bundle/build/` directory. The Java resource subproject refuses to build an empty resource jar. The currently recognised packaging targets are macOS/Linux on aarch64/x86_64; target recognition is not evidence of device verification or an installable Minecraft Mod. Windows is not yet a packaging target; Windows Java extraction/launch and real filesystem execution remain outside the verified package path.
+Generated executable resources remain under the ignored `java/native-bundle/build/` directory. The Java resource subproject refuses to build an empty resource jar. The recognised native-resource targets are macOS/Linux on aarch64/x86_64 and Windows x86_64. Windows resources use `p2wlan-mc-agent.exe` consistently in the producer, Java selector and archive verifiers; other Windows architectures are refused. Packaging still builds and executes the host binary: it does not cross-package a foreign binary without `--build-info` verification. Target recognition is not device verification or an installable Minecraft Mod. Java extraction/launch currently requires POSIX/unix filesystem attributes, so Windows game/account-console startup remains unavailable until its executable-isolation backend is implemented and verified. Windows filesystem execution and Minecraft login remain unaccepted.
 
 The common Java `BundledAgent` entry point selects only the exact host resource, rejects missing/duplicate/non-local resources, validates the strict bounded manifest, and rejects development packages unless explicitly allowed by its caller. It extracts at most two private installations per JVM, with 0700 directories, 0500 executables, SHA-256/length checks and a 15-second extraction/verification deadline. There is no shared executable cache or permissive filesystem fallback. Startup belongs off the game thread. `close()` is nonblocking; `released()` completes only after the exact child has exited and owned-file cleanup has succeeded. Failed or replaced-file cleanup is typed and retains its capacity slot rather than permitting unbounded leftovers.
 

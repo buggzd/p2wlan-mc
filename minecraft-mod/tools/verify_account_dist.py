@@ -7,7 +7,7 @@ import os
 import subprocess
 from pathlib import Path
 import zipfile
-from artifact_checks import MAX_BINARY, VerificationError, bind_sources, classfile, entries, native_manifest, read
+from artifact_checks import MAX_BINARY, VerificationError, bind_sources, classfile, entries, native_manifest, read, PLATFORMS, executable_name
 
 VERSION = "0.1.0"
 MAIN = "io/p2wlan/mc/account/AccountTool"
@@ -45,8 +45,8 @@ def verify(directory, development=False):
             if filename.startswith("native-bundle-"):
                 manifests = sorted(name for name in names if name.startswith("p2wlan/native/") and name.endswith("/manifest.properties"))
                 natives = [native_manifest(archive, name, VERSION, development) for name in manifests]
-                admitted = set(manifests) | {name.removesuffix("manifest.properties") + "p2wlan-mc-agent" for name in manifests}
-                if not 1 <= len(natives) <= 4 or len({item["verification-platform"] for item in natives}) != len(natives) \
+                admitted = set(manifests) | {f"p2wlan/native/{item['verification-platform']}/{executable_name(item['verification-platform'])}" for item in natives}
+                if not 1 <= len(natives) <= len(PLATFORMS) or len({item["verification-platform"] for item in natives}) != len(natives) \
                         or any(name.startswith("p2wlan/native/") and not name.endswith("/") and name not in admitted for name in names):
                     raise VerificationError("account_distribution_native")
     for name in ("p2wlan-account", "p2wlan-account.bat"):

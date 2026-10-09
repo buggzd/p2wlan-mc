@@ -47,6 +47,25 @@ class AccountDistributionTests(unittest.TestCase):
         with self.assertRaisesRegex(verify.VerificationError, "mod_development_native_disabled"):
             verify.verify(self.directory)
 
+    def test_windows_native_name_and_zip_are_exact(self):
+        _, _, _, native = fixtures.ModJarTests().fixture(platform="windows-x86_64")
+        self.write("native-bundle-0.1.0.jar", native)
+        self.assertEqual(verify.verify(self.directory, True)[0]["verification-platform"], "windows-x86_64")
+        self.zip()
+        verify.verify_zip(self.archive, self.directory)
+        native["p2wlan/native/windows-x86_64/p2wlan-mc-agent"] = b"stray"
+        self.write("native-bundle-0.1.0.jar", native)
+        with self.assertRaisesRegex(verify.VerificationError, "account_distribution_native"):
+            verify.verify(self.directory, True)
+
+    def test_all_recognised_platforms_share_a_bounded_distribution(self):
+        natives = {}
+        for platform in sorted(verify.PLATFORMS):
+            _, _, _, native = fixtures.ModJarTests().fixture(platform=platform)
+            natives.update(native)
+        self.write("native-bundle-0.1.0.jar", natives)
+        self.assertEqual({item["verification-platform"] for item in verify.verify(self.directory, True)}, verify.PLATFORMS)
+
     def test_no_empty_stray_or_tampered_native_resources(self):
         self.write("native-bundle-0.1.0.jar", {})
         with self.assertRaisesRegex(verify.VerificationError, "account_distribution_native"):

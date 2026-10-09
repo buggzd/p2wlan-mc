@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import subprocess
-from native_bundle import MAX_BINARY, PLATFORMS, ROOT, source_digest, strict_object
+from native_bundle import MAX_BINARY, PLATFORMS, ROOT, source_digest, strict_object, executable_name
 
 FIELDS = {"schema", "protocol", "version", "source-revision", "source-sha256", "build-kind", "os", "arch",
           "executable-sha256", "executable-size", "verification-platform"}
@@ -69,7 +69,7 @@ def native_manifest(archive, name, version, development):
         raise VerificationError("mod_native_manifest")
     if fields["build-kind"] != "release" and not development:
         raise VerificationError("mod_development_native_disabled")
-    binary_name = name.removesuffix("manifest.properties") + "p2wlan-mc-agent"
+    binary_name = name.removesuffix("manifest.properties") + executable_name(platform)
     expected_size = int(fields["executable-size"])
     if binary_name not in archive.namelist() or archive.getinfo(binary_name).file_size != expected_size:
         raise VerificationError("mod_native_size")
