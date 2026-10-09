@@ -8,6 +8,11 @@ import io.p2wlan.mc.common.LocalEndpoint;
 import io.p2wlan.mc.common.ScheduledTaskGate;
 import io.p2wlan.mc.fabric.FabricP2wlan;
 import io.p2wlan.mc.fabric.client.connect.MinecraftConnect;
+import io.p2wlan.mc.fabric.client.connect.FabricGameJoins;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
+import net.minecraft.text.Text;
 import io.p2wlan.mc.fabric.connect.ProxyPrelude;
 import io.p2wlan.mc.fabric.connect.ScopedClientConnect;
 import io.p2wlan.mc.fabric.world.FabricWorlds;
@@ -191,6 +196,26 @@ public final class ClientHookFixture implements ClientModInitializer {
         }
         cases.add("cancellation");
     }
+    private void retirementPolicy(MinecraftClient client) throws Exception {
+        onGame(client, () -> {
+            var owned = new ClientConnection(NetworkSide.CLIENTBOUND);
+            var foreign = new ClientConnection(NetworkSide.CLIENTBOUND);
+            var title = new TitleScreen();
+            // Construct the actual Vanilla presentation only; do not call its
+            // connect factory, resolve a host or start another network worker.
+            var constructor = ConnectScreen.class.getDeclaredConstructor(Screen.class, Text.class);
+            constructor.setAccessible(true);
+            var vanilla = constructor.newInstance(title, Text.literal("Fixture"));
+            check(!FabricGameJoins.otherClientIntent(owned, null, title));
+            check(!FabricGameJoins.otherClientIntent(owned, owned, title));
+            check(FabricGameJoins.otherClientIntent(owned, foreign, null));
+            check(FabricGameJoins.otherClientIntent(null, foreign, title));
+            check(FabricGameJoins.otherClientIntent(owned, null, vanilla));
+            check(FabricGameJoins.otherClientIntent(owned, owned, vanilla));
+            return true;
+        });
+        cases.add("retirement_policy");
+    }
     private void run(MinecraftClient client) {
         String status = "fail", reason = "FIXTURE_FAILED";
         boolean helperCleanup = false;
@@ -202,7 +227,7 @@ public final class ClientHookFixture implements ClientModInitializer {
             check(MinecraftConnect.supported()); check(FabricWorlds.transportSupported());
             check(FabricWorlds.IntegratedHooks.class.isAssignableFrom(IntegratedServer.class));
             cases.add("transformed_hooks");
-            ownedLogin(client); ordinaryLogin(client); mismatch(client); cancellation(client);
+            ownedLogin(client); ordinaryLogin(client); mismatch(client); cancellation(client); retirementPolicy(client);
             check(onGame(client, () -> client.getServer() == null && client.world == null));
             FabricP2wlan.AGENT.close(); FabricP2wlan.AGENT.stopped().get(20, TimeUnit.SECONDS);
             check(!ProcessHandle.of(helper.processId()).map(ProcessHandle::isAlive).orElse(false));

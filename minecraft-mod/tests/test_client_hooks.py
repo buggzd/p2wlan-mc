@@ -25,9 +25,9 @@ class ClientHookContractTests(unittest.TestCase):
             return hooks.verify_result(path, identity)
 
     def test_fresh_complete_result_is_required_not_log_output_or_gradle_exit(self):
-        self.assertEqual(self.check(self.fixture())["checks"], 55)
+        self.assertEqual(self.check(self.fixture())["checks"], 61)
         for change in ({"run": "b" * 32}, {"schema": True}, {"status": "fail"}, {"reason": "FIXTURE_ASSERTION"},
-                       {"checks": 0}, {"checks": 54}, {"checks": True}, {"minecraft": "1.21"},
+                       {"checks": 0}, {"checks": 60}, {"checks": True}, {"minecraft": "1.21"},
                        {"helper_cleanup": False}, {"helper_cleanup": 1}, {"eula_accepted": True},
                        {"cases": []}, {"cases": ["owned_login"] * len(hooks.CASES)}, {"cases": [None]}, {"extra": True}):
             with self.subTest(change=change), self.assertRaises(ValueError):

@@ -14,9 +14,9 @@ import uuid
 from native_bundle import strict_object
 
 PROJECT = Path(__file__).resolve().parents[1]
-CASES = {"transformed_hooks", "owned_login", "ordinary_login", "scope_mismatch", "cancellation", "helper_cleanup"}
+CASES = {"transformed_hooks", "owned_login", "ordinary_login", "scope_mismatch", "cancellation", "retirement_policy", "helper_cleanup"}
 FIELDS = {"schema", "run", "status", "reason", "checks", "minecraft", "helper_cleanup", "eula_accepted", "cases"}
-CHECKS = 55
+CHECKS = 61
 
 
 def verify_result(path, identity):

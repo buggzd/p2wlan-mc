@@ -41,7 +41,7 @@ public final class FabricGameJoins {
         private volatile ProxyPrelude prelude;
         private ClientConnection minecraft;
         private LocalEndpoint endpoint;
-        private boolean loginStarted, disconnectionHandled;
+        private boolean loginStarted, vanillaPlaySeen, disconnectionHandled;
         private Attempt(AgentClient agent, GameService service, Screen connectingScreen, Screen parent) throws JoinProxyException {
             this.agent = agent; this.service = service; this.connectingScreen = connectingScreen; this.parent = parent;
             // CURRENT is published before worker admission, not a second native runtime owner.
@@ -64,6 +64,18 @@ public final class FabricGameJoins {
         }
         private void tick(MinecraftClient client) {
             if (CURRENT.get() != this) return;
+            var play = client.getNetworkHandler();
+            ClientConnection playConnection = play == null ? null : play.getConnection();
+            // Vanilla may detach its client field during the same tick that
+            // handles a disconnect. Its original packet-listener identity still
+            // proves the handoff, so this owner must not handle it a second time.
+            if (minecraft != null && (playConnection == minecraft || minecraft.getPacketListener() instanceof net.minecraft.client.network.ClientPlayNetworkHandler)) vanillaPlaySeen = true;
+            if (otherClientIntent(minecraft, playConnection, client.currentScreen)) {
+                // A normal Vanilla connect/transfer or foreign play connection
+                // now owns presentation. Never run this old login handler's
+                // onDisconnected callback against that replacement screen.
+                phase = Phase.CLOSING; revoke();
+            }
             if (!isCurrent()) {
                 if (live.get()) { reason = "RUNTIME_CHANGED"; phase = Phase.FAILED; }
                 revoke();
@@ -71,9 +83,10 @@ public final class FabricGameJoins {
             if (!live.get()) {
                 // A runtime failure during Vanilla login/configuration must
                 // finish the original handler too, not strand its pack screen.
-                if (phase == Phase.FAILED && loginStarted) handlePrePlayClose(client);
+                if (phase == Phase.FAILED && loginStarted && !vanillaPlaySeen) handlePrePlayClose(client);
                 if (isReleased() && phase == Phase.CLOSING) phase = Phase.CLOSED;
                 if (phase == Phase.FAILED && client.currentScreen == connectingScreen) progress.set(Text.literal(reason == null ? "JOIN_FAILED" : reason));
+                if (isReleased()) CURRENT.compareAndSet(this, null);
                 return;
             }
             if ((phase == Phase.REGISTERING || phase == Phase.CONNECTING) && client.currentScreen != connectingScreen) { revoke(); return; }
@@ -118,7 +131,7 @@ public final class FabricGameJoins {
             } catch (Exception error) { fail(error); }
         }
         private void handlePrePlayClose(MinecraftClient client) {
-            if (minecraft == null || minecraft.isOpen() || disconnectionHandled || CURRENT.get() != this) return;
+            if (minecraft == null || vanillaPlaySeen || minecraft.isOpen() || disconnectionHandled || CURRENT.get() != this) return;
             var handler = client.getNetworkHandler();
             if (handler != null) return; // Vanilla owns play or an unrelated connection.
             disconnectionHandled = true; minecraft.handleDisconnection();
@@ -142,6 +155,11 @@ public final class FabricGameJoins {
         if (!MinecraftConnect.supported()) throw new JoinProxyException(JoinProxyException.Code.NATIVE_FAILED);
         AgentClient agent = FabricP2wlan.AGENT.current().orElse(null);
         return new Attempt(agent, service, screen, parent);
+    }
+    /** Pure client-presentation ownership decision; not a native path state.
+     * Exposed for the actual-game fixture, including ordinary Vanilla transfer. */
+    public static boolean otherClientIntent(ClientConnection owned, ClientConnection play, Screen screen) {
+        return play != null && play != owned || screen instanceof net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
     }
     public static void tick(MinecraftClient client) { Attempt value = CURRENT.get(); if (value != null) value.tick(client); }
     public static void shutdown() { Attempt value = CURRENT.get(); if (value != null) value.revoke(); }
