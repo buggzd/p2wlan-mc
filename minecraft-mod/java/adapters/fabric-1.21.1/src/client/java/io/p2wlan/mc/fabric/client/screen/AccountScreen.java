@@ -56,7 +56,7 @@ public final class AccountScreen extends AgentScreen {
     private boolean canLogin() { return AccountPresentation.canAuthenticate(accountState(), idle(), REQUESTS.busy(), filled()); }
     private boolean canRegister() { return AccountPresentation.canRegister(accountState(), idle(), REQUESTS.busy(), filled()); }
     @Override protected boolean insecureControl() { return server != null && ControlTransport.isPlaintext(server.getText()) || super.insecureControl(); }
-    @Override protected String hint() { return savedAccount() ? "返回游戏或断开房间不会退出账号。" : "登录一次即可；密码仅用于这次请求。"; }
+    @Override protected String hint() { return savedAccount() ? "账号会话已保存在本机；需要重新登录时点击“退出账号”。" : "登录一次即可；密码仅用于这次请求。"; }
     private void authenticate(String operation) {
         if (!("register".equals(operation) ? canRegister() : canLogin())) return;
         JsonObject arguments = new JsonObject();

@@ -105,9 +105,9 @@ scripts/outbound-liveness/live_check.sh normal \
   （例：本网络出口 CGNAT 双向黑洞，无法稳定复现干净的「被拦 vs 未拦」对照，
   故场景 A 用 TEST-NET 目标模拟。）
 
-## 6. 约束声明
+## 6. 验证范围
 
-- 本 Gate 为诊断/归因特性验收（REAL_TUN=1、真实 UDP 网络），relay 为明文 TCP、
-  信令为 HTTP，故**不构成安全发布就绪证据**。
-- 不改变生产依赖：relay-first 保底 + Direct 背景升级 + 加密验证提升 均维持原样；
+- 本 Gate 验证 UDP 诊断/归因特性（REAL_TUN=1、真实 UDP 网络）。本次传输条件为
+  明文 TCP relay 和 HTTP 信令。
+- 路径机制：relay-first 保底、Direct 背景升级和加密验证提升；
   liveness 只在「何时/为何转 relay」上做诊断加速与归因。

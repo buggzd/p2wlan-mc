@@ -1,6 +1,6 @@
 # P2WLAN 脚本目录
 
-这里的脚本按用途分层。真实双机验收、NAT-sim 回归和发布身份校验不能互相替代。
+这里的脚本按用途分为真实双机验收、NAT-sim 回归、发布身份校验和部署运维。
 
 ## 主要入口
 
@@ -10,15 +10,15 @@
 | `dual-end/dual-end-smoke.sh` | 本机 loopback 双 daemon 冷启动回归 | 否 | 使用本地 control/STUN，默认禁用 TUN |
 | `dual-end/field-gate-verify.sh` | 只读解析既有双机 artifact | 否 | 不启动 daemon，不修改远端 |
 | `dual-end/run-ab-sequence.sh` | compat 3 轮、strict preflight 3 轮、strict acceptance 10 轮 | 是 | 必须显式提供 control、network 和 legacy baseline |
-| `nat-sim/nat-sim-smoke.sh` | Direct、relay-only、慢 relay、failover、故障注入回归 | 否 | 不能代替 Mini/Air 实测 |
-| `outbound-liveness/live_check.sh` | UDP outbound liveness blocked/normal 检查 | 取决于参数 | 只用于 liveness 证据，不等同 Direct 成功 |
+| `nat-sim/nat-sim-smoke.sh` | Direct、relay-only、慢 relay、failover、故障注入回归 | 否 | 使用本机模拟 NAT 和双 daemon |
+| `outbound-liveness/live_check.sh` | UDP outbound liveness blocked/normal 检查 | 取决于参数 | 记录 UDP 出站存活性与故障归因 |
 | `release/verify_release_identity.py` | build-info、版本、commit、SHA 和 dirty gate | 否 | release workflow 的 fail-closed gate |
 | `staging/validate_staging_config.py` | staging catalog、TLS、audience/region 和 key 配置校验 | 否 | 默认只读，不部署、不重启 |
 | `deploy-server.sh` | 从 Release/Actions 包上传服务端，或让服务器自行拉取版本 | 是 | SSH 密码由 OpenSSH 交互读取；`--start` 才启用服务并做健康检查 |
-| `p2wlan-server` | 固定归档的本机服务管理、初始化、诊断、备份与恢复 | 否 | `setup` 补齐部署初始化，`doctor` 分层检查本机运行条件，不替代真实公网/TUN 验收 |
+| `p2wlan-server` | 固定归档的本机服务管理、初始化、诊断、备份与恢复 | 否 | `setup` 补齐部署初始化，`doctor` 分层检查本机运行条件 |
 
-每个主要入口旁边都有同名 Markdown，例如 `mini-air-smoke.sh` 对应
-`mini-air-smoke.md`。Markdown 记录前提、用法、输出字段、结果解释和限制。
+脚本说明记录前提、用法、输出字段、结果解释和必要限制。例如 `mini-air-smoke.sh`
+的使用步骤与判定口径见同目录的 `mini-air-smoke.md`。
 
 ## 双机脚本的共同安全规则
 

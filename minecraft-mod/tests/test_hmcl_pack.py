@@ -57,12 +57,16 @@ class HmclPackTests(unittest.TestCase):
         archive = pack.build_bytes(fixtures.jar(top), self.api, "windows-x86_64")
         index = pack.verify_zip(io.BytesIO(archive), "windows-x86_64")
         self.assertEqual(index["native_verification_methods"], [{"platform": "windows-x86_64", "method": "wine-build-info"}])
-        self.assertIn("不是 Windows 设备测试", pack.guide("windows-x86_64").decode())
+        guide = pack.guide("windows-x86_64").decode()
+        self.assertIn("wine-build-info 表示在 Wine 中执行构建身份核验", guide)
+        self.assertIn("Windows/HMCL 与跨机器联机待验证", guide)
         self.assertIn("Intel/AMD 64 位", pack.guide("windows-x86_64").decode())
 
     def test_guide_uses_saved_login_and_vanilla_multiplayer_flow(self):
         guide = pack.guide("windows-x86_64").decode("utf-8")
-        for text in ("保留登录会话和地址", "点击房间名称", "Minecraft 多人游戏", "断开房间", "悬停", "RTT", "MTU"):
+        for text in ("保留登录会话和地址", "点击房间名称", "Minecraft 多人游戏", "断开房间", "悬停",
+                     "P2WLAN 路径的实测往返时间", "最近 60 秒", "最多 256 个成功 RTT 样本", "未测得", "MTU",
+                     "HTTP 明文传输", "Windows/HMCL 与跨机器联机待验证", "wine-build-info 表示在 Wine 中"):
             self.assertIn(text, guide)
         self.assertNotIn("刷新服务列表", guide)
         self.assertNotIn("node-", guide)
@@ -81,7 +85,9 @@ class HmclPackTests(unittest.TestCase):
         self.assertEqual(info["source_revision"], "a" * 40)
         self.assertEqual(info["native_targets"], ["windows-x86_64"])
         self.assertEqual(values[pack.GUIDE], values["overrides/" + pack.GUIDE])
-        self.assertIn("HTTP 可以使用", values[pack.GUIDE].decode("utf-8"))
+        guide = values[pack.GUIDE].decode("utf-8")
+        self.assertIn("Control 支持 HTTPS 和 HTTP", guide)
+        self.assertIn("HTTP 明文传输账号、房间和信令", guide)
         self.assertNotIn(b"http://", values[pack.GUIDE])
         self.assertGreaterEqual(self.bind.call_count, 5)
         self.assertTrue(all(call.args[1] is False for call in self.bind.call_args_list))

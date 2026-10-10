@@ -71,7 +71,8 @@ public final class ScreenPresentationTests {
         }
         check(UiFeedback.failure("rooms", remote("AUTH_REQUIRED")).contains("会话已失效"));
         check(UiFeedback.failure("rooms", remote("AUTH_REQUIRED")).startsWith("读取房间："));
-        check(UiFeedback.failure("login", remote("CONTROL_UNAVAILABLE")).startsWith("登录："));
+        check(UiFeedback.failure("login", remote("CONTROL_UNAVAILABLE")).equals(
+                "登录：服务器连接或响应失败；请检查 Control 地址和网络连接。 [CONTROL_UNAVAILABLE]"));
         check(!UiFeedback.failure("login", remote("CONTROL_UNAVAILABLE")).contains("是否已建号未知"));
         check(UiFeedback.failure("register", new CompletionException(remote("CONTROL_TIMEOUT"))).contains("是否已建号未知"));
         for (Throwable error : new Throwable[]{new RuntimeException("fixture-secret /private/path"), remote("fixture-secret /private/path"), null}) {

@@ -55,6 +55,7 @@ def guide(platform):
     launcher_manifest(platform)
     return (f"P2WLAN 实验整合包 — {platform}\r\n"
             f"Minecraft {MINECRAFT} / Fabric Loader {LOADER} / Fabric API {API_VERSION}\r\n"
+            "实机验证范围：macOS Apple Silicon 本机离线认证专服；Windows/HMCL 与跨机器联机待验证。\r\n"
             "1. 在 HMCL 的整合包安装入口选择本 ZIP，不要把 ZIP 放进 mods 文件夹。\r\n"
             "2. 使用独立游戏实例、64 位操作系统和 64 位 Java 21。\r\n"
             "Windows 目标是 x86-64（Intel/AMD 64 位），实例及临时目录须放在本地 NTFS；不支持 32 位 Java/Windows。\r\n"
@@ -64,14 +65,13 @@ def guide(platform):
             "6. 返回 Minecraft 多人游戏，选择带 P2WLAN 标记的服务器进入。\r\n"
             "退出游戏世界不会断开房间；要断开，请在 P2WLAN 面板点击“断开房间”。\r\n"
             "面板的“显示设置”可开启游戏浮层（默认关闭），选择基础/详细/高级与显示位置。\r\n"
-            "“延迟统计”显示最近 60 秒（最多 256 样本）的 Min/Avg/Max 与 P50/P90/P95/P99；样本较少时仅供参考。\r\n"
-            "RTT 是 P2WLAN 实测往返时间，不是 Minecraft ping；未测得不等于 0 ms。悬停可看抖动、MTU 和累计流量。\r\n"
-            "HTTP 可以使用，但账号、房间和信令可能被监听或篡改；界面只提示风险。\r\n"
+            "“延迟统计”显示最近 60 秒（最多 256 个成功 RTT 样本）的 Min/Avg/Max 与 P50/P90/P95/P99。\r\n"
+            "RTT 是 P2WLAN 路径的实测往返时间；无有效样本时显示“未测得”。悬停可看抖动、MTU 和累计流量。\r\n"
+            "Control 支持 HTTPS 和 HTTP；优先使用 HTTPS。HTTP 明文传输账号、房间和信令，存在监听与篡改风险。\r\n"
             "若状态显示“启动失败”，登录/注册按钮不会启用；点击“诊断日志”查看阶段、文件操作和系统错误码，再点“复制诊断”反馈。\r\n"
             "日志在当前游戏实例的 logs/p2wlan-mod/startup.log（上一段 startup.log.1）；每段最多 256 KiB。目录不可写仍能复制内存诊断。\r\n"
             "不要发送 config/p2wlan-private、账号密码、token 或未脱敏的启动器日志。诊断不会自动上传。\r\n"
-            "P2WLAN-PACK.json 记录原生程序构建身份的执行核验方式。\r\n"
-            "Wine 构建身份核验不是 Windows 设备测试；摘要也不是签名或双机/公网游戏验收。\r\n").encode("utf-8")
+            "P2WLAN-PACK.json 记录构建身份、执行核验方式、文件大小和 SHA-256；wine-build-info 表示在 Wine 中执行构建身份核验。\r\n").encode("utf-8")
 
 
 def verify_api(value):

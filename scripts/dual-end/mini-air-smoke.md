@@ -119,6 +119,6 @@ env \
 ## 限制
 
 - `ALLOW_SHARED_NETWORK=1` 只能报告 target-scoped diagnostic；不能代替 dedicated network isolation。
-- legacy HTTP/TCP relay 不能证明 TLS、ticket auth 或 release readiness。
-- 真实 Direct 通过不能证明所有 NAT 类型都能 Direct；应报告失败率和 reason code。
+- legacy HTTP/TCP relay 结果按明文传输诊断记录；生产验收使用 HTTPS Control 和 TLS Relay。
+- Direct 结果绑定本轮双方的 NAT 条件，报告逐轮结果、失败率和 reason code。
 - 本脚本不提交、不推送、不部署 relay/control，也不自动重启非测试设备。

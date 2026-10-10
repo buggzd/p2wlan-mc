@@ -38,7 +38,7 @@ Windows、macOS 和 Linux 桌面客户端可在“设置 → 通用 → 登录�
     p2wlan route repair
     p2wlan logs -f
 
-CLI 展示的是 daemon 已确认的状态。Connecting 不等于业务可用，Direct/Relay 标签也不等于对端应用已经收到数据；需要用虚拟 IP 执行实际的 TCP、UDP 或 ICMP 验证。
+CLI 展示 daemon 的连接阶段和已确认的 Direct/Relay 路径。验证应用连通性时，用虚拟 IP 执行目标业务的 TCP、UDP 或 ICMP 请求。
 
 ## 支持包
 

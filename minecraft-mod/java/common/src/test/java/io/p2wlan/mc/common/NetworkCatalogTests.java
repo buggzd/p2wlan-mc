@@ -64,7 +64,9 @@ public final class NetworkCatalogTests {
         PeerTelemetry measured=PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1);
         check(measured.latencyLabel(2).equals("17 ms") && measured.pathLabel().equals("中继"));
         check(measured.latencyLabel(PeerTelemetry.FRESH_NANOS+2).equals("待更新"));
-        check(measured.tooltip(2).contains("不是 Control 延迟") && measured.tooltip(2).contains("2 ms"));
+        check(measured.tooltip(2).contains("P2WLAN 路径的实测往返时间") && measured.tooltip(2).contains("2 ms"));
+        check(measured.tooltip(2).contains("最近 60 秒") && measured.tooltip(2).contains("最多 256 个"));
+        check(measured.tooltip(2).contains("ceil(p × n / 100)") && measured.tooltip(2).contains("从 1 开始"));
         metric.add("latency_ms",com.google.gson.JsonNull.INSTANCE);
         check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).latencyLabel(2).equals("未测得"));
         metric.addProperty("latency_ms",17);metric.addProperty("last_success_age_ms",15001);metric.getAsJsonObject("latency_stats").addProperty("last_sample_age_ms",15001);

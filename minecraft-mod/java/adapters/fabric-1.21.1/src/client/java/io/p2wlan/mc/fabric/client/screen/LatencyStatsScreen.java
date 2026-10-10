@@ -17,7 +17,7 @@ public final class LatencyStatsScreen extends LocalPanelScreen {
     }
     @Override protected String summary() {
         var peer=FabricNetworkView.displayPeer(client);long now=System.nanoTime();
-        if (peer==null || !peer.statisticsCurrent(now)) return "等待有效测量，不会用 0 填充未知值。统计只包含成功计时的 RTT，不代表丢包率。";
+        if (peer==null || !peer.statisticsCurrent(now)) return "等待有效 RTT 测量。窗口为最近 60 秒，最多 256 个成功样本。";
         var stats=peer.statistics();
         return stats.windowLabel()+(stats.samples()<100?" · P99 样本较少":"")+"\n当前设备："+peer.name()+" · "+peer.pathLabel();
     }
@@ -40,6 +40,6 @@ public final class LatencyStatsScreen extends LocalPanelScreen {
         Long[] values=stats==null?new Long[4]:new Long[]{stats.p50Us(),stats.p90Us(),stats.p95Us(),stats.p99Us()};
         for (int i=0;i<4;i++) metric(draw,labels[i],LatencyStatistics.ms(values[i])+" ms",i%2==0?layout.left():layout.right(),layout.row(2+i/2),layout.halfWidth());
         if (mouseX>=layout.left() && mouseX<layout.left()+layout.width() && mouseY>=layout.top() && mouseY<layout.row(3)+24)
-            setTooltip(Text.literal(peer==null?"RTT 是原 P2WLAN 核心实测的往返时间，不是单程时延或 Minecraft ping。":peer.tooltip(now)));
+            setTooltip(Text.literal(peer==null?"RTT 是 P2WLAN 网络核心测得的路径往返时间。":peer.tooltip(now)));
     }
 }

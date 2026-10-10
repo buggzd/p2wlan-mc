@@ -180,7 +180,7 @@ abstract class AgentScreen extends Screen {
         for (int index = 0; index < count; index++) context.drawTextWithShadow(textRenderer, lines.get(index), left, layout.messageY() + (index + reserved) * (textRenderer.fontHeight + 2), (REQUESTS.busy() || !message.isEmpty()) ? 0xfff1c96a : 0xff7f8ba0);
         if (mouseX >= left && mouseX < left + formWidth) {
             String tooltip = mouseY >= header && mouseY < header + 10 ? helperText
-                    : mouseY >= header + 16 && mouseY < header + 26 && mouseX < left + formWidth - 165 ? "登录会话保存在本机私有目录，不保存密码。返回游戏或断开房间不会退出账号；Control 会在房间操作时重新检查授权。"
+                    : mouseY >= header + 16 && mouseY < header + 26 && mouseX < left + formWidth - 165 ? "登录会话保存在本机私有目录，输入的密码只用于本次请求。退出世界和断开房间后会话仍保留；Control 在房间操作时检查授权。"
                     : insecureControl() && mouseY >= header + 40 && mouseY < header + 49 ? ControlTransport.BANNER
                     : mouseY >= layout.messageY() && (reserved != 0 || lines.size() > 3) ? (reserved == 0 ? feedback : live + "\n" + feedback) : null;
             if (tooltip != null) setTooltip(Text.literal(tooltip));

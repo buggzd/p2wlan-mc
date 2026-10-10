@@ -48,5 +48,5 @@ final class RoomsScreen extends AgentScreen {
             client.setScreen(new RuntimeScreen(parent,new RuntimeView(reply.owner(),identity)));
         });
     }
-    @Override protected String hint() { return "房间只建立局域网连接；服务器在多人游戏中选择。"; }
+    @Override protected String hint() { return "连接房间后，在多人游戏中选择服务器。"; }
 }

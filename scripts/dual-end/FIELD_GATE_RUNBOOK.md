@@ -25,11 +25,10 @@
    正常。R1 的 p2v2 label 走的就是这条控制面。
 3. **legacy baseline 二进制**在本地可用（`DAEMON_BIN_OVERRIDE`）——A/B 序列用它跑
    compat-baseline 3/3，strict 阶段用**当前树** build。
-4. 当前树能编译：`cargo check -p p2wlan-daemon`（本 runbook 交付前已在本工作树验证过）。
+4. 当前树能编译：先执行 `cargo check -p p2wlan-daemon`。
 
-> 若现场此刻**不是** dual-CGNAT（比如临时都拿到 public IP），Gate C 的 `m=` 值会失真、
-> Gate A 的 10/10 也不代表生产 NAT 行为——**换到真 CGNAT 网络再跑**，别在 public-IP 网络
-> 硬凑。
+> 此门禁的测试条件为两端各处于真实 CGNAT 后。两端使用 public IP 时，先切换到
+> dual-CGNAT 环境，再运行 10 轮序列；结果绑定本轮的 NAT 条件。
 
 ## 2. 跑法（A/B 序列，标准 10/10）
 
@@ -63,7 +62,7 @@ scripts/dual-end/run-ab-sequence.sh
   acceptance 10/10` 即序列成功。`BASE_DIR` 是 `$ARTIFACT_ROOT/mini-air-$RUN_ID`（RUN_ID 在
   smoke 日志首行），`AB_SEQUENCE_DIR` 里是 `sequence-results.json`。
 
-> **fingerprint 锁提示**：本 runbook 新增的 `field-gate-verify.sh` 是**只读**分析器，
+> **fingerprint 锁提示**：`field-gate-verify.sh` 是**只读**分析器，
 > 不改 harness/parser，故不会使 A/B 序列的 fingerprint 失效。反过来**不要**为了加验证去改
 > `mini-air-smoke.sh` 或 `strict-direct-parser.py`（改了 `harness_sha256`/`parser_sha256`，
 > 已 lock 的序列会 `sequence-invalid`）。
@@ -101,25 +100,22 @@ scripts/dual-end/field-gate-verify.sh "$BASE_DIR" "$AB_SEQUENCE_DIR"
 - `field-gate-verify.sh` 的 `non-p2v2 samples:` 列出具体轮/端/值。
 - `a_sees_p2v2`/`b_sees_p2v2` 有一边为 0 → 那一侧的 `update_endpoint` 没把 p2v2 送出去，
   或 control server 没回给对端。查 control server 里该 device 的 `nat_type` 存储字段
-  （`control/http/device.rs` 的 `nat_type`）是否为 `p2v2:`。
+  的 `nat_type` 是否为 `p2v2:`。
 - 出现 `p2:linear` 之类 legacy 值 → 该 daemon 不是当前树 build（`DAEMON_BIN_OVERRIDE`
   串了，或 strict 阶段误用了 legacy 二进制——strict **必须** unset `DAEMON_BIN_OVERRIDE`）。
 
-## 5. 与 R1b 的边界（这场验证什么、不验证什么）
+## 5. 结果范围
 
-- 验证：**R1 已合并**的结构化指纹信令在真实 dual-CGNAT 端到端下发/消费正常，且 liveness
-  特性在生产网络零假阳性、Gate4 不回退。
-- **不验证 R1b**：R1b（稳态 live filtering active CHANGE-REQUEST 探测）已按 §4 实测**挂起**
-  ——生产 STUN（cloudflare/miwifi/google）18 样本 0 changed-source，不配合 CHANGE-REQUEST，
-  写了也是死 fallback。所以 Gate C 期望的 `f=` 仍是静态推断值（EIM→`unknown`），**这是正确的**，
-  不是 R1b 缺位。若现场某端 `f=address_or_port_dependent` 且 m=EIM，那是该端 STUN 恰支持
-  change 或配置了支持 CHANGE-REQUEST 的 STUN——记录但勿当作 R1b 生效。
+- Gate A 读取 `sequence-results.json` 中的 strict-acceptance 记录，要求 10 轮全部 `ok`。
+- Gate B 统计本轮日志中的 `outbound_liveness` 事件，要求 `blocked` 次数为 0；
+  同时报告 `ok` 与 `unknown` 次数。
+- Gate C 读取 poll JSON 中非空的 `nat_type`，要求全部使用 `p2v2:` 前缀，
+  且两个方向各至少有一个样本。映射与过滤字段的含义见[网络参考](../../docs/reference/networking.md#nat-限制)。
 
 ---
 
-## 交付物清单
-- `scripts/dual-end/field-gate-verify.sh` — 只读三 gate 验证器（本工作树自测 PASS/FAIL 两套
-  fixture 均判定正确）。
-- 本 runbook。
-- 现场跑完：`$BASE_DIR`（10 轮 evidence + metrics + poll json）+ `$AB_SEQUENCE_DIR/sequence-results.json`
-  存档；`field-gate-verify.sh` 的终端输出贴进交付报告。
+## 结果保存
+
+保存 `$BASE_DIR` 中的逐轮 evidence、metrics 和 poll JSON，以及
+`$AB_SEQUENCE_DIR/sequence-results.json`。将 `field-gate-verify.sh` 的三项判定和
+逐轮明细附到 PR、Issue 或内部验收记录。

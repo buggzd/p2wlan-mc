@@ -32,7 +32,7 @@
     dropped_transition_events
     direct_time_to_connect_ms
 
-direct_time_to_connect_ms 使用固定边界 50、100、250、500、1000、3000、10000、30000 毫秒和一个溢出桶。Direct-first 使用 `direct_first_started`、`direct_first_deadline` 和 `direct_first_satisfied` 记录权威准入窗口事件；事件本身不代表 Direct 成功或 Relay 已发送业务。reason code 是封闭集合；诊断文本不能变成指标标签。旧客户端缺少该对象时按 schema 0 读取，不能把缺失字段解释成当前路径成功。
+direct_time_to_connect_ms 使用固定边界 50、100、250、500、1000、3000、10000、30000 毫秒和一个溢出桶。Direct-first 使用 `direct_first_started`、`direct_first_deadline` 和 `direct_first_satisfied` 记录权威准入窗口事件；这些事件记录窗口的开始、截止和满足状态。reason code 是封闭集合；诊断文本不能变成指标标签。旧客户端缺少该对象时按 schema 0 读取，不能把缺失字段解释成当前路径成功。
 
 control_reconnect_counter_survives_timeline_eviction 是必须保持的回归契约：进程时间线淘汰旧记录后，Control 重连计数仍来自有界状态，而不是依赖已被淘汰的事件。
 
@@ -40,11 +40,11 @@ control_reconnect_counter_survives_timeline_eviction 是必须保持的回归契
 
 ## Hard↔Hard attempt report
 
-控制客户端的阶段追踪同时识别 `hh1` 与 `hh2`，服务端在 `P2WLAN_A0_SIGNAL_TRACE=1` 时记录对应信令接纳阶段。关联字段使用短摘要标签，不输出原始 session token；信令持久化仅表示服务端接纳，不能证明对端已执行探测或建立 Direct。
+控制客户端的阶段追踪同时识别 `hh1` 与 `hh2`，服务端在 `P2WLAN_A0_SIGNAL_TRACE=1` 时记录对应信令接纳阶段。关联字段使用短摘要标签，不输出原始 session token；信令持久化记录服务端接纳；对端探测执行和 Direct 提交使用各自阶段的记录。
 
 实验环境变量 P2WLAN_EXPERIMENT_* 标签和信令延迟只在显式 --hard-hard-experiment-only 模式下生效；信令延迟默认为 0，最大 2000 ms。普通模式即使继承这些环境变量，也不会增加延迟或把实验标签写入 attempt 报告。
 
-普通运行也记录 Hard↔Hard 阶段、profile 绑定和执行认领失败原因。`hard_hard_candidate_work` 区分候选 worker 开始与结束，携带匿名 session/plan/peer 标签、任务 owner 及期望和观察到的代际；`hard_hard_candidate_discarded` 记录排队替换或重放保留。已经进入 worker 的任务被取消时仍输出结束记录，尚未开始的排队任务随 peer 生命周期清理时需结合生命周期日志定位。投递层的 `Applied` 只代表应用接纳，不能作为 hard 计划已接受、已发送或 Direct 成功的证据。
+普通运行也记录 Hard↔Hard 阶段、profile 绑定和执行认领失败原因。`hard_hard_candidate_work` 区分候选 worker 开始与结束，携带匿名 session/plan/peer 标签、任务 owner 及期望和观察到的代际；`hard_hard_candidate_discarded` 记录排队替换或重放保留。已经进入 worker 的任务被取消时仍输出结束记录，尚未开始的排队任务随 peer 生命周期清理时需结合生命周期日志定位。投递层的 `Applied` 表示应用接纳；hard 计划接纳、发送和 Direct 提交分别由对应阶段记录。
 
 认领失败进一步区分时间窗、peer session、计划、恢复 epoch、generation 配额和去重等待原因；`phase=lease_release` 说明旧信令租约是否已请求按序重投。高频 `control_healthy` 过程日志使用 debug 级别，断连和恢复事件保持原可见性，避免正常心跳占满上传日志尾部。
 
@@ -52,7 +52,7 @@ control_reconnect_counter_survives_timeline_eviction 是必须保持的回归契
 
 终态记录由原会话的诊断 owner 单次封存。写入当前连接时，在有界等待后持有代际与连接保护并再次核对完整身份；身份替换、锁竞争或提交等待被取消时，原记录进入独立的 `hard_hard_attempt_report_archived` 结构化日志，不写入新连接的事件环。该历史日志不参与当前路径判断。选中 socket、扫描汇总和完成等辅助事件始终输出结构化日志，连接事件环只作非阻塞写入；辅助记录不会阻塞确认发包或正式终态的封存。认证接收证据仅来自原 token 和所属动态 socket 的精确候选对，不使用同 peer 的普通 Probe 汇总差值。
 
-同一封存入口另将最后 16 条正式 HH 终态压缩到进程时间线的 `hard_hard_terminal_summaries`，连接对象更换后仍可读取。摘要只保留阶段、代际、匿名会话/计划标签、发送与匹配 ACK 计数及结果；`current_connection_committed=false` 和 `archive_reason` 明确表示旧身份终态未写入当前连接。它不保留完整扫描账本，也不能代替当前 peer 的路径状态或真实业务证据。
+同一封存入口另将最后 16 条正式 HH 终态压缩到进程时间线的 `hard_hard_terminal_summaries`，连接对象更换后仍可读取。摘要只保留阶段、代际、匿名会话/计划标签、发送与匹配 ACK 计数及结果；`current_connection_committed=false` 和 `archive_reason` 明确表示旧身份终态未写入当前连接。该摘要用于跨连接对象查看历史终态；当前路径从 peer 状态读取，业务结果从 ingress 记录读取。
 
 `mode` 表示当前会话实际协商的 `fixed_anchor`、`predictable` 或 `birthday`；兼容流程保留其原有模式值。模式来自同一会话的权威计划，不能仅凭 socket 数推断。
 
@@ -69,11 +69,11 @@ control_reconnect_counter_survives_timeline_eviction 是必须保持的回归契
 
 `counts.send_success_datagrams` / `send_success_bytes` 保持扫描口径。支持完整确认计数的 HH2 attempt 另带可选 `confirmation`：`triggered_check`、`nomination`、`probe_ack`、`validation_request`、`validation_ack` 分别记录成功 UDP handoff 的 `datagrams` 和 `bytes`；`retryable_not_sent`、`budget_deferred`、`delivery_unknown`、`stopped` 记录候选对发送结果分类次数。确认成本不占用或改写扫描计划字段。旧版、兼容流程或尚未绑定 owner 的报告缺少该对象时表示未知，不能当作零。
 
-矩阵成本汇总使用 `probe_cost_scope=sweep_only` 明确原扫描口径，并在 `confirmation_costs` 单独给出确认成本已知部分、各字段缺失报告数与完整报告数。有效轮次与全部 requested 轮次分别统计；部分缺失不能据此推导完整打洞总成本。
+矩阵成本汇总使用 `probe_cost_scope=sweep_only` 明确原扫描口径，并在 `confirmation_costs` 单独给出确认成本已知部分、各字段缺失报告数与完整报告数。有效轮次与全部 requested 轮次分别统计；字段缺失时，汇总保留已知成本并标明缺失报告数。
 
 生日扫描的正式报告可带 `birthday_sweep`，保留同一终态快照中的 socket 可用性、计划与完成波次、目标覆盖、按 socket 的物理发送量、错误和停止原因；辅助事件环缺项不再承担这些计数的唯一存储。该对象缺失表示旧版本或没有生日扫描明细，不能解释为零发送。其 `first_send_at_ms` / `last_send_at_ms` 保留原扫描账本的本端墙钟口径；过程耗时仍使用报告 `timeline` 中的单调时间，不混用两种时钟。
 
-`target_order_tags` 保留实际目标顺序，重复目标仍重复出现；`confirmed_target_rank` 在加密验证选中的远端地址属于该计划时记录其从 0 开始的位置，不暴露地址，空值表示未确认 Direct 或确认的是计划外学习地址。`candidate_cap` 与 `truncation_reason` 说明裁剪边界。分类包括 `measurement_insufficient`、`model_unpredictable`、`budget_rejected`、`send_error`、`missed_schedule`、`candidate_not_executed`、`no_response`、`probe_hit_validation_failed`、`cancelled_generation_changed`、`encrypted_validation_completed` 和证据不足时的 `unknown`。最后一个验证阶段不是业务成功；采集器只有在真实业务 ingress 存在时才派生 `direct_business_succeeded`。探测命中不等于加密验证，验证也不等于业务已可用。
+`target_order_tags` 保留实际目标顺序，重复目标仍重复出现；`confirmed_target_rank` 在加密验证选中的远端地址属于该计划时记录其从 0 开始的位置，不暴露地址，空值表示未确认 Direct 或确认的是计划外学习地址。`candidate_cap` 与 `truncation_reason` 说明裁剪边界。分类包括 `measurement_insufficient`、`model_unpredictable`、`budget_rejected`、`send_error`、`missed_schedule`、`candidate_not_executed`、`no_response`、`probe_hit_validation_failed`、`cancelled_generation_changed`、`encrypted_validation_completed` 和证据不足时的 `unknown`。`encrypted_validation_completed` 记录加密验证完成；采集器在真实业务 ingress 存在时派生 `direct_business_succeeded`。
 
 `timeline` 时间字段来自同一 daemon 进程的单调时钟。`planned_send_at_ms` 在 `hh2` 完成最终首发协商时更新为约定时间，发送偏差不再与此前的最晚截止比较。`candidate_signal_accepted_at_ms` 表示本端发布流程获得接受证据的观察时刻：证据可以是信令 API 成功返回，也可以是同一 `hh2` 轮次已通过身份检查的后续消息。它不是服务端持久化或对端实际接收的时间戳，也不表示双方已经完成整个交换，不能用它计算 HTTP RTT。`probe_last_hit_at_ms` 与 `probe_last_hit_source` 表示验证前最后一次认证 Probe 或匹配 ACK，不是首次命中。`measurement_age_at_send_ms`、`measurement_to_first_send_ms`、`last_probe_hit_to_validation_ms` 使用非负差值；缺时间或顺序逆置时为空，不把异常压成零。它们分别描述测量新鲜度、测量到首发、最后命中到验证。最终 SYNC_ACK 的本地入队、服务端接受与对端实际接收是不同证据；本地入队不会授予 Direct，也不能单独作为无响应策略失败的依据。
 
@@ -98,11 +98,11 @@ control_reconnect_counter_survives_timeline_eviction 是必须保持的回归契
 
 `CONSUME_A` / `CONSUME_B` 在每个已测量 socket 的最后一次 STUN 与首次 peer 出站之间注入分配；`SWEEP_NOISE_EVERY` / `SWEEP_NOISE_COUNT` 在发送期间按新映射数量注入，并受 `SWEEP_NOISE_LIMIT` 总量约束。trace 区分两个阶段、源 socket、新映射和未绑定目的。`mapping_fidelity` 核对两端 shim 成功发送的包数/字节与网关捕获完全一致，并检查严格过滤与注入配置确实生效；本机 UDP 捕获丢包、缺计数或噪声阶段不符都会使该轮证据无效。互惠映射对数量是整轮模拟器事实，不能代替 attempt 命中、加密验证或业务成功。
 
-高熵场景是负对照：允许 Direct 失败并以 Relay 有界兜底，但不允许缺证据、任务泄漏或无界退出。取消的 generation/session fencing 由隔离 Rust 回归覆盖；本地双进程模拟不代表两台物理设备、真实运营商 NAT 或公网成功率。
+高熵场景是负对照：允许 Direct 失败并以 Relay 有界兜底，但不允许缺证据、任务泄漏或无界退出。取消的 generation/session fencing 由隔离 Rust 回归覆盖；矩阵使用本地双进程和配置的模拟 NAT。
 
 Hard↔Hard 实验的 Direct 放行时间来自双方 `hard_hard_start_activated` 的最终 SYNC 起点。最初的 `hard_hard_rendezvous_scheduled` 是协商上界，不能用于放行已提前的实际扫描。
 
-manifest 分开报告 requested 场景/轮次、smoke 执行结果、证据有效性、保护期内 Direct 首业务、Relay-first、Relay 后升级 Direct、固定观测期最终 Direct、全部可读 typed attempt 失败/终态分布、测量年龄与计划偏差、候选执行和确认命中位置、条件延迟样本量、全部 requested 与 valid-only 两套 packet/byte/STUN/候选逻辑 payload 成本、同一 session/plan 的配对和不完整报告数、计划 Socket 峰值、清理耗时、子进程 CPU/RSS 和 critical task 数。部分无效轮次中可读的单侧成本保留，未读到的字段以 unknown/incomplete 表示；完整控制传输字节当前未知。`first_usable` 的请求级路径结果、attempt 级身份归因和有效轮次统计是独立分母。资源数包含本地构建、启动、实验与清理，不是跨主机性能比较；本轮没有隔离的遥测开/关性能 A/B，只用确定性回归约束候选顺序、预算、路径和取消不变。它不把不同 seed 当作不同真实网络，也不从无因果证据的数据宣称成功率提升。
+manifest 分开报告 requested 场景/轮次、smoke 执行结果、证据有效性、保护期内 Direct 首业务、Relay-first、Relay 后升级 Direct、固定观测期最终 Direct、全部可读 typed attempt 失败/终态分布、测量年龄与计划偏差、候选执行和确认命中位置、条件延迟样本量、全部 requested 与 valid-only 两套 packet/byte/STUN/候选逻辑 payload 成本、同一 session/plan 的配对和不完整报告数、计划 Socket 峰值、清理耗时、子进程 CPU/RSS 和 critical task 数。部分无效轮次中可读的单侧成本保留，未读到的字段以 unknown/incomplete 表示；完整控制传输字节当前未知。`first_usable` 的请求级路径结果、attempt 级身份归因和有效轮次统计是独立分母。资源数的采集范围为本地构建、启动、实验与清理。确定性回归核对候选顺序、预算、路径和取消行为，场景与轮次按配置和 seed 统计。
 
 ## 正常接入与动态网络条件
 
@@ -113,7 +113,7 @@ manifest 分开报告 requested 场景/轮次、smoke 执行结果、证据有�
       NAT_SIM_ARTIFACT_DIR=/absolute/path/outside/repository/normal-nat-evidence \
       bash scripts/nat-sim/nat-sim-smoke.sh
 
-背景流量在每端第一次 daemon UDP 出站后启动：每个逻辑设备使用独立 socket 和带种子的时间抖动发送真实 STUN 请求，与该端共享端口分配器，不读取候选或扫描阶段。设备数上限 16，间隔 10–5000 ms；默认关闭。有限流模式每设备最多 64 个短流；`BACKGROUND_DURATION_MS` 可启用最长 120000 ms 的持续流量，每端配置上限为 16384 次流尝试。`mapping-evidence.json` 核对请求完成、失败、退出取消以及与 daemon 流量的时间重叠；持续模式逐台检查从接入到最终捕获期间的流量间隔，缺少任一设备或出现超限空档都会失败。SIGTERM 退出会先回收背景任务并记录尚未完成流的取消，再关闭 trace。该模型覆盖共享端口分配干扰；无线频谱竞争、真实基站切换、IPv6/NAT64、多层 CGNAT 和 TCP 控制/中继链路拥塞仍需要额外测试。`LOSS`、`REORDER` 和 UDP 延迟仅作用于通过 NAT 过滤后的 peer UDP，不能据此宣称测过控制或中继链路的弱网。
+背景流量在每端第一次 daemon UDP 出站后启动：每个逻辑设备使用独立 socket 和带种子的时间抖动发送真实 STUN 请求，与该端共享端口分配器，不读取候选或扫描阶段。设备数上限 16，间隔 10–5000 ms；默认关闭。有限流模式每设备最多 64 个短流；`BACKGROUND_DURATION_MS` 可启用最长 120000 ms 的持续流量，每端配置上限为 16384 次流尝试。`mapping-evidence.json` 核对请求完成、失败、退出取消以及与 daemon 流量的时间重叠；持续模式逐台检查从接入到最终捕获期间的流量间隔，缺少任一设备或出现超限空档都会失败。SIGTERM 退出会先回收背景任务并记录尚未完成流的取消，再关闭 trace。该模型覆盖共享端口分配干扰；`LOSS`、`REORDER` 和 UDP 延迟的作用范围为通过 NAT 过滤后的 peer UDP。
 
 `run-network-matrix.py` 全部使用 `MODE=normal`，覆盖严格/宽松过滤、两端不同的时延抖动、单侧丢包、连续丢包、UDP 限速与有限队列、共享分配器、随机端口、接入期间短时 UDP 中断、单/双侧 NAT 映射重建、加速映射超时、错峰信令和慢中继。需要 Python 3.11 或更高版本及 smoke 入口使用的 Rust、Go 和本机编译器。
 
@@ -122,7 +122,7 @@ manifest 分开报告 requested 场景/轮次、smoke 执行结果、证据有�
       --scenario asymmetric-jitter --scenario live-nat-rebind \
       --rounds 2 --output /absolute/path/outside/repository/network-evidence
 
-不指定 `--scenario` 时运行全部 17 个配置，默认每个配置 1 轮，总执行数上限 32。每轮独立冷启动，使用固定种子、不做失败重试，通常观察 30 秒；`shared-allocator-continuous` 观察 60 秒，双方各 8 台背景设备持续发流，并为启动及回收预留 120 秒流量上限。输出目录必须是仓库外尚不存在的绝对路径。manifest 记录源代码 commit 与包含未跟踪文件的补丁摘要、参数、实际 NAT seed、原始证据路径、每方向首业务路径和最终活动路径。两端首业务可以分别来自 Direct 和 Relay，收发方向不必使用同一路径，但双方都必须有真实业务 ingress；固定 Direct/Relay 拓扑仍执行原有路径要求。配置不是运营商实测画像，不能用于推算移动网络直连成功率。
+不指定 `--scenario` 时运行全部 17 个配置，默认每个配置 1 轮，总执行数上限 32。每轮独立冷启动，使用固定种子、不做失败重试，通常观察 30 秒；`shared-allocator-continuous` 观察 60 秒，双方各 8 台背景设备持续发流，并为启动及回收预留 120 秒流量上限。输出目录必须是仓库外尚不存在的绝对路径。manifest 记录源代码 commit 与包含未跟踪文件的补丁摘要、参数、实际 NAT seed、原始证据路径、每方向首业务路径和最终活动路径。两端首业务可以分别来自 Direct 和 Relay，收发方向不必使用同一路径，但双方都必须有真实业务 ingress；固定 Direct/Relay 拓扑仍执行原有路径要求。配置为固定种子的模拟场景。
 
 需要验收直连时使用 `--require-direct`：双方最终活动路径必须为 Direct，且最后 2–5 秒内双方各有至少两个新的已验证 Direct 业务包。Relay 可用或历史 Direct 计数不满足该门禁。运行器保留每轮失败，不通过重跑挑选成功结果；产品自身有界重试仍按正常策略执行。
 
@@ -183,18 +183,18 @@ Admin Connections 保留遥测的单向语义，不把两个方向合并成新�
 
 ## Connection Health 派生规则
 
-Control 的 Connection Health 不是新的路径状态所有者。它只在 Admin 请求时读取当前 `peer_path_observations` 和已保留的 `peer_path_transitions`，按请求窗口派生运维 attention signals；结果不会反写 daemon、不会改变 Direct/Relay 选择，也没有单独的告警生命周期。
+Control 的 Connection Health 在 Admin 请求时读取当前 `peer_path_observations` 和已保留的 `peer_path_transitions`，按请求窗口派生运维 attention signals；结果不会反写 daemon、不会改变 Direct/Relay 选择，也没有单独的告警生命周期。
 
-默认窗口为 3600 秒，允许 60–86400 秒。固定阈值为每方向窗口内至少 4 次 Direct↔Relay 切换触发 `frequent_path_switching`，至少 3 次显式 Direct/Relay failure reason 触发 `repeated_path_failures`。stable Relay observation 只进入路径分布统计，不自动代表降级或故障。
+默认窗口为 3600 秒，允许 60–86400 秒。固定阈值为每方向窗口内至少 4 次 Direct↔Relay 切换触发 `frequent_path_switching`，至少 3 次显式 Direct/Relay failure reason 触发 `repeated_path_failures`。stable Relay observation 进入正常路径分布统计。
 
 新鲜度继续复用 `DeviceOnlineTTL`：reporter heartbeat 失效时分类为 `reporter_offline`；reporter 仍在线但 observation 过期时分类为 `stale_observation`；fresh observation 且 peer lifecycle 为 `online`、同时没有 committed `current_path` 时分类为 `no_active_path`；`offline` / `unbound` 生命周期没有路径属于预期状态，不产生该信号。validation RTT 统计仅使用 fresh observation 中已有的最近验证样本。
 
-每个方向的 transition history 仍受 50 条上限约束，所以当单方向在查询窗口内产生超过 50 条迁移时，path switch / failure 计数只能视为当前保留历史上的下界，不能作为完整长期 SLA 指标。
+每个方向的 transition history 仍受 50 条上限约束，所以当单方向在查询窗口内产生超过 50 条迁移时，path switch / failure 计数为当前保留历史上的下界。
 
 
 ## 小时级 Connection Trends
 
-Control 额外维护有界的 `connection_metric_hourly` 聚合，用于比每方向 50 条 transition history 更长的运维趋势窗口。该聚合不是新的路径状态所有者：它只在一条 path telemetry observation 通过现有 session/generation/revision fencing 并与 authoritative snapshot 同一 SQLite 事务提交时累加。
+Control 额外维护有界的 `connection_metric_hourly` 聚合，用于比每方向 50 条 transition history 更长的运维趋势窗口。该聚合在一条 path telemetry observation 通过现有 session/generation/revision fencing 并与 authoritative snapshot 同一 SQLite 事务提交时累加。
 
 固定规则：
 
@@ -202,7 +202,7 @@ Control 额外维护有界的 `connection_metric_hourly` 聚合，用于比每�
 - 每个 network 每小时最多 1 行，不保存 peer/device 级长期明细；
 - 保留 720 小时（30 天），新 telemetry 写入时同步清理更早 bucket；
 - accepted、non-resync committed observation 才计 sample；duplicate、rejected、显式 resync，以及 `registration_seq` 前进后的新 owner 首次权威快照重同步都不计趋势；owner advance 仍正常更新 latest snapshot 与 fencing 状态，但不会制造长期 sample、switch 或 failure；
-- `direct_observation_samples` / `relay_observation_samples` / `no_path_observation_samples` 是 observation sample 数，不代表路径在线时长、流量占比或 SLA；
+- `direct_observation_samples` / `relay_observation_samples` / `no_path_observation_samples` 按接纳的 observation sample 次数计数；
 - `path_switches` 只统计服务端已存在 Direct/Relay snapshot 与新 accepted snapshot 之间真正的 Direct↔Relay 切换；首次 observation、lifecycle-only 变化和 path→none 不算 Direct↔Relay switch；
 - failure 只在 transition history 真正记录 `direct_probe_failed`、`direct_path_failed` 或 `relay_path_failed` 时累加，不把重复 snapshot 当新失败；
 - validation RTT 使用固定累计 histogram 上界 50、100、250、500、1000、3000、10000 ms，并保留 >10000 ms overflow bucket；超过 24 小时的异常 RTT 输入按无效样本丢弃，不写入 authoritative RTT snapshot 或趋势；API 的 p50/p95 字段是 histogram upper bound，不是精确 percentile，落入 overflow 时不伪造上界。

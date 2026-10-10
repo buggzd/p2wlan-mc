@@ -85,4 +85,4 @@ python3 scripts/openwrt/build.py --series 25.12 --arch arm64 --tag v0.1.170 --wo
 
 `--series` 可为 `24.10` 或 `25.12`，`--arch` 可为 `arm64` 或 `x64`，tag 必须与当前源码版本一致。构建器校验 `scripts/openwrt/targets.json` 固定的官方 SDK、内核及 rootfs 摘要，使用 SDK 的 C 编译器构建静态 musl 程序，再由 SDK 封装已校验的程序。QEMU 内的包管理器从匹配固件源安装 `kmod-tun` 等运行依赖。在匹配内核的固件中完成原生依赖安装、真实 TUN、进程所有权和停止验证后才输出成功结果。
 
-QEMU 验证不能替代具体型号路由器的闪存、内存、无线网络和固件定制验收。
+QEMU 验证使用匹配内核的固件；具体型号路由器还需检查闪存、内存、无线网络和固件定制。

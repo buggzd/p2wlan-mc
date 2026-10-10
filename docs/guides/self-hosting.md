@@ -21,11 +21,11 @@
 | --- | --- | --- |
 | Linux 原生服务 | Ubuntu 22.04 上执行 Go vet、race/full tests、Control/Relay 双进程认证 smoke、IPv6 TLS/撤权验证和 manager contract | 这是固定服务端归档与 systemd manager 的主要验证路径 |
 | 管理台前端 | 固定 Node 版本安装依赖，执行 TypeScript typecheck、Vite production build，并校验构建后的静态产物；服务端发布任务会在 Go 编译前再次构建管理台 | Node 只属于构建链，不进入生产服务器运行时 |
-| Linux 静态服务端二进制 | Ubuntu 20.04 容器验证 `CGO_ENABLED=0` 产物没有动态 loader，并能执行 `--version` | 只证明基础 loader 兼容，不等于 Ubuntu 20.04 上完整 systemd、网络和业务链路已验收 |
+| Linux 静态服务端二进制 | Ubuntu 20.04 容器验证 `CGO_ENABLED=0` 产物没有动态 loader，并能执行 `--version` | 验证范围为静态二进制启动与版本输出 |
 | Docker Compose | Ubuntu 22.04 runner 构建实际 Debian bookworm 镜像、启动 Control/Relay、检查 readyz，并验证 SQLite 数据卷重启持久性 | 生产部署仍应使用固定镜像摘要并自行完成公网、TLS 和恢复演练 |
 | Windows 服务端代码 | `windows-latest` 执行 Go vet/tests 和真实 Control/Relay 双进程 smoke | 当前固定 `server-vX.Y.Z` 发布归档不是 Windows 安装包，因此 Windows 不属于公开的固定归档部署路径 |
 
-这表示 Ubuntu 20.04 会验证发布形态的静态 Control/Relay 二进制可以启动并报告版本，但当前 CI 不声明 Ubuntu 20.04 的完整 systemd 管理、真实网络、TLS、升级恢复和长期运行已经端到端验收。未列入完整验证矩阵的 Linux 发行版不能仅凭“能启动二进制”视为正式兼容；正式部署优先使用已验证的 Ubuntu 22.04 或固定镜像，并自行核对 systemd、文件权限、反向代理、TLS、数据库和内核网络能力。
+正式部署优先使用已验证的 Ubuntu 22.04 或固定镜像。其他 Linux 发行版按部署所需检查 systemd、文件权限、反向代理、TLS、数据库和内核网络能力。
 
 ## 安装
 
@@ -70,7 +70,7 @@ Control 与 Relay 分机时，撤权 feed 使用 HTTPS 和独立 Bearer token。
 
 管理台源码位于 `server/admin-ui/`，`src/features/` 按功能组织页面，`src/layout/` 管理外壳，`src/components/ui/` 与 `src/shared/` 复用界面和交互，`src/styles/app.css` 是应用样式入口；CI 按锁文件执行 `npm ci` 并重新构建，再与仓库中已提交的 `server/admin/web/` 逐字节比对，因此源码改动后忘记重新构建会被 CI 拦下。服务端 tag / staging 构建也会在 `go build` 前重新执行 typecheck 和 production build，再由 Go 将生成目录嵌入 Control。这保证发布归档和本地 `go build` 都不会携带过期 UI，同时服务端安装和升级路径仍然只围绕原有服务端归档，不引入第二套前端发布流程。
 
-管理员令牌不能与 `JWT_SECRET`、设备凭据、Relay ticket 或撤权 feed token 复用，也不要放入 URL、公开日志或反向代理访问日志字段。资源关系页面中的账号、membership、设备挂载、在线状态和 signaling 来自 Control 资源状态，不会据此推断数据面路径；连接排障页面（Connections）只读取 daemon 经 `path_telemetry_v1` 权威上报的路径快照与迁移历史；连接健康页面再基于这些已持久化事实和受限历史显示请求时 attention signals，不增加独立路径或告警状态。即使 observation 仍 fresh，也不等于目标 TUN 上的具体业务应用一定端到端可达。
+管理员令牌不能与 `JWT_SECRET`、设备凭据、Relay ticket 或撤权 feed token 复用，也不要放入 URL、公开日志或反向代理访问日志字段。资源关系页面中的账号、membership、设备挂载、在线状态和 signaling 来自 Control 资源状态，不会据此推断数据面路径；连接排障页面（Connections）只读取 daemon 经 `path_telemetry_v1` 权威上报的路径快照与迁移历史；连接健康页面再基于这些已持久化事实和受限历史显示请求时 attention signals，不增加独立路径或告警状态。fresh 表示观测仍在有效租约内；目标应用连通性通过虚拟 IP 业务请求验证。
 
 Docker Compose 适合隔离验证或已建立镜像发布流程的部署。默认 Control 只发布到 loopback；容器以非 root、只读根文件系统和无额外 capability 运行。生产镜像必须来自固定发布摘要，不能在业务服务器上临时 build 未验证源码。
 
@@ -82,4 +82,4 @@ Compose 镜像也包含 `p2wlan-db`，可在挂载的数据卷上生成一致性
     sudo p2wlan-server check --service all
     sudo p2wlan-server doctor --service all
 
-`verify` 检查发布归档和版本，`check` 检查本机 Control/Relay 健康端点，`doctor` 在此基础上继续检查 systemd、Admin 凭据、支持日志配置及服务账户的主机目录访问权限、SQLite 完整性、Relay TLS 文件、备份和数据盘空间。主机权限检查不进入运行服务的 mount namespace，也不写入支持包；完整上传仍需用户授权后实际验证。它们都不代替真实客户端、TUN、NAT、公网 TLS 入口或业务连通性验证。
+`verify` 检查发布归档和版本，`check` 检查本机 Control/Relay 健康端点，`doctor` 在此基础上继续检查 systemd、Admin 凭据、支持日志配置及服务账户的主机目录访问权限、SQLite 完整性、Relay TLS 文件、备份和数据盘空间。主机权限检查在主机文件系统中执行。支持包上传需用户授权后实际验证；客户端、TUN、公网 TLS 入口和业务连通性通过对应环境的连接请求检查。

@@ -39,7 +39,7 @@ public final class DisplaySettingsScreen extends LocalPanelScreen {
         corner.setMessage(Text.literal("浮层位置："+draft.corner().label));
         for (var level:DisplayPreferences.Detail.values()) levels[level.ordinal()].setMessage(Text.literal(draft.detail()==level?"[ "+level.label+" ]":level.label));
     }
-    @Override protected String summary() { return feedback.isEmpty()?"设置仅保存在本机，与登录和房间连接无关。":feedback; }
+    @Override protected String summary() { return feedback.isEmpty()?"调整游戏浮层的开关、位置和详细程度；设置保存在本机。":feedback; }
     @Override public void render(DrawContext draw,int mouseX,int mouseY,float delta) {
         super.render(draw,mouseX,mouseY,delta);
         String note=switch(draft.detail()) {case BASIC->"当前 RTT · 连接方式";case DETAILED->"+ Min / Avg / Max · 抖动 · 样本数";case ADVANCED->"+ P50 / P90 / P95 / P99 · MTU · 收发量";};

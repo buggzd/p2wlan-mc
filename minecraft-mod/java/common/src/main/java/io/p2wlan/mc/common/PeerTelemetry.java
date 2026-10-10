@@ -125,11 +125,11 @@ public record PeerTelemetry(AgentReply evidence, RuntimeView runtime, String pee
     public String tooltip(long now) {
         return name() + "\n虚拟地址：" + (virtualIp.isEmpty() ? "待分配" : virtualIp)
                 + "\n链路：" + (fresh(now) ? pathLabel() : "待更新") + " · 端到端 RTT：" + latencyLabel(now)
-                + "\n抖动（平滑 RTT 偏差，不是标准差）：" + (recentRtt(now) && jitterMs != null ? jitterMs + " ms" : "未测得")
+                + "\n抖动（平滑 RTT 偏差）：" + (recentRtt(now) && jitterMs != null ? jitterMs + " ms" : "未测得")
                 + "\n路径载荷 MTU：" + (fresh(now) && overlayBudget != null ? overlayBudget + " B" : "未确认")
                 + "\n发送 / 接收（累计）：" + bytes(bytesSent) + " / " + bytes(bytesReceived)
                 + (statisticsCurrent(now) ? "\n" + statistics.tooltip() + "\n最新计时样本：" + (statistics.lastSampleAgeMs() == null ? "未测得" : (statistics.lastSampleAgeMs() + (now - observedAt) / 1_000_000) + " ms 前") : "\n窗口统计：待测量 / 待更新")
-                + "\nMTU 为原生路径测量值，不是本 Mod 当前 TCP 分段上限。\nRTT 为 P2WLAN 实测往返时间，不是 Control 延迟或游戏 FPS。\n直连和中继都可用；状态与统计不是游戏可加入的保证。";
+                + "\nMTU 为原生路径测量值。\nRTT 为 P2WLAN 路径的实测往返时间。\n直连与加密中继均可承载游戏流量。";
     }
     public static String bytes(Long value) {
         if (value == null) return "—";

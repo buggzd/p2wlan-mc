@@ -8,11 +8,11 @@
 
     源码 SHA → 同 SHA 必需门禁 → 候选产物 → 签名 → 产物身份检查 → 摘要清单 → Release
 
-客户端版本 tag 必须指向已经进入 main 的提交。发布 workflow 会查询该 SHA 的已完成 Actions 记录；CI、客户端/安装包、Windows/Mobile 生命周期、自托管服务、安全、NAT、路径、MTU、房间和 Rekey 等必需检查缺失或失败时，不构建正式发布产物。旧 SHA 的绿色结果不能证明新 SHA 可发布。
+客户端版本 tag 必须指向已经进入 main 的提交。发布 workflow 会查询该 SHA 的已完成 Actions 记录；CI、客户端/安装包、Windows/Mobile 生命周期、自托管服务、安全、NAT、路径、MTU、房间和 Rekey 等必需检查缺失或失败时，不构建正式发布产物。门禁结果必须来自待发布的同一 SHA。
 
 daemon、服务端和客户端产物必须能报告或验证源码提交、组件版本、架构和文件摘要。
 
-客户端 `vX.Y.Z` 与服务端 `server-vX.Y.Z` 是独立版本命名空间。相同数字后缀不代表相同源码 SHA、构建时间或发布集合；部署记录必须保存各自准确的 tag 与 commit。
+客户端 `vX.Y.Z` 与服务端 `server-vX.Y.Z` 是独立版本命名空间。两个标签分别绑定各自的源码 SHA、构建时间和发布集合；部署记录必须保存各自准确的 tag 与 commit。
 
 ## 产物
 
@@ -24,7 +24,7 @@ Android 生产签名只在受保护的 release-signing 环境和版本 tag 中�
 
 客户端远程安装器必须显式接收 `vX.Y.Z`，并从同一个 tag 下载包和 checksum；服务端安装器同样必须显式接收 `server-vX.Y.Z`。`latest` 或可变 `main` 不是可复现部署输入。
 
-Linux CLI 远程安装器对 `--version TAG`、`--version=TAG` 和 `P2WLAN_VERSION` 使用同一校验：标签以 `v` 开头，后面至少一个字符，且完整标签只能包含 ASCII 字母、数字、点、下划线和连字符。路径分隔符、查询参数、片段和空白会在选择或下载包之前被拒绝，`--dry-run` 同样执行该校验。校验只约束标签格式，不证明标签存在或对应正式版本；正式安装仍应选择明确的 `vX.Y.Z` Release。随发布包提供的本地安装器不要求远程版本参数。
+Linux CLI 远程安装器对 `--version TAG`、`--version=TAG` 和 `P2WLAN_VERSION` 使用同一校验：标签以 `v` 开头，后面至少一个字符，且完整标签只能包含 ASCII 字母、数字、点、下划线和连字符。路径分隔符、查询参数、片段和空白会在选择或下载包之前被拒绝，`--dry-run` 同样执行该校验。该校验检查标签格式；正式安装仍应选择明确的 `vX.Y.Z` Release。随发布包提供的本地安装器不要求远程版本参数。
 
 ## 发布后审计
 
@@ -44,6 +44,6 @@ Linux CLI 远程安装器对 `--version TAG`、`--version=TAG` 和 `P2WLAN_VERSI
 
 Release 中的 `RELEASE-MANIFEST.json` 记录源码 SHA、tag，以及公开文件的文件名、大小和 SHA-256；主要安装包还记录平台、架构和构建身份验证方式。发布后审计另外生成独立的 `audit-report.json` Actions artifact，记录解析出的 tag commit、资产数量、manifest 摘要和 immutable 状态。
 
-这些证据证明最终下载文件、manifest 和 tag 的一致关系，不等于独立安全审计、真实设备验收或公网可用性证明。
+这些证据用于核对最终下载文件、manifest 和 tag 的一致关系。
 
 真实设备和公网验收应在外部记录中绑定最终安装包摘要、两端版本、Control/Relay 版本、网络类型、时间线和业务结果；未完成的项目不能写入公共文档为已完成。

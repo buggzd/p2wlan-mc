@@ -73,7 +73,7 @@ final class RuntimeScreen extends AgentScreen {
         if (stopAcknowledged && !runtime.isActive(agent()) && !REQUESTS.busy()) client.setScreen(AccountScreen.entry(parent));
         else if (!runtime.isActive(agent())) message="RUNTIME_CHANGED";
     }
-    @Override protected String hint() { return client.world==null?"房间只保持局域网连接；到多人游戏选择服务器。":"退出游戏后仍保持房间连接；返回不等于断开。"; }
+    @Override protected String hint() { return client.world==null?"连接房间后，在多人游戏中选择服务器。":"退出世界后房间仍连接；结束联机请点击“断开房间”。"; }
     @Override protected String liveSummary() {
         if (!runtime.isActive(agent())) return "连接已结束";
         String name=FabricNetworkView.roomName();
@@ -99,7 +99,7 @@ final class RuntimeScreen extends AgentScreen {
         metric(draw,"我的虚拟 IP",ip==null?"正在分配":ip,left,top+36,layout.halfWidth(),0xfff7f9fc);
         metric(draw,"连接方式",path,layout.right(),top+36,layout.halfWidth(),tone);
         if (mouseX>=left && mouseX<left+formWidth && mouseY>=top && mouseY<top+68) {
-            String tooltip=peer==null?"RTT 由原 P2WLAN 网络核心测量；无有效样本时显示未测得。\n虚拟 IP 只用于房间，不会修改系统路由。":"测量对象："+peer.name()+"\n"+peer.tooltip(now)
+            String tooltip=peer==null?"RTT 由 P2WLAN 网络核心测量；等待有效样本时显示未测得。\n虚拟 IP 用于 Mod 的房间游戏通道。":"测量对象："+peer.name()+"\n"+peer.tooltip(now)
                     +"\n未入服时，面板取已观测设备中最低的有效 RTT；游戏内显示当前服务端。";
             tooltip += "\n在线数为近期已观测设备（含本机），最多观测 16 个对端。";
             if (!FabricNetworkView.reason().isEmpty()) tooltip += "\n状态："+FabricNetworkView.reason();

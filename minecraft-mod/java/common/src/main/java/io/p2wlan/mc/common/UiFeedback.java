@@ -36,7 +36,7 @@ public final class UiFeedback {
         } else {
             description = switch (code) {
                 case "AUTH_REQUIRED" -> "需要登录、登录被拒绝或会话已失效；请在账号页登录。";
-                case "CONTROL_UNAVAILABLE" -> "服务器连接或响应失败；不代表本地保存失败。";
+                case "CONTROL_UNAVAILABLE" -> "服务器连接或响应失败；请检查 Control 地址和网络连接。";
                 case "CONTROL_TIMEOUT", "REQUEST_TIMEOUT" -> "等待响应超时；操作结果可能尚未确认。";
                 case "CONTROL_RESPONSE", "INVALID_REPLY" -> "响应不符合协议，未获得成功确认。";
                 case "INVALID_ARGUMENTS", "INVALID_REQUEST" -> "请检查输入格式及服务端要求。";

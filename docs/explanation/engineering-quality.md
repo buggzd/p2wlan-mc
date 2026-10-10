@@ -1,6 +1,6 @@
 # 工程质量与架构边界
 
-P2WLAN 的工程目标不是追求文件数量或抽象层数，而是让网络状态、故障边界和发布行为可以被独立推理、测试和审查。本页定义长期稳定的代码组织规则；具体协议字段和运行参数仍以对应 reference 文档与源码为准。
+P2WLAN 的工程目标是让网络状态、故障边界和发布行为可以被独立推理、测试和审查。本页定义长期稳定的代码组织规则；具体协议字段和运行参数仍以对应 reference 文档与源码为准。
 
 ## 设计原则
 
@@ -73,11 +73,11 @@ DPLPMTUD 的尺寸换算、路径身份、wire 编解码和 reducer 分别位于
 
 `relay_runtime/connection.rs` 保持连接及 renewal 生命周期的单一所有者；`supervisor.rs` 决定重连，`write_boundary.rs` 封装写入许可，validation 与 probe 调度使用独立模块。
 
-UDP 的 `core.rs` 和 `dynamic_punch.rs` 使用真正的 Rust 子模块，而不是文本 include。`UdpTransport` 仍是进程内共享的权威状态，不能为拆分另建平行状态副本。socket registry、business MTU、peer cleanup、Direct validation、diagnostics、learning cache、provisional socket lifecycle、birthday wave 和 punch sender 按职责分组；可变 cache/guard 内部字段留在所属模块。模块划分不代表所有函数复杂度或真实设备风险已消除。
+UDP 的 `core.rs` 和 `dynamic_punch.rs` 使用真正的 Rust 子模块，而不是文本 include。`UdpTransport` 仍是进程内共享的权威状态，不能为拆分另建平行状态副本。socket registry、business MTU、peer cleanup、Direct validation、diagnostics、learning cache、provisional socket lifecycle、birthday wave 和 punch sender 按职责分组；可变 cache/guard 内部字段留在所属模块。
 
 ## 源码体积与增长门禁
 
-`scripts/quality/check_code_health.py` 检查 Rust 源码体积：普通生产文件上限为 96 KiB，独立测试文件为 192 KiB，按 LF 规范化字节计算。体积是审查提示，不是圈复杂度、耦合度或正确性的证明；不得靠删注释、压行或移动同一状态的访问点来满足门禁。
+`scripts/quality/check_code_health.py` 检查 Rust 源码体积：普通生产文件上限为 96 KiB，独立测试文件为 192 KiB，按 LF 规范化字节计算。该门禁用于约束文件体积与增长；不得靠删注释、压行或移动同一状态的访问点来满足门禁。
 
 历史超限文件在脚本中有明确上限。CI 通过 `P2WLAN_QUALITY_BASE` 指定 PR 基线或 push 前提交，取静态上限与基线文件大小的较小值，因此已缩小的文件不能在后续 PR 中重新增长。离线运行未指定 `--base-ref` 时只检查静态上限；本地完整比较使用：
 
@@ -114,7 +114,7 @@ UDP 的 `core.rs` 和 `dynamic_punch.rs` 使用真正的 Rust 子模块，而不
 - 纯函数和状态机转移使用快速单元测试；
 - crate/模块边界使用集成测试验证契约；
 - daemon 使用确定性的 lifecycle、rekey、route、room、Direct/Relay 与 NAT 场景测试；
-- 真实 TUN、Windows lifecycle、移动端和公网 NAT 属于平台/环境验收，不能由 mock 测试宣称替代；
+- 真实 TUN、Windows lifecycle、移动端和公网 NAT 使用对应平台/环境验收；
 - 发布包验证必须继续绑定源码 commit、嵌入版本和产物摘要。
 
 测试应优先验证稳定不变量和结果，不依赖 sleep 猜测调度时机。需要时间推进时优先使用显式 deadline、可注入时钟或事件同步。
@@ -123,8 +123,8 @@ UDP 的 `core.rs` 和 `dynamic_punch.rs` 使用真正的 Rust 子模块，而不
 
 日志用于解释事件，metrics/status 用于机器判定。高频数据面不得为每个正常包输出 info/warn；正常热路径仅保留采样或 debug/trace 诊断。状态变化日志应包含稳定 reason code 和必要 identity，但不能记录密钥、token、完整凭据或可还原业务载荷。
 
-新增关键状态机时，同时考虑：当前状态、最后一次转移原因、失败计数、队列/任务规模和版本 identity 是否能从现有诊断入口获得。可观测性不是在出现事故后再补日志。
+新增关键状态机时，同时考虑：当前状态、最后一次转移原因、失败计数、队列/任务规模和版本 identity 是否能从现有诊断入口获得。可观测性随状态机设计和实现一同交付。
 
 ## 完成标准
 
-代码完成不等于功能能运行一次。一个改动只有在以下条件满足后才可合并：边界清楚、资源有界、错误可分类、取消路径完整、核心不变量有自动测试、CI 通过、文档只描述已实现行为，并明确真实设备或公网环境仍未验证的部分。
+改动的合并条件为：边界清楚、资源有界、错误可分类、取消路径完整、核心不变量有自动测试、CI 通过、文档只描述已实现行为，并明确真实设备或公网环境仍未验证的部分。

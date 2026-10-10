@@ -40,9 +40,9 @@ public record LatencyStatistics(int samples, boolean capacityLimited, Long lastS
     }
     public String tooltip() {
         return String.join("\n", summaryLines()) + "\n" + windowLabel()
-                + "\n分位数取排序样本的 ceil(p × n) 位（最近秩），不做插值。"
-                + (samples < 100 ? "\n不足 100 个样本，P99 仅供参考。" : "")
-                + "\n只统计实际计时成功的 RTT；不能由此推算丢包率或带宽。";
+                + "\nPp 取升序样本的第 ceil(p × n / 100) 位（从 1 开始）。"
+                + (samples < 100 ? "\n样本不足 100 个；P99 按当前窗口计算。" : "")
+                + "\n样本范围：最近 60 秒内实际计时成功的 RTT，最多 256 个。";
     }
     private static AgentException invalid() { return new AgentException(AgentException.Code.INVALID_REPLY); }
 }

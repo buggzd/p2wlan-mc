@@ -1,6 +1,6 @@
 # P2WLAN Minecraft 安全报告
 
-本仓库的 Minecraft Mod 及其原生集成尚未完成独立安全审计，不声明安全认证。加密实现、包校验、CI、摘要清单与本机游戏测试不能替代安全审计、实机验证或部署者的风险评估。
+本页说明 Minecraft Mod 及其原生集成的漏洞报告方式和信任边界。项目尚未完成独立安全审计。
 
 ## 非公开报告
 
@@ -19,10 +19,10 @@ Mod、Java／Fabric、随包原生 Agent、私有配置或本地桥接相关漏�
 
 ## 当前信任边界
 
-- 使用可信 Control 与 HTTPS；HTTP 风险提示不等于加密保护。
-- 本地能力验证和用户权限隔离不防御恶意 Mod、同系统用户代码、受修改 JVM 或管理员。
-- 摘要证明字节一致性，不是签名，也不证明发布者身份或游戏兼容性。
+- 使用可信 Control 与 HTTPS；HTTP 明文传输账号凭据、房间操作和信令。
+- 本地能力验证和文件权限隔离其他系统用户；同用户代码、其他 Mod、JVM 和管理员属于可信运行环境。
+- 包摘要校验下载文件与元数据中的字节一致性；发布来源需从可信渠道确认。
 - Mod 不关闭专用服务器原有公网监听，不改变原版身份认证或自动接受游戏条款。
-- Windows 目标编译／Wine build-info 不证明真实 Windows 文件权限、HMCL 或远程游戏安全性。
+- Windows 交叉构建核对目标编译结果，并在 Wine 中执行 build-info；Windows／HMCL 实机验证状态见[项目状态](README.md#项目状态)。
 
 具体边界见[Mod 技术参考](minecraft-mod/README.md)、[底层安全模型](docs/explanation/security-model.md)和[隐私说明](PRIVACY.md)。
