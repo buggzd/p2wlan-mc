@@ -58,7 +58,7 @@ fn private_roundtrip_atomic_replace_lock_and_reopen() {
 }
 
 #[test]
-fn only_private_leaf_allows_atomic_rename_parent_write_access() {
+fn directories_allow_parent_writers_without_delete_sharing() {
     use std::os::windows::fs::OpenOptionsExt;
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_ADD_FILE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
@@ -75,15 +75,10 @@ fn only_private_leaf_allows_atomic_rename_parent_write_access() {
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
             .open(directory)
     };
-    // Rename needs write access to exactly the destination parent. It must
-    // not require relaxing ancestor sharing or closing any pinned handle.
+    // Both the private parent and shared ancestors permit child writers.
+    // This grants no ACL permission and never closes a pinned handle.
     assert!(parent_writer(&path).is_ok());
-    assert_eq!(
-        parent_writer(path.parent().unwrap())
-            .unwrap_err()
-            .raw_os_error(),
-        Some(32)
-    );
+    let shared_writer = parent_writer(path.parent().unwrap()).unwrap();
     storage.write("account.json", b"first").unwrap();
     storage.write("account.json", b"replacement").unwrap();
     assert_eq!(
@@ -92,7 +87,9 @@ fn only_private_leaf_allows_atomic_rename_parent_write_access() {
     );
     assert!(fs::rename(&path, path.with_file_name("moved")).is_err());
     assert!(fs::remove_file(path.join("profile.lock")).is_err());
+    assert!(fs::rename(path.parent().unwrap(), fixture.0.join("moved")).is_err());
     assert_eq!(fs::read_dir(&path).unwrap().count(), 2);
+    drop(shared_writer);
 }
 #[test]
 fn drive_root_guard_accepts_existing_writer_and_still_pins_identity() {
@@ -100,7 +97,8 @@ fn drive_root_guard_accepts_existing_writer_and_still_pins_identity() {
     use std::os::windows::fs::OpenOptionsExt;
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_ADD_FILE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        OPEN_EXISTING,
     };
     let fixture = Fixture::new();
     // Exercise the exact drive-root handle policy on an owned disposable
@@ -111,8 +109,12 @@ fn drive_root_guard_accepts_existing_writer_and_still_pins_identity() {
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(&fixture.0)
         .unwrap();
-    let old_policy = handles::open(&fixture.0, Kind::Directory, OPEN_EXISTING, None);
-    assert!(matches!(old_policy, Err(Error::Io(detail)) if detail.os_code == Some(32)));
+    let old_policy = fs::OpenOptions::new()
+        .access_mode(FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&fixture.0);
+    assert_eq!(old_policy.unwrap_err().raw_os_error(), Some(32));
     let guard = handles::open(&fixture.0, Kind::DriveRoot, OPEN_EXISTING, None).unwrap();
     assert_eq!(
         handles::identity(&guard, true, 0).unwrap(),
@@ -124,6 +126,26 @@ fn drive_root_guard_accepts_existing_writer_and_still_pins_identity() {
     drop(guard);
     fs::rename(&fixture.0, &moved).unwrap();
     fs::rename(&moved, &fixture.0).unwrap();
+}
+
+#[test]
+fn sibling_settings_replace_works_while_private_profile_is_live() {
+    let fixture = Fixture::new();
+    let path = fixture.profile();
+    let config = path.parent().unwrap();
+    let storage = PrivateDirectory::open(&path).unwrap();
+    let settings = config.join("p2wlan-display.json");
+    let temporary = config.join("display.tmp");
+    fs::write(&settings, b"first").unwrap();
+    fs::write(&temporary, b"replacement").unwrap();
+    fs::rename(&temporary, &settings).unwrap();
+    assert_eq!(fs::read(&settings).unwrap(), b"replacement");
+    assert!(!temporary.exists());
+    assert!(fs::rename(config, fixture.0.join("moved-config")).is_err());
+    assert!(fs::rename(&path, config.join("moved-profile")).is_err());
+    storage.write("account.json", b"private").unwrap();
+    assert_eq!(storage.read("account.json").unwrap().unwrap(), b"private");
+    assert!(matches!(PrivateDirectory::open(&path), Err(Error::Busy)));
 }
 
 #[test]
@@ -142,8 +164,8 @@ fn revalidation_keeps_private_parent_write_sharing() {
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(&path)
         .unwrap();
-    // Acquisition and every later identity check must use the same role.
-    // Reopening the private parent as a strict ancestor would fail here.
+    // Acquisition, saving and later identity checks must remain compatible
+    // while another permitted destination-parent writer is still live.
     storage.write("account.json", b"first").unwrap();
     storage.write("account.json", b"replacement").unwrap();
     assert_eq!(

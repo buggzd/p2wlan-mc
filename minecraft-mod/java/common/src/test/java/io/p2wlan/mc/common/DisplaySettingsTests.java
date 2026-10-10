@@ -49,6 +49,10 @@ public final class DisplaySettingsTests {
                 check(store.load().preferences().equals(settings));
                 try (var files=Files.list(file.getParent())) { check(files.count()==1); }
             }
+            var saved = store.saveDetailed(DisplayPreferences.defaults());
+            check(saved.reason() == DisplayPreferencesStore.Reason.OK);
+            check(saved.operation() == DisplayPreferencesStore.SaveOperation.COMPLETE);
+            check(saved.failure() == DisplayPreferencesStore.FileFailure.NONE && saved.cleanupFailure() == DisplayPreferencesStore.FileFailure.NONE);
             for (String text:List.of("{\"schema\":1,\"schema\":1}","{}","[]","null","x","{\"schema\":2}"," ".repeat(4097),
                     "{\"schema\":1,\"hud_visible\":false,\"detail\":\"BASIC\",\"corner\":\"TOP_LEFT\",\"token\":\"not-saved\"}",
                     "{\"schema\":1,\"hud_visible\":\"false\",\"detail\":\"BASIC\",\"corner\":\"TOP_LEFT\"}",
@@ -66,6 +70,12 @@ public final class DisplaySettingsTests {
             Files.delete(file.getParent());Files.delete(other);
             Files.writeString(file.getParent(),"not-a-directory");
             check(store.save(DisplayPreferences.defaults())==DisplayPreferencesStore.Reason.DISPLAY_SAVE_FAILED);
+            var failed = store.saveDetailed(DisplayPreferences.defaults());
+            check(failed.reason() == DisplayPreferencesStore.Reason.DISPLAY_SAVE_FAILED);
+            check(failed.operation() == DisplayPreferencesStore.SaveOperation.CREATE_DIRECTORY);
+            check(failed.failure() != DisplayPreferencesStore.FileFailure.NONE);
+            check(failed.cleanupFailure() == DisplayPreferencesStore.FileFailure.NONE);
+            check(!failed.toString().contains(dir.toString()));
         } finally { try(var files=Files.walk(dir)) { for(var file:files.sorted(java.util.Comparator.reverseOrder()).toList()) Files.deleteIfExists(file); } }
     }
     private static void layouts() {

@@ -76,6 +76,11 @@ public final class ModDiagnostics implements AutoCloseable {
         catch (RuntimeException error) { diskFailed("LOG_WORKER_UNAVAILABLE"); flushed.complete(null); }
     }
     public void stage(Stage stage) { record(stage.name(), ""); }
+    public void displaySettingsSave(DisplayPreferencesStore.Saved result) {
+        record("DISPLAY_SETTINGS_SAVE", "target=DISPLAY_SETTINGS reason=" + result.reason().name()
+                + " operation=" + result.operation().name() + " error_kind=" + result.failure().name()
+                + " cleanup_error_kind=" + result.cleanupFailure().name());
+    }
     void childStarted(long pid) { record(Stage.CHILD_STARTED.name(), "pid=" + pid); }
     void childExited(int status) { record(Stage.CHILD_EXIT.name(), "exit=" + String.format(Locale.ROOT, "0x%08X", status)); }
     void build(NativeManifest manifest) {

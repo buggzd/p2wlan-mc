@@ -50,10 +50,11 @@ pub(crate) fn open(
             Kind::Lock => FILE_WRITE_DATA,
             _ => 0,
         };
-    // The local drive root is a shared filesystem boundary, not our private
-    // profile. Permit unrelated root writers without granting this handle
-    // write access. Ordinary ancestors still refuse data-write sharing; the
-    // private leaf permits it for Win32 atomic rename's FILE_ADD_FILE open.
+    // Ancestors (including the game's shared config directory) are not our
+    // private profile. Allow unrelated child creation and atomic replacement,
+    // without requesting write access ourselves. Win32 rename opens its
+    // destination parent for FILE_ADD_FILE; denying write sharing would block
+    // Minecraft/Java settings and other mods outside the private profile.
     // Retain FILE_READ_DATA (FILE_LIST_DIRECTORY for directories): metadata-
     // only opens do not enforce read/write/delete sharing and cannot pin a
     // directory against rename. No directory permits delete sharing.
@@ -64,8 +65,10 @@ pub(crate) fn open(
     // File readers allow the daemon's own atomic save; the private-directory
     // lock/ACL remains the sole writer capability, not another state owner.
     let share = match kind {
-        Kind::Directory | Kind::Temporary => FILE_SHARE_READ,
-        Kind::DriveRoot | Kind::PrivateDirectory | Kind::Lock => FILE_SHARE_READ | FILE_SHARE_WRITE,
+        Kind::Temporary => FILE_SHARE_READ,
+        Kind::DriveRoot | Kind::Directory | Kind::PrivateDirectory | Kind::Lock => {
+            FILE_SHARE_READ | FILE_SHARE_WRITE
+        }
         Kind::Read => FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
     };
     // SAFETY: NUL-terminated name and descriptor live through the synchronous

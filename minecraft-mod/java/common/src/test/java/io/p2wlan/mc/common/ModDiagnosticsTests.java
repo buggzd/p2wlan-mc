@@ -129,8 +129,28 @@ public final class ModDiagnosticsTests {
             check(Files.readString(parentFile).equals("fixture-secret"));
         }
     }
+    private static void displaySaves() throws Exception {
+        ModDiagnostics log = new ModDiagnostics(null); log.start();
+        log.displaySettingsSave(new DisplayPreferencesStore.Saved(DisplayPreferencesStore.Reason.DISPLAY_SAVE_FAILED,
+                DisplayPreferencesStore.SaveOperation.REPLACE_FILE, DisplayPreferencesStore.FileFailure.FILE_SYSTEM_ERROR,
+                DisplayPreferencesStore.FileFailure.ACCESS_DENIED));
+        String text = log.snapshot().copyText();
+        check(text.contains("event=DISPLAY_SETTINGS_SAVE target=DISPLAY_SETTINGS"));
+        check(text.contains("operation=REPLACE_FILE error_kind=FILE_SYSTEM_ERROR"));
+        check(text.contains("cleanup_error_kind=ACCESS_DENIED"));
+        check(log.snapshot().failure() == null); // This is not a native startup failure.
+        log.displaySettingsSave(new DisplayPreferencesStore.Saved(DisplayPreferencesStore.Reason.OK,
+                DisplayPreferencesStore.SaveOperation.COMPLETE, DisplayPreferencesStore.FileFailure.NONE,
+                DisplayPreferencesStore.FileFailure.NONE));
+        check(log.snapshot().copyText().contains("reason=OK operation=COMPLETE"));
+        closed(log); var before = log.snapshot();
+        log.displaySettingsSave(new DisplayPreferencesStore.Saved(DisplayPreferencesStore.Reason.OK,
+                DisplayPreferencesStore.SaveOperation.COMPLETE, DisplayPreferencesStore.FileFailure.NONE,
+                DisplayPreferencesStore.FileFailure.NONE));
+        check(before.equals(log.snapshot())); // No late mutation of a closed log owner.
+    }
     public static void main(String[] arguments) throws Exception {
-        schema(); memory();
+        schema(); memory(); displaySaves();
         Path root = Files.createTempDirectory("p2wlan-diagnostic-test-").toAbsolutePath();
         try { disk(root); faults(root); }
         finally { try (var files = Files.walk(root)) { for (Path file : files.sorted(java.util.Comparator.reverseOrder()).toList()) Files.delete(file); } }

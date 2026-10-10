@@ -2,6 +2,7 @@ package io.p2wlan.mc.fabric.client;
 
 import io.p2wlan.mc.common.DisplayPreferences;
 import io.p2wlan.mc.common.DisplayPreferencesStore;
+import io.p2wlan.mc.fabric.FabricP2wlan;
 import net.fabricmc.loader.api.FabricLoader;
 
 /** Game-thread-only preferences. The Native room/account lifecycle is unrelated. */
@@ -14,7 +15,9 @@ public final class ClientDisplaySettings {
     public static DisplayPreferences current() { return preferences; }
     public static DisplayPreferencesStore.Reason reason() { return reason; }
     public static boolean save(DisplayPreferences value) {
-        reason = STORE.save(value);
+        var saved = STORE.saveDetailed(value);
+        reason = saved.reason();
+        FabricP2wlan.AGENT.diagnostics().displaySettingsSave(saved);
         if (reason != DisplayPreferencesStore.Reason.OK) return false;
         preferences = value; return true;
     }
