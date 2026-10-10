@@ -1,4 +1,8 @@
-# P2WLAN Minecraft integration
+# P2WLAN Minecraft technical reference
+
+[项目介绍 / Project overview](../README.md) · [安装与联机指南 / User guide](docs/quickstart.md) · [文档导航 / Documentation](../docs/README.md)
+
+This page documents implementation contracts and component-specific build/test entry points. Start with the user guide for Mod installation, accounts, rooms and game controls. Unless stated otherwise, commands run from the complete repository root.
 
 This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The adapter is pinned to Fabric/Minecraft 1.21.1. An opt-in local fixture checks actual offline-mode client/dedicated-server play through the Mod; cross-machine Minecraft login, integrated-world hosting and long-running gameplay remain unverified.
 
@@ -75,7 +79,7 @@ Each hosted registration also receives a fresh 256-bit remote service identity. 
 
 Raw stack output is sealed with the current flow's original fenced grant before flow removal. A 128-frame backpressure queue retains those envelopes for at most 250 ms and never refreshes authorization on retry. Receive contention retains the original envelope in a single additional packet-port slot with the same 250 ms total deadline. Status exposes bounded resource counts, a saturating failure count, and typed failure reasons rather than interpreting logs.
 
-The gateway tests carry three concurrent, capability-guarded local streams through the original encrypted UDP workers, including fragmented preludes, coalesced game bytes, bidirectional payloads, and half-close. They also verify registration/handshake capacity, shutdown, peer and port-owner revocation, stale proxy backlog rejection, and rejection of old world metadata before any target accept. The target guards in the native gateway tests are fixtures. The Java guard below is separately tested; the managed account/room entry is described below. Minecraft login/world integration remains unavailable.
+The gateway tests carry three concurrent, capability-guarded local streams through the original encrypted UDP workers, including fragmented preludes, coalesced game bytes, bidirectional payloads, and half-close. They also verify registration/handshake capacity, shutdown, peer and port-owner revocation, stale proxy backlog rejection, and rejection of old world metadata before any target accept. The target guards in the native gateway tests are fixtures. The Java guard below is separately tested; the managed account/room entry is described below. These gateway component tests do not exercise Minecraft login or world integration.
 
 ## One-shot service discovery
 
@@ -103,7 +107,7 @@ The common Java `RoomPeers` and `ServiceCatalog` parsers retain the native reply
 
 The Fabric adapter's `ProxyPrelude` component wraps one Netty initializer/socket. It validates the exact loopback proxy target, writes the 40-byte local capability before installing any Vanilla initializer/codecs or emitting their channel-active event, and then forwards every received byte as game data. Native join proxies send no local readiness acknowledgement; this component must not consume an imagined acknowledgement from the Minecraft stream. A two-second total deadline starts at handler installation and covers connect/prelude, including sockets that never become active. One 100 ms lifecycle timer closes an idle retired attempt. Both timers are cancelled on close/removal. No game-byte buffer, work queue, reconnect or capability replay is added.
 
-The component fences inbound/outbound pipeline delivery against its attempt owner and closes on out-of-order traffic, wrong target, expiry or revocation. Actual Netty/socket tests check delayed initialization, ordering, timeout, cancellation, late write completion, target mismatch, revoked buffer release and a 128 KB round trip. The component is **not yet wired to Minecraft's connection screen/initializer**; these tests do not establish game joining, loader startup, online authentication or remote world ticking.
+The component fences inbound/outbound pipeline delivery against its attempt owner and closes on out-of-order traffic, wrong target, expiry or revocation. Actual Netty/socket tests check delayed initialization, ordering, timeout, cancellation, late write completion, target mismatch, revoked buffer release and a 128 KB round trip. The scoped client bootstrap hook below installs this component for explicit Mod joins. These component tests alone do not establish game joining, loader startup, online authentication or remote world ticking.
 
 ## Scoped Minecraft client bootstrap hook
 

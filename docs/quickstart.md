@@ -1,5 +1,7 @@
 # 快速开始
 
+> 本页是保留的上游 P2WLAN VPN 客户端指南，不是 Minecraft Mod 安装流程。Mod 使用者请阅读[安装与联机指南](../minecraft-mod/docs/quickstart.md)。
+
 ## 前提
 
 准备一台已经提供 Control 地址的服务，或先完成[自托管部署](guides/self-hosting.md)。新安装不预填项目服务器，也不会自动注册。

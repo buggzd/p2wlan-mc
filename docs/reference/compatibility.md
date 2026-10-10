@@ -1,5 +1,7 @@
 # 兼容性参考
 
+> 本页的平台与发布形态属于保留的上游客户端／服务端，不代表 Minecraft Mod 的支持或实机验收范围。Mod 边界见[项目介绍](../../README.md)与[安装指南](../../minecraft-mod/docs/quickstart.md)。
+
 | 平台 | 当前发布形态 | 说明 |
 | --- | --- | --- |
 | macOS 12+ Apple Silicon | DMG | 需要系统网络扩展/TUN 权限 |
