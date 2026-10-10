@@ -1,6 +1,6 @@
 # 快速开始
 
-> 本页是保留的上游 P2WLAN VPN 客户端指南，不是 Minecraft Mod 安装流程。Mod 使用者请阅读[安装与联机指南](../minecraft-mod/docs/quickstart.md)。
+> 本页适用于上游 P2WLAN VPN 客户端。Minecraft Mod 的安装请看[安装与联机指南](../minecraft-mod/docs/quickstart.md)。
 
 ## 前提
 

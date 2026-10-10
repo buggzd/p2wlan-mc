@@ -1,6 +1,6 @@
 # 发布契约
 
-> 本页定义保留的上游 VPN 客户端与服务端发布契约，不定义 Mod JAR／HMCL ZIP 发布。Mod 产物身份与核验方式见[Mod 技术参考](../../minecraft-mod/README.md)。
+> 本页适用于上游 VPN 客户端与服务端发布。Mod JAR 与 HMCL ZIP 的产物校验见[Mod 技术参考](../../minecraft-mod/README.md)。
 
 ## 身份链
 
