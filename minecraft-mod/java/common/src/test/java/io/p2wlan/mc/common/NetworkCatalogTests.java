@@ -54,6 +54,75 @@ public final class NetworkCatalogTests {
         reject(() -> RoomPeers.parse(reply(peers("\"1\"", "[]").replace("\"peers\":[]", "\"peers\":[],\"extra\":true")), RUNTIME));
         reject(() -> ServiceCatalog.parse(reply(services("[]")), RUNTIME, "foreign"));
         reject(() -> ServiceCatalog.parse(new AgentReply("c".repeat(32), 1, catalog.evidence().data()), RUNTIME, "peer"));
+        com.google.gson.JsonObject metric = JsonParser.parseString("{\"label\":\"Minecraft server\",\"virtual_ip\":\"10.77.0.2\",\"latency_ms\":17,\"jitter_ms\":2,\"last_success_age_ms\":100,\"bytes_sent\":2048,\"bytes_received\":4096}").getAsJsonObject();
+        com.google.gson.JsonObject view = new com.google.gson.JsonObject(); view.addProperty("network_generation","1");view.addProperty("peer_session","2");view.addProperty("online",true);view.addProperty("path","relay");view.add("metrics",metric);
+        for (String key : List.of("remote_candidate_epoch", "path_revision", "udp_publication_owner", "mtu", "direct_budget_ready")) view.add(key, com.google.gson.JsonNull.INSTANCE);
+        for (String key : List.of("direct_validation_owned", "direct_validation_request_bound", "direct_pair_present", "direct_pair_local_bound",
+                "direct_pair_epoch_current", "direct_pair_local_matches_primary", "direct_pair_local_matches_ipv6", "direct_outer_ipv6", "direct_validation_epoch_current")) view.addProperty(key, false);
+        com.google.gson.JsonObject packet = new com.google.gson.JsonObject(); packet.addProperty("runtime",RUNTIME.runtime());packet.addProperty("peer","peer");packet.add("view",view);
+        PeerTelemetry measured=PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1);
+        check(measured.latencyLabel(2).equals("17 ms") && measured.pathLabel().equals("中继"));
+        check(measured.latencyLabel(PeerTelemetry.FRESH_NANOS+2).equals("待更新"));
+        check(measured.tooltip(2).contains("不是 Control 延迟") && measured.tooltip(2).contains("2 ms"));
+        metric.add("latency_ms",com.google.gson.JsonNull.INSTANCE);
+        check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).latencyLabel(2).equals("未测得"));
+        metric.addProperty("latency_ms",17);metric.addProperty("last_success_age_ms",15001);
+        check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).latencyMs()==null);
+        metric.addProperty("last_success_age_ms",100);
+        view.addProperty("online",false);
+        check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).latencyMs()==null);
+        view.addProperty("online",true);
+        for (String ip : new String[]{"127.0.0.01","10.1.1.256","host","10.1.1"}) {
+            metric.addProperty("virtual_ip",ip);reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1));
+        }
+        metric.addProperty("virtual_ip","10.77.0.2");
+        for (String name : new String[]{"bad\nlabel","界".repeat(43)}) {
+            metric.addProperty("label",name);reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1));
+        }
+        metric.addProperty("label","Minecraft");metric.addProperty("token","never-display");
+        reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1));metric.remove("token");
+        reject(()->PeerTelemetry.parse(new AgentReply("c".repeat(32),1,packet),RUNTIME,"peer",1));
+        view.addProperty("secret", "never-display");
+        reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1)); view.remove("secret");
+        for (String value : new String[]{"-1", "1.5", "\"17\"", "9223372036854775808"}) {
+            metric.add("latency_ms", JsonParser.parseString(value));
+            reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1));
+        }
+        metric.addProperty("latency_ms", 17);
+        view.addProperty("path", 1);
+        reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1)); view.addProperty("path", "direct");
+        view.addProperty("mtu", 1);
+        reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1)); view.add("mtu", com.google.gson.JsonNull.INSTANCE);
+        metric.addProperty("last_success_age_ms", 14_999);
+        measured = PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1);
+        check(measured.latencyLabel(2_000_001).equals("未测得"));
+        check(!measured.fresh(0));
+        metric.addProperty("last_success_age_ms", 100);
+        metric.addProperty("latency_ms", 0);
+        check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).latencyLabel(2).equals("<1 ms"));
+        metric.addProperty("latency_ms", 17);
+        var mtu = JsonParser.parseString("{\"network_generation\":\"1\",\"peer_session\":\"2\",\"remote_candidate_epoch\":\"3\",\"state\":\"search_complete\",\"revision\":\"7\",\"base_confirmed\":true,\"overlay_budget\":1168,\"probes\":2,\"successes\":2,\"timeouts\":0,\"send_failures\":0,\"live_worker\":false}").getAsJsonObject();
+        view.add("mtu", mtu); view.addProperty("remote_candidate_epoch", "3"); view.addProperty("direct_budget_ready", true);
+        check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).overlayBudget() == 1168);
+        mtu.addProperty("remote_candidate_epoch", "4");
+        check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).overlayBudget() == null);
+        mtu.addProperty("remote_candidate_epoch", "3"); mtu.addProperty("base_confirmed", false);
+        check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).overlayBudget() == null);
+        mtu.addProperty("base_confirmed", true); view.addProperty("path", "relay");
+        check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).overlayBudget() == null);
+        view.addProperty("path", "direct");
+        mtu.addProperty("peer_session", "3");
+        check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).overlayBudget() == null);
+        mtu.addProperty("peer_session", "2"); mtu.addProperty("overlay_budget", 65536);
+        reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1));
+        mtu.addProperty("overlay_budget", 1168); mtu.addProperty("token", "never-display");
+        reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1)); mtu.remove("token");
+        mtu.add("state", com.google.gson.JsonNull.INSTANCE);
+        reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1));
+        view.add("mtu", com.google.gson.JsonNull.INSTANCE);
+        view.addProperty("network_generation","18446744073709551616");
+        reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1));
+        checks += NetworkObservationTests.run();
         System.out.println("PASS native network catalogs: " + checks + " explicit checks (not discovery/game acceptance)");
     }
 }

@@ -60,6 +60,13 @@ class HmclPackTests(unittest.TestCase):
         self.assertIn("不是 Windows 设备测试", pack.guide("windows-x86_64").decode())
         self.assertIn("Intel/AMD 64 位", pack.guide("windows-x86_64").decode())
 
+    def test_guide_uses_saved_login_and_vanilla_multiplayer_flow(self):
+        guide = pack.guide("windows-x86_64").decode("utf-8")
+        for text in ("保留登录会话和地址", "点击房间名称", "Minecraft 多人游戏", "断开房间", "悬停", "RTT", "MTU"):
+            self.assertIn(text, guide)
+        self.assertNotIn("刷新服务列表", guide)
+        self.assertNotIn("node-", guide)
+
     def test_pack_is_deterministic_source_bound_and_has_no_game_or_profile(self):
         value = self.build()
         self.assertEqual(value, self.build())

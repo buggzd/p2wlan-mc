@@ -158,7 +158,10 @@ def prepare(root: Path = ROOT, destination: Path = DESTINATION) -> Path:
     dataplane = dataplane.replace(before, """                            inbound_evidence,
                             None,
                         )""")
+    peer_source = replace_once(source("src/peer.rs"), 'include!("peer/utils.rs");',
+        'include!("peer/utils.rs");\n#[path = "mc_metrics.rs"]\nmod mc_metrics;\npub use mc_metrics::PeerMetrics;', "peer-metrics-owner")
     adapted = {
+        "src/peer.rs": peer_source,
         "src/dataplane/core.rs": adapt_dataplane(source("src/dataplane/core.rs")),
         "src/transport/inbound.rs": adapt_inbound(source("src/transport/inbound.rs")),
         "src/udp/business_mtu.rs": adapt_udp_business_mtu(source("src/udp/business_mtu.rs")),

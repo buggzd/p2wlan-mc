@@ -6,9 +6,10 @@ public record ScreenLayout(int left, int width, int top, int bodyBottom, int foo
     public static final int BUTTON_HEIGHT = 20, STEP = 26, GAP = 8;
     public static ScreenLayout of(int viewportWidth, int viewportHeight) {
         int width = Math.min(420, Math.max(0, viewportWidth - 32));
-        int footer = Math.max(0, viewportHeight - 62);
+        int panelHeight = Math.min(300, viewportHeight), offset = Math.max(0, (viewportHeight - panelHeight) / 2);
+        int footer = Math.max(0, offset + panelHeight - 62);
         return new ScreenLayout(Math.max(0, (viewportWidth - width) / 2), width,
-                66, Math.max(66, footer - GAP), footer, Math.max(0, viewportHeight - 36));
+                offset + 66, Math.max(offset + 66, footer - GAP), footer, Math.max(0, offset + panelHeight - 36));
     }
     public int row(int index) { return top + index * STEP; }
     public int halfWidth() { return Math.max(0, (width - GAP) / 2); }

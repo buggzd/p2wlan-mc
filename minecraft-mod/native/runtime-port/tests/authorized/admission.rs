@@ -336,6 +336,29 @@ async fn peer_view_is_secret_free_authorized_and_fenced_after_projection() {
     assert!(view.direct_budget_ready.is_none());
     assert!(view.mtu.is_none());
     let encoded = serde_json::to_value(&view).unwrap();
+    if let Some(metrics) = encoded.get("metrics").filter(|value| !value.is_null()) {
+        let keys: std::collections::BTreeSet<_> = metrics
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "label",
+                "virtual_ip",
+                "latency_ms",
+                "jitter_ms",
+                "last_success_age_ms",
+                "bytes_sent",
+                "bytes_received"
+            ]
+            .into_iter()
+            .collect()
+        );
+        assert!(metrics["label"].as_str().unwrap().len() <= 128);
+    }
     for forbidden in [
         "endpoint",
         "public_key",

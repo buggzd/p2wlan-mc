@@ -34,14 +34,28 @@ public final class LocalGameClient implements ClientModInitializer {
     private RuntimeView runtime;
     private String peer;
     private CompletableFuture<AgentReply> pending;
+    private TextFieldWidget submittedPassword;
+    private Screen paintedScreen;
+    private io.p2wlan.mc.common.PeerTelemetry paintedTelemetry;
+    private io.p2wlan.mc.common.GameService chosenService, paintedSelection;
     private int sent, received, joins, peerQueries;
     private long nextQuery, nextRound, worldTime;
-    private boolean finished;
+    private boolean finished, telemetryConfirmed, savedServerInserted;
     @Override public void onInitializeClient() {
         try { data = new GameFixtureData("client"); }
         catch (Exception error) { throw new IllegalArgumentException("LOCAL_GAME_FIXTURE_CONFIG"); }
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> data.advance("AGENT", 45));
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
+        // Single last-painted cell, not a screenshot queue. Capture the next
+        // tick's completed framebuffer, not the frame before a row appeared.
+        net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.AFTER_INIT.register((client, screen, width, height) ->
+                net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.afterRender(screen).register((view, draw, x, y, delta) -> {
+                    paintedScreen = view;
+                    paintedTelemetry = peer == null ? null : io.p2wlan.mc.fabric.client.lan.FabricNetworkView.peer(peer);
+                    paintedSelection = view instanceof net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen multiplayer
+                            && ((io.p2wlan.mc.fabric.client.lan.VanillaLanScreen) multiplayer).p2wlan$list().getSelectedOrNull()
+                                    instanceof io.p2wlan.mc.fabric.client.lan.VirtualLanEntry entry ? entry.service() : null;
+                }));
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             String expected = "P2WLAN-fixture:" + data.run + ":" + sent;
             if ("PLAY".equals(data.stage) && sent > received && expected.equals(message.getString())) received = sent;
@@ -88,7 +102,7 @@ public final class LocalGameClient implements ClientModInitializer {
                     if (client.currentScreen instanceof net.minecraft.client.gui.screen.AccessibilityOnboardingScreen) {
                         client.currentScreen.close(); return;
                     }
-                    if (!FabricP2wlan.AGENT.ready().isDone() || !(client.currentScreen instanceof TitleScreen)) return;
+                    if (!FabricP2wlan.AGENT.ready().isDone() || client.getOverlay() != null || !(client.currentScreen instanceof TitleScreen)) return;
                     helper = FabricP2wlan.AGENT.ready().join();
                     data.check(FabricP2wlan.AGENT.isCurrent(helper), "HELPER_OWNER");
                     var ready = JsonParser.parseString(Files.readString(data.root.resolve("server-ready.json"))).getAsJsonObject();
@@ -108,16 +122,25 @@ public final class LocalGameClient implements ClientModInitializer {
                     data.cases.add("account_buttons"); data.advance("REGISTER", 15);
                 }
                 case "REGISTER" -> {
-                    if (!feedback(client.currentScreen).startsWith("注册成功") || !enabled(client.currentScreen, "我的房间")) return;
+                    if (!screen(client,"RoomsScreen") || !enabled(client.currentScreen,"账号设置")) return;
                     data.check(helper.snapshot().map(value -> AccountPresentation.state(value.data().get("account")) == AccountPresentation.State.SAVED_SESSION).orElse(false), "REGISTER_ACCOUNT");
-                    fields(client.currentScreen).get(2).setText(data.password); client.currentScreen.tick();
-                    data.check(!enabled(client.currentScreen, "注册") && enabled(client.currentScreen, "登录"), "SAVED_ACCOUNT_BUTTONS");
-                    press(client.currentScreen, "登录"); data.advance("LOGIN", 15);
+                    press(client.currentScreen,"账号设置"); data.advance("RELOGIN",10);
+                }
+                case "RELOGIN" -> {
+                    if (!screen(client,"AccountScreen") || !enabled(client.currentScreen,"重新登录")) return;
+                    press(client.currentScreen,"重新登录"); data.advance("RELOGIN_FORM",10);
+                }
+                case "RELOGIN_FORM" -> {
+                    var form=fields(client.currentScreen); if (form.size()!=3) return;
+                    data.check(form.get(0).getText().equals(data.control),"RELOGIN_SAVED_CONTROL");
+                    form.get(1).setText(data.identifier); form.get(2).setText(data.password); client.currentScreen.tick();
+                    data.check(!enabled(client.currentScreen,"注册") && enabled(client.currentScreen,"登录"),"SAVED_ACCOUNT_BUTTONS");
+                    submittedPassword=form.get(2); press(client.currentScreen,"登录"); data.advance("LOGIN",15);
                 }
                 case "LOGIN" -> {
-                    if (!feedback(client.currentScreen).startsWith("登录成功") || !enabled(client.currentScreen, "我的房间")) return;
-                    data.check(fields(client.currentScreen).get(2).getText().isEmpty(), "LOGIN_PASSWORD_CLEAR");
-                    data.cases.add("register_login"); press(client.currentScreen, "我的房间"); data.advance("ROOMS", 15);
+                    if (!screen(client,"RoomsScreen") || !enabled(client.currentScreen,"加入房间")) return;
+                    data.check(submittedPassword.getText().isEmpty(),"LOGIN_PASSWORD_CLEAR"); submittedPassword=null;
+                    data.cases.add("register_login"); data.advance("ROOMS",15);
                 }
                 case "ROOMS" -> {
                     if (!screen(client, "RoomsScreen") || !enabled(client.currentScreen, "加入房间")) return;
@@ -130,15 +153,16 @@ public final class LocalGameClient implements ClientModInitializer {
                     press(client.currentScreen, "加入房间"); data.check(form.get(1).getText().isEmpty(), "ROOM_PASSWORD_CLEAR"); data.advance("ROOM_SELECTED", 15);
                 }
                 case "ROOM_SELECTED" -> {
-                    if (!screen(client, "RoomsScreen") || !enabled(client.currentScreen, data.room)) return;
-                    press(client.currentScreen, data.room); client.currentScreen.tick(); press(client.currentScreen, "连接选中房间");
+                    if (!screen(client, "RoomsScreen") || !enabled(client.currentScreen, "连接 · ")) return;
+                    press(client.currentScreen, "连接 · ");
                     data.cases.add("room_join"); data.advance("RUNTIME", 40);
                 }
                 case "RUNTIME" -> {
                     if (!screen(client, "RuntimeScreen")) return;
                     var selected = RuntimeView.ready(helper); if (selected.isEmpty()) return;
                     runtime = selected.get();
-                    if (member(client.currentScreen) == null) return;
+                    if (!enabled(client.currentScreen,"打开多人游戏") || io.p2wlan.mc.fabric.client.lan.FabricNetworkView.peer(peer)==null) return;
+                    data.check(button(client.currentScreen,peer)==null && button(client.currentScreen,"加入 / Join")==null,"ROOM_HAS_NO_GAME_PICKER");
                     data.check(FabricP2wlan.AGENT.isCurrent(helper) && runtime.isCurrent(helper), "RUNTIME_OWNER");
                     data.advance("PEER", 20);
                 }
@@ -148,10 +172,12 @@ public final class LocalGameClient implements ClientModInitializer {
                             var reply = pending.join();
                             if (!helper.isCurrent(reply) || !runtime.runtime().equals(RuntimeView.text(reply.data(), "runtime")) || !peer.equals(RuntimeView.text(reply.data(), "peer"))) throw new IllegalStateException("PEER_OWNER");
                             var view = reply.data().getAsJsonObject("view");
-                            if (view.get("online").getAsBoolean() && ("relay".equals(RuntimeView.text(view, "path")) || "direct".equals(RuntimeView.text(view, "path")) && view.get("direct_budget_ready").getAsBoolean())) {
-                                var member = member(client.currentScreen); if (member == null) throw new IllegalStateException("MEMBER_CHANGED");
+                            if (paintedScreen == client.currentScreen && paintedTelemetry != null && paintedTelemetry.latencyMs() != null
+                                    && paintedTelemetry.fresh(System.nanoTime()) && view.get("online").getAsBoolean() && ("relay".equals(RuntimeView.text(view, "path")) || "direct".equals(RuntimeView.text(view, "path")) && view.get("direct_budget_ready").getAsBoolean())) {
                                 data.check(runtime.isCurrent(helper) && helper.isCurrent(reply), "PEER_READY_OWNER");
-                                data.cases.add("runtime_peer"); member.onPress(); pending = null; data.advance("DISCOVERY", 20); return;
+                                data.cases.add("runtime_peer");
+                                net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(data.root.toFile(),"p2wlan-network.png",client.getFramebuffer(),message->{});
+                                press(client.currentScreen,"打开多人游戏"); pending = null; data.advance("DISCOVERY", 20); return;
                             }
                         } catch (java.util.concurrent.CompletionException error) {
                             var failure = io.p2wlan.mc.common.UiCompletionGate.unwrap(error);
@@ -166,17 +192,45 @@ public final class LocalGameClient implements ClientModInitializer {
                     }
                 }
                 case "DISCOVERY" -> {
-                    if (!screen(client, "ServicesScreen") || !enabled(client.currentScreen, "加入 / Join")) return;
-                    press(client.currentScreen, "加入 / Join"); data.cases.add("discovery"); data.advance("JOIN", 40);
+                    if (!(client.currentScreen instanceof net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen multiplayer)) return;
+                    var widget=((io.p2wlan.mc.fabric.client.lan.VanillaLanScreen) multiplayer).p2wlan$list();
+                    if (!savedServerInserted) {
+                        var ordinary = new net.minecraft.client.network.ServerInfo("Fixture saved server", "127.0.0.1:9", net.minecraft.client.network.ServerInfo.ServerType.OTHER);
+                        multiplayer.getServerList().add(ordinary, false); widget.setServers(multiplayer.getServerList());
+                        savedServerInserted = true;
+                        data.check(widget.children().stream().anyMatch(net.minecraft.client.gui.screen.multiplayer.MultiplayerServerListWidget.ServerEntry.class::isInstance), "VANILLA_SAVED_SERVER_RETAINED");
+                    }
+                    var selected=widget.children().stream().filter(io.p2wlan.mc.fabric.client.lan.VirtualLanEntry.class::isInstance)
+                            .map(io.p2wlan.mc.fabric.client.lan.VirtualLanEntry.class::cast).filter(value->value.service().peer().equals(peer)).findFirst();
+                    if (selected.isEmpty()) return;
+                    var entry=selected.get();
+                    data.check(widget instanceof io.p2wlan.mc.fabric.client.lan.VanillaLanList && runtime.equals(entry.service().runtime())
+                            && io.p2wlan.mc.fabric.client.lan.FabricNetworkView.contains(entry.service()),"VANILLA_BROWSER_FENCED_ROW");
+                    data.check(!entry.getNarration().getString().contains(peer) && !entry.getNarration().getString().isBlank(),"HUMAN_SERVER_LABEL");
+                    widget.setSelected(entry); chosenService = entry.service(); data.advance("BROWSER_JOIN", 10);
+                }
+                case "BROWSER_JOIN" -> {
+                    if (!(client.currentScreen instanceof net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen multiplayer)
+                            || paintedScreen != multiplayer || !chosenService.equals(paintedSelection)) return;
+                    net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(data.root.toFile(),"p2wlan-multiplayer.png",client.getFramebuffer(),message->{});
+                    press(multiplayer,net.minecraft.text.Text.translatable("selectServer.select").getString());
+                    data.cases.add("discovery");data.cases.add("vanilla_browser");data.advance("JOIN",40);
                 }
                 case "JOIN" -> {
                     if (client.world == null || client.player == null || client.getNetworkHandler() == null) return;
                     data.check(client.getServer() == null && runtime.isCurrent(helper) && client.getNetworkHandler().getConnection().isOpen(), "VANILLA_PLAY");
+                    data.check(io.p2wlan.mc.fabric.client.lan.FabricNetworkView.services().isEmpty() && runtime.isCurrent(helper), "BROWSER_CLOSE_KEEPS_ROOM_NOT_CATALOG");
                     worldTime = client.world.getTime(); joins++; data.cases.add("vanilla_play"); data.advance("PLAY", 55);
                 }
                 case "PLAY" -> {
                     if (client.world == null || client.player == null || client.getNetworkHandler() == null || !runtime.isCurrent(helper)) throw new IllegalStateException("PLAY_OWNER");
-                    if (received == GameFixtureData.ROUNDS && client.player.experienceLevel == received) {
+                    var measured = io.p2wlan.mc.fabric.client.lan.FabricNetworkView.peer(peer);
+                    if (!telemetryConfirmed && measured != null && measured.online() && measured.fresh(System.nanoTime()) && measured.latencyMs() != null) {
+                        data.check(runtime.equals(measured.runtime()) && !measured.virtualIp().isEmpty() && measured.lastSuccessAgeMs() != null
+                                && measured.lastSuccessAgeMs() <= 15_000 && Set.of("direct", "relay").contains(measured.path()), "NATIVE_TIMED_PEER_TELEMETRY");
+                        telemetryConfirmed = true; data.cases.add("telemetry");
+                    }
+                    if (received == GameFixtureData.ROUNDS && client.player.experienceLevel == received && telemetryConfirmed) {
                         data.check(client.world.getTime() - worldTime >= 350, "WORLD_TICK_PROGRESS");
                         data.cases.add("sustained_duplex"); client.world.disconnect(); client.disconnect(); client.setScreen(new TitleScreen());
                         FabricGameJoins.shutdown(); data.advance("DISCONNECT", 15); return;
@@ -199,7 +253,9 @@ public final class LocalGameClient implements ClientModInitializer {
                     data.check("idle".equals(helper.snapshot().map(value -> RuntimeView.text(value.data(), "phase")).orElse(null)), "ROOM_STOPPED");
                     data.check(helper.snapshot().map(value -> AccountPresentation.state(value.data().get("account")) == AccountPresentation.State.SAVED_SESSION
                             && AccountPresentation.server(value.data().get("account")).equals(data.control)).orElse(false), "ROOM_STOP_RETAINS_ACCOUNT_AND_CONTROL");
-                    data.cases.add("room_stop"); FabricP2wlan.AGENT.close(); data.advance("CLEANUP", 25);
+                    data.check(io.p2wlan.mc.fabric.client.lan.FabricNetworkView.peers().isEmpty()
+                            && io.p2wlan.mc.fabric.client.lan.FabricNetworkView.services().isEmpty(), "ROOM_STOP_RETIRES_DISPLAY_SNAPSHOTS");
+                    data.cases.add("room_stop"); data.cases.add("session_retained"); FabricP2wlan.AGENT.close(); data.advance("CLEANUP", 25);
                 }
                 case "CLEANUP" -> {
                     if (!FabricP2wlan.AGENT.stopped().isDone()) return;

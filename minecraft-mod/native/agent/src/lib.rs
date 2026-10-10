@@ -179,7 +179,7 @@ impl State {
             Some(runtime) => {
                 let status = runtime.gateway.as_ref().map(|gateway| gateway.status());
                 json!({"phase": if status.is_some() {"ready"} else {"starting"}, "runtime":runtime.id.as_str(),
-                    "virtual_ip": runtime.address, "peer_id":runtime.gateway.as_ref().and_then(|gateway|gateway.local_peer_id().ok()), "registrations": status.map(|value| value.registrations).unwrap_or(0),
+                    "room": runtime.room, "virtual_ip": runtime.address, "peer_id":runtime.gateway.as_ref().and_then(|gateway|gateway.local_peer_id().ok()), "registrations": status.map(|value| value.registrations).unwrap_or(0),
                     "connections": status.map(|value| value.connections).unwrap_or(0),
                     "discovery_queries": status.map(|value| value.discovery_queries).unwrap_or(0),
                     "ready_targets": status.map(|value| value.ready_targets).unwrap_or(0),
@@ -351,7 +351,8 @@ impl State {
                 if !self.parent.is_live() {
                     return Err(AgentError::Protocol);
                 }
-                let runtime = ManagedRuntime::start(config, self.parent.clone())?;
+                let mut runtime = ManagedRuntime::start(config, self.parent.clone())?;
+                runtime.room = Some(room.clone());
                 let result = json!({"runtime":runtime.id.as_str(),"phase":"starting","room":room});
                 self.runtime = Some(runtime);
                 self.last_failure = None;

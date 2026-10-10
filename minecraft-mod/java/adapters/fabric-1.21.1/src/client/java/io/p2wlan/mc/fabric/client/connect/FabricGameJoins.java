@@ -162,5 +162,9 @@ public final class FabricGameJoins {
         return play != null && play != owned || screen instanceof net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
     }
     public static void tick(MinecraftClient client) { Attempt value = CURRENT.get(); if (value != null) value.tick(client); }
+    public static GameService playingService(MinecraftClient client) {
+        Attempt value=CURRENT.get(); var handler=client.getNetworkHandler();
+        return value!=null && value.isCurrent() && value.phase==Phase.PLAY && handler!=null && handler.getConnection()==value.minecraft ? value.service : null;
+    }
     public static void shutdown() { Attempt value = CURRENT.get(); if (value != null) value.revoke(); }
 }

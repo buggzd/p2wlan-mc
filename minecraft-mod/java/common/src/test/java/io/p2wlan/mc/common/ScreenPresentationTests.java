@@ -90,7 +90,7 @@ public final class ScreenPresentationTests {
             check(panel.right() + panel.halfWidth() <= panel.left() + panel.width());
             check(panel.top() > 50 + 9); // HTTP warning has its own header row.
             for (int index = 0; index < 4; index++) check(panel.inBody(panel.row(index), 20)); // Account form.
-            for (int controls : new int[]{1, 3}) {
+            for (int controls : new int[]{1, 2, 3}) {
                 int rows = panel.listRows(controls, 4); check(rows >= 1 && rows <= 4);
                 for (int index = 0; index < rows; index++) check(panel.inBody(panel.row(index), 20));
                 for (int index = 0; index < controls; index++) check(panel.inBody(panel.controls(rows) + index * 26, 20));

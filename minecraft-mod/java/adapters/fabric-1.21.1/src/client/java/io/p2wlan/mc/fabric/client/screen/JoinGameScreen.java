@@ -11,13 +11,13 @@ import net.minecraft.text.Text;
 
 /** Join/cancel presentation only. The connection owner survives legitimate
  * Vanilla login/configuration/resource-pack screen transitions. */
-final class JoinGameScreen extends Screen {
+public final class JoinGameScreen extends Screen {
     private final Screen parent;
     private final GameService service;
     private FabricGameJoins.Attempt attempt;
     private String failure;
     private boolean begun;
-    JoinGameScreen(Screen parent, GameService service) { super(Text.literal("P2WLAN 联机 / Join game")); this.parent = parent; this.service = service; }
+    public JoinGameScreen(Screen parent, GameService service) { super(Text.literal("P2WLAN 联机 / Join game")); this.parent = parent; this.service = service; }
     @Override protected void init() {
         addDrawableChild(ButtonWidget.builder(Text.literal("取消 / Cancel"), button -> close()).dimensions(width / 2 - 100, height / 2 + 50, 200, 20).build());
         if (!begun) {

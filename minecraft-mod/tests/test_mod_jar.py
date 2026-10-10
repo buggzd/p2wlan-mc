@@ -62,6 +62,7 @@ class ModJarTests(unittest.TestCase):
                verify.CLIENT_MIXIN_CONFIG["refmap"]: json.dumps(verify.CLIENT_REFMAP), verify.CLIENT_MIXIN: bytecode(65), verify.INTEGRATED_MIXIN: bytecode(65),
                "META-INF/jars/common.jar": jar(common), "META-INF/jars/native.jar": jar(native),
                "META-INF/jars/jna.jar": jar(JNA_FIXTURE)}
+        top.update({name: bytecode(65) for name in verify.LAN_MIXINS})
         return top, metadata, common, native
 
     def check(self, top, development=True):
@@ -204,6 +205,27 @@ class ModJarTests(unittest.TestCase):
             top[verify.CLIENT_MIXIN_CONFIG["refmap"]] = json.dumps(mapping)
             with self.assertRaisesRegex(verify.VerificationError, "mod_client_mixin_refmap"):
                 self.check(top)
+
+    def test_vanilla_browser_hooks_are_present_and_java_21(self):
+        for name in verify.LAN_MIXINS:
+            with self.subTest(name=name):
+                top, _, _, _ = self.fixture()
+                del top[name]
+                with self.assertRaisesRegex(verify.VerificationError, "mod_archive_member_invalid"):
+                    self.check(top)
+                top, _, _, _ = self.fixture()
+                top[name] = bytecode(61)
+                with self.assertRaises(verify.VerificationError):
+                    self.check(top)
+        for name in verify.LAN_MAPPING:
+            with self.subTest(mapping=name):
+                top, _, _, _ = self.fixture()
+                mapping = verify.CLIENT_MAPPING.copy()
+                del mapping[name]
+                top[verify.CLIENT_MIXIN_CONFIG["refmap"]] = json.dumps({
+                    "mappings": mapping, "data": {"named:intermediary": mapping}})
+                with self.assertRaisesRegex(verify.VerificationError, "mod_client_mixin_refmap"):
+                    self.check(top)
 
     def test_client_hook_is_required_client_only_and_exactly_mapped(self):
         top, metadata, _, _ = self.fixture()

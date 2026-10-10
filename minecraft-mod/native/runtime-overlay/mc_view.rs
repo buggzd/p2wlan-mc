@@ -28,6 +28,7 @@ pub struct PeerView {
     pub direct_validation_epoch_current: bool,
     pub direct_budget_ready: Option<bool>,
     pub mtu: Option<MtuView>,
+    pub metrics: Option<crate::peer::PeerMetrics>,
 }
 #[derive(Debug, Serialize)]
 pub struct MtuView {
@@ -159,6 +160,7 @@ impl PeerGrant {
                 .as_ref()
                 .is_some_and(|path| path.is_online_in_generation(self.generation)),
             path: committed
+                .as_ref()
                 .and_then(|path| path.active_path())
                 .map(|path| match path {
                     NetworkPath::Direct => "direct",
@@ -193,6 +195,11 @@ impl PeerGrant {
             direct_budget_ready: udp
                 .as_ref()
                 .map(|udp| udp.direct_business_budget_ready_for_peer(&self.id)),
+            metrics: committed.as_ref().and_then(|path| {
+                self.authority
+                    .peers
+                    .mc_peer_metrics(&self.id, &path.virtual_ip, path.active_path())
+            }),
             mtu: mtu.map(MtuView::from),
         };
         // Recheck identity after projections; consumers must not use this view

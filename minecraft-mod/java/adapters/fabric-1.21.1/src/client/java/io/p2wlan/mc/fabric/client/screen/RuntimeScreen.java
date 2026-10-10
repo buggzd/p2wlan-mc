@@ -1,56 +1,38 @@
 package io.p2wlan.mc.fabric.client.screen;
 
 import com.google.gson.JsonObject;
-import io.p2wlan.mc.common.AgentException;
-import io.p2wlan.mc.common.RoomPeers;
+import io.p2wlan.mc.common.*;
 import io.p2wlan.mc.fabric.FabricP2wlan;
 import io.p2wlan.mc.fabric.client.connect.FabricGameJoins;
+import io.p2wlan.mc.fabric.client.lan.FabricNetworkView;
 import io.p2wlan.mc.fabric.world.FabricWorlds;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.server.integrated.IntegratedServer;
-import io.p2wlan.mc.common.RuntimeView;
+import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
+import net.minecraft.text.Text;
 
-/** One selected native runtime and at most 128 immutable member rows. A member
- * is not a ready game server; discovery is a separate one-peer user intent. */
+/** Room connection panel only; Vanilla owns game-server selection. */
 final class RuntimeScreen extends AgentScreen {
     private final RuntimeView runtime;
-    private RoomPeers members;
-    private boolean refresh = true, stopAcknowledged;
-    private int page, rows = 4;
-    RuntimeScreen(Screen parent, RuntimeView runtime) { super(parent, "P2WLAN 房间连接 / Room runtime"); this.runtime = runtime; }
+    private boolean stopAcknowledged;
+    RuntimeScreen(Screen parent, RuntimeView runtime) { super(parent,"虚拟局域网"); this.runtime=runtime; }
     @Override protected boolean actionsEnabled() { return !stopAcknowledged && runtime.isActive(agent()); }
-    private boolean membersCurrent() { var current = agent(); return current != null && runtime.isCurrent(current) && members != null && current.isCurrent(members.evidence()); }
-    private boolean worldPresent() { var server = client.getServer(); return server != null && FabricWorlds.current(server) != null; }
-    private boolean publicationPresent() { var server = client.getServer(); var world = server == null ? null : FabricWorlds.current(server); return world != null && world.status() != null && world.isCurrent(); }
+    private boolean publicationPresent() { var server=client.getServer(); var world=server==null?null:FabricWorlds.current(server); return world!=null && world.status()!=null && world.isCurrent(); }
     @Override protected void init() {
         super.init();
-        rows = layout.listRows(3, 4);
-        if (!membersCurrent()) members = null;
-        if (members != null) {
-            page = Math.min(page, Math.max(0, (members.peers().size() - 1) / rows));
-            for (int row = 0; row < rows && page * rows + row < members.peers().size(); row++) {
-                String peer = members.peers().get(page * rows + row);
-                action(textRenderer.trimToWidth(peer, formWidth - 10), left, layout.row(row), formWidth, this::membersCurrent, button -> {
-                    if (!runtime.isCurrent(agent())) { message = "RUNTIME_CHANGED"; return; }
-                    client.setScreen(new ServicesScreen(this, runtime, peer));
-                });
-            }
-        }
-        int controls = layout.controls(rows);
-        action("上一页", left, controls, 42, () -> membersCurrent() && page > 0, button -> { page--; clearAndInit(); });
-        action("下一页", left + 50, controls, 42, () -> membersCurrent() && (page + 1) * rows < members.peers().size(), button -> { page++; clearAndInit(); });
-        action("刷新成员 / Refresh", left + 100, controls, formWidth - 100, () -> runtime.isCurrent(agent()), button -> refresh = true);
-        action("断开房间 / Stop room", left, controls + 52, formWidth, button -> stop());
-        action("托管世界 / Host", left, controls + 26, layout.halfWidth(), () -> runtime.isCurrent(agent()) && worldPresent(), button -> publication(true));
-        action("取消托管 / Unhost", layout.right(), controls + 26, layout.halfWidth(), this::publicationPresent, button -> publication(false));
-        back();
+        if (client.getServer()!=null) {
+            action("共享本地世界",left,layout.row(3),layout.halfWidth(),()->runtime.isCurrent(agent()) && !publicationPresent(),button->publication(true));
+            action("停止共享",layout.right(),layout.row(3),layout.halfWidth(),this::publicationPresent,button->publication(false));
+        } else action("打开多人游戏",left,layout.row(3),formWidth,()->runtime.isCurrent(agent()) && FabricNetworkView.authorized() && client.world==null,button->client.setScreen(parent instanceof MultiplayerScreen ? parent : new MultiplayerScreen(parent)));
+        footerAction("断开房间",()->runtime.isActive(agent()),button->stop()); back(true);
     }
     private void publication(boolean host) {
         var server = client.getServer();
         var world = server == null ? null : FabricWorlds.current(server);
         var selectedAgent = agent();
-        if (world == null) { message = "需要单人世界 / Single-player world required"; return; }
+        if (world == null) { message = "请先进入单人世界。"; return; }
         if (!FabricWorlds.IntegratedHooks.class.isAssignableFrom(IntegratedServer.class)) { message = "BIND_FAILED"; return; }
         if (host && !runtime.isCurrent(selectedAgent)) { message = "RUNTIME_CHANGED"; return; }
         var view = viewFence();
@@ -59,7 +41,7 @@ final class RuntimeScreen extends AgentScreen {
         task(() -> world.intents().submit(server::execute, current, () -> {
             if (host) world.host(runtime); else world.unhost();
             return true;
-        }), current, ignored -> message = host ? "托管启动中 / Host starting" : "本地托管已撤销 / Local host revoked");
+        }), current, ignored -> message = host ? "正在共享世界…" : "已停止共享本地世界。");
     }
     private void stop() {
         var selectedAgent = agent();
@@ -82,34 +64,51 @@ final class RuntimeScreen extends AgentScreen {
         }, presentation, reply -> {
             JsonObject expected = new JsonObject(); expected.addProperty("stopped", true);
             if (!selectedAgent.isCurrent(reply) || !reply.data().equals(expected)) throw new AgentException(AgentException.Code.INVALID_REPLY);
-            stopAcknowledged = true; refresh = false; members = null;
-            message = "停止已确认，等待状态 / Stop acknowledged; waiting for status";
+            stopAcknowledged = true;
+            message = "已断开，正在返回房间列表…";
         });
     }
     @Override public void tick() {
         super.tick();
-        if (stopAcknowledged) {
-            if (!runtime.isActive(agent()) && !REQUESTS.busy()) client.setScreen(AccountScreen.entry(parent));
-            return;
-        }
-        if (!runtime.isActive(agent())) { members = null; message = "RUNTIME_CHANGED"; return; }
-        if (refresh && runtime.isCurrent(agent()) && !REQUESTS.busy()) {
-            refresh = false;
-            var selectedAgent = agent();
-            request("room_peers", runtime.arguments(), () -> runtime.isCurrent(selectedAgent), reply -> {
-                members = RoomPeers.parse(reply, runtime); page = 0; clearAndInit();
-                message = "成员不代表游戏就绪 / Members are not game readiness";
-            });
-        }
+        if (stopAcknowledged && !runtime.isActive(agent()) && !REQUESTS.busy()) client.setScreen(AccountScreen.entry(parent));
+        else if (!runtime.isActive(agent())) message="RUNTIME_CHANGED";
     }
-    @Override protected String hint() { return "成员在线不代表游戏就绪；选择成员后发现游戏服务。"; }
+    @Override protected String hint() { return client.world==null?"房间只保持局域网连接；到多人游戏选择服务器。":"退出游戏后仍保持房间连接；返回不等于断开。"; }
     @Override protected String liveSummary() {
-        var current = agent();
-        String phase = runtime.isActive(current) ? current.snapshot().map(value -> RuntimeView.text(value.data(), "phase")).orElse("NOT_READY") : "RUNTIME_CHANGED";
-        var server = client.getServer();
-        var world = server == null ? null : FabricWorlds.current(server);
-        var hosted = world == null || !world.isCurrent() ? null : world.status();
-        String publication = hosted == null ? "NOT_PUBLISHED" : hosted.phase() + (hosted.reason() == null ? "" : " / " + hosted.reason());
-        return "房间：" + phase + " / 世界：" + publication + (members == null ? " / 成员待读取" : " / " + members.peers().size() + " 位成员，第 " + (page + 1) + " 页");
+        if (!runtime.isActive(agent())) return "连接已结束";
+        String name=FabricNetworkView.roomName();
+        return name + (FabricNetworkView.authorized()?" · 局域网已连接":" · 正在连接…");
+    }
+    private void metric(DrawContext draw, String label, String value, int x, int y, int width, int tone) {
+        draw.fill(x,y,x+width,y+32,0xff202a3a);
+        draw.drawTextWithShadow(textRenderer,label,x+7,y+4,0xff7f8ba0);
+        draw.drawTextWithShadow(textRenderer,textRenderer.trimToWidth(value,width-14),x+7,y+18,tone);
+    }
+    @Override public void render(DrawContext draw,int mouseX,int mouseY,float delta) {
+        super.render(draw,mouseX,mouseY,delta);
+        long now=System.nanoTime(); var observations=FabricNetworkView.peers();
+        var playing = FabricGameJoins.playingService(client);
+        PeerTelemetry peer = playing == null ? null : FabricNetworkView.peer(playing.peer());
+        if (playing == null) {
+            peer = observations.stream().filter(value -> value.online() && value.fresh(now))
+                    .min(java.util.Comparator.comparingLong(value -> value.latencyMs() == null ? Long.MAX_VALUE : value.latencyMs())).orElse(null);
+        }
+        String latency=peer==null?"未测得":peer.latencyLabel(now);
+        long online=observations.stream().filter(value->value.online() && value.fresh(now)).count();
+        String ip=runtime.isCurrent(agent())?agent().snapshot().map(value->RuntimeView.text(value.data(),"virtual_ip")).orElse(null):null;
+        String path=peer==null || !peer.fresh(now)?"等待链路":peer.pathLabel();
+        int tone = peer == null || !peer.fresh(now) || peer.path() == null ? 0xfff1c96a
+                : !peer.online() ? 0xffb5c0d0 : peer.path().equals("direct") ? 0xff8de2b1 : 0xff60a5fa;
+        metric(draw,"端到端 RTT",latency,left,top,layout.halfWidth(),tone);
+        metric(draw,"在线设备",FabricNetworkView.authorized()?(online+1)+" 台":"同步中",layout.right(),top,layout.halfWidth(),0xfff7f9fc);
+        metric(draw,"我的虚拟 IP",ip==null?"正在分配":ip,left,top+36,layout.halfWidth(),0xfff7f9fc);
+        metric(draw,"连接方式",path,layout.right(),top+36,layout.halfWidth(),tone);
+        if (mouseX>=left && mouseX<left+formWidth && mouseY>=top && mouseY<top+68) {
+            String tooltip=peer==null?"RTT 由原 P2WLAN 网络核心测量；无有效样本时显示未测得。\n虚拟 IP 只用于房间，不会修改系统路由。":"测量对象："+peer.name()+"\n"+peer.tooltip(now)
+                    +"\n未入服时，面板取已观测设备中最低的有效 RTT；游戏内显示当前服务端。";
+            tooltip += "\n在线数为近期已观测设备（含本机），最多观测 16 个对端。";
+            if (!FabricNetworkView.reason().isEmpty()) tooltip += "\n状态："+FabricNetworkView.reason();
+            setTooltip(Text.literal(tooltip));
+        }
     }
 }

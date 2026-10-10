@@ -22,6 +22,7 @@ pub struct ManagedRuntime {
     task: Option<JoinHandle<Result<(), DaemonError>>>,
     pub gateway: Option<TcpGateway>,
     pub address: Option<String>,
+    pub room: Option<serde_json::Value>,
 }
 impl ManagedRuntime {
     pub fn start(mut config: Config, parent: ScopeToken) -> Result<Self, AgentError> {
@@ -64,6 +65,7 @@ impl ManagedRuntime {
             task: Some(task),
             gateway: None,
             address: None,
+            room: None,
         })
     }
     pub fn tick(&mut self) -> Result<Option<GatewayStatus>, AgentError> {

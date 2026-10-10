@@ -58,10 +58,10 @@ abstract class AgentScreen extends Screen {
         return action(label, x, y, size, () -> true, callback);
     }
     protected ButtonWidget action(String label, int x, int y, int size, BooleanSupplier allowed, ButtonWidget.PressAction callback) {
-        ButtonWidget button = addDrawableChild(ButtonWidget.builder(Text.literal(label), pressed -> {
+        ButtonWidget button = addDrawableChild(new PixelButton(Text.literal(label), x, y, size, pressed -> {
             // A rendered enabled flag is only a hint; recheck before invoking.
             if (eligible(allowed)) callback.onPress(pressed);
-        }).dimensions(x, y, size, 20).build());
+        }));
         actions.add(new Action(button, allowed)); button.active = eligible(allowed);
         return button;
     }
@@ -70,8 +70,7 @@ abstract class AgentScreen extends Screen {
     }
     protected void back() { back(false); }
     protected void back(boolean paired) {
-        addDrawableChild(ButtonWidget.builder(Text.literal("返回 / Back"), button -> close())
-                .dimensions(paired ? layout.right() : left, layout.footerY(), paired ? layout.halfWidth() : formWidth, 20).build());
+        addDrawableChild(new PixelButton(Text.literal("返回游戏"), paired ? layout.right() : left, layout.footerY(), paired ? layout.halfWidth() : formWidth, button -> close()));
     }
     protected AgentClient agent() { return FabricP2wlan.AGENT.current().orElse(null); }
     protected boolean idle() {
@@ -138,7 +137,7 @@ abstract class AgentScreen extends Screen {
         return snapshot != null && ControlTransport.accountIsPlaintext(snapshot.data().get("account"))
                 && FabricP2wlan.AGENT.isCurrent(current) && !current.isClosed();
     }
-    protected String hint() { return "先登录账号，再选择房间，最后连接或托管游戏。"; }
+    protected String hint() { return "连接房间后，在 Minecraft 多人游戏中选择服务器。"; }
     protected String liveSummary() { return ""; }
     @Override public void removed() { view.set(false); }
     @Override public void close() { client.setScreen(parent); }
@@ -148,30 +147,37 @@ abstract class AgentScreen extends Screen {
     }
     @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         renderBackground(context, mouseX, mouseY, delta);
-        context.fill(left - 8, top - 6, left + formWidth + 8, layout.bodyBottom() + 4, 0x70000000);
-        context.fill(left - 8, layout.footerY() - 5, left + formWidth + 8, height - 3, 0x90000000);
+        int header = top - 56, bottom = layout.messageY() + 33;
+        context.fill(left - 9, header - 5, left + formWidth + 11, bottom + 2, 0x70000000);
+        context.fill(left - 10, header - 6, left + formWidth + 10, bottom, 0xf2131a25);
+        context.fill(left - 10, header - 6, left + formWidth + 10, header - 4, 0xff60a5fa);
         super.render(context, mouseX, mouseY, delta);
-        summary(context, title.getString(), 10, 0xffffff);
+        context.drawTextWithShadow(textRenderer, "P2WLAN", left, header, 0xff60a5fa);
+        context.drawTextWithShadow(textRenderer, textRenderer.trimToWidth(title.getString(), formWidth - 95), left, header + 16, 0xfff7f9fc);
         var helper = FabricP2wlan.AGENT.status();
-        String helperText = "助手 / IPC: " + helper.phase() + (helper.reason() == null ? "" : " / " + helper.reason());
-        summary(context, helperText, 26, 0xa0a0a0);
-        summary(context, AccountPresentation.summary(accountState()), 38, 0xc1dfdf);
-        if (insecureControl()) summary(context, ControlTransport.BANNER, 50, 0xffaa00);
+        String helperText = "IPC: " + helper.phase() + (helper.reason() == null ? " / " + "native" : " / " + helper.reason());
+        boolean ready = helper.phase() == io.p2wlan.mc.common.AgentLifecycle.Phase.READY;
+        String state = !ready ? helper.reason() == null ? "助手启动中" : "启动失败" : savedAccount() ? "已登录 · 本机" : "未登录";
+        int tone = !ready && helper.reason() != null ? 0xffffa39a : savedAccount() ? 0xff8de2b1 : 0xffb5c0d0;
+        int badge = left + formWidth - textRenderer.getWidth(state);
+        context.fill(badge - 8, header + 3, badge - 4, header + 7, tone);
+        context.drawTextWithShadow(textRenderer, state, badge, header, tone);
+        if (insecureControl()) context.drawTextWithShadow(textRenderer, "HTTP · 未加密", left, header + 40, 0xfff1c96a);
         for (Label label : labels) context.drawTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(label.text(), labelWidth())), left, label.y(), 0xd0d0d0);
-        String feedback = REQUESTS.busy() ? "请求处理中，请勿重复提交。" : message.isEmpty() ? hint() : "上次操作：" + message;
+        String feedback = REQUESTS.busy() ? "正在处理…" : message.isEmpty() ? hint() : message;
         // Runtime/world truth remains visible even after a request result.
         String live = liveSummary();
         int reserved = live.isEmpty() ? 0 : 1;
         if (reserved != 0) context.drawTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(live, formWidth)), left, layout.messageY(), 0xc1dfdf);
         var lines = textRenderer.wrapLines(Text.literal(feedback), formWidth);
         int count = Math.min(3 - reserved, lines.size());
-        for (int index = 0; index < count; index++) context.drawTextWithShadow(textRenderer, lines.get(index), left, layout.messageY() + (index + reserved) * (textRenderer.fontHeight + 2), 0xffcc66);
+        for (int index = 0; index < count; index++) context.drawTextWithShadow(textRenderer, lines.get(index), left, layout.messageY() + (index + reserved) * (textRenderer.fontHeight + 2), (REQUESTS.busy() || !message.isEmpty()) ? 0xfff1c96a : 0xff7f8ba0);
         if (mouseX >= left && mouseX < left + formWidth) {
-            String tooltip = mouseY >= 26 && mouseY < 35 ? helperText
-                    : mouseY >= 38 && mouseY < 47 ? "这是助手报告的本地会话状态，不证明服务器接受凭据；未保存会话也不代表邮箱未注册。"
-                    : insecureControl() && mouseY >= 50 && mouseY < 59 ? ControlTransport.BANNER
+            String tooltip = mouseY >= header && mouseY < header + 10 ? helperText
+                    : mouseY >= header + 16 && mouseY < header + 26 ? "登录会话保存在本机私有目录，不保存密码。返回游戏或断开房间不会退出账号；Control 会在房间操作时重新检查授权。"
+                    : insecureControl() && mouseY >= header + 40 && mouseY < header + 49 ? ControlTransport.BANNER
                     : mouseY >= layout.messageY() && (reserved != 0 || lines.size() > 3) ? (reserved == 0 ? feedback : live + "\n" + feedback) : null;
-            if (tooltip != null) context.drawTooltip(textRenderer, Text.literal(tooltip), mouseX, mouseY);
+            if (tooltip != null) setTooltip(Text.literal(tooltip));
         }
     }
     static void shutdown() { REQUESTS.close(); }
