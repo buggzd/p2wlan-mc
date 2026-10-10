@@ -117,9 +117,35 @@ if (providers.gradleProperty('serverBootFixture').isPresent()) {
     }
 }
 
+// Real local gameplay is a separate explicit test mod, never a production
+// entrypoint. The wrapper owns fresh accounts, Control and disposable worlds.
+if (providers.gradleProperty('localGameFixture').isPresent()) {
+    def server = sourceSets.create('localGameFixture')
+    server.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    server.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    def client = sourceSets.create('localGameClientFixture')
+    client.compileClasspath += server.output + sourceSets.client.output + sourceSets.client.compileClasspath
+    client.runtimeClasspath += server.output + sourceSets.client.output + sourceSets.client.runtimeClasspath
+    loom.mods.register('p2wlan_local_game_test') { sourceSet server; sourceSet client }
+    loom.runs.register('localGameServer') {
+        inherit loom.runs.server
+        source server
+        runDir providers.gradleProperty('localGameServerDirectory').get()
+        property 'p2wlan.gameFixture.config', providers.gradleProperty('localGameServerConfig').get()
+        ideConfigGenerated false
+    }
+    loom.runs.register('localGameClient') {
+        inherit loom.runs.client
+        source client
+        runDir providers.gradleProperty('localGameClientDirectory').get()
+        property 'p2wlan.gameFixture.config', providers.gradleProperty('localGameClientConfig').get()
+        ideConfigGenerated false
+    }
+}
+
 // Argument order is not a task dependency. Never start an ordinary/fixture JVM
 // before the source-bound production archive check has actually succeeded.
-tasks.matching { it.name in ['runServer', 'runClient', 'runClientFixture', 'runServerFixture'] }.configureEach {
+tasks.matching { it.name in ['runServer', 'runClient', 'runClientFixture', 'runServerFixture', 'runLocalGameServer', 'runLocalGameClient'] }.configureEach {
     dependsOn tasks.named('verifyModJar')
 }
 

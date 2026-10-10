@@ -1,6 +1,6 @@
 # P2WLAN Minecraft integration
 
-This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The adapter is pinned to Fabric/Minecraft 1.21.1; successful remote Minecraft login, integrated-world hosting and sustained gameplay have not yet been accepted.
+This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The adapter is pinned to Fabric/Minecraft 1.21.1. An opt-in local fixture checks actual offline-mode client/dedicated-server play through the Mod; cross-machine Minecraft login, integrated-world hosting and long-running gameplay remain unverified.
 
 ## Native TCP endpoint
 
@@ -335,7 +335,7 @@ The adapter uses Minecraft's existing codecs, rate limiter, handshake handler an
 
 The Minecraft-facing listener itself consumes a fresh 40-byte local capability **before** initializing Vanilla codecs/connections. The outer `WorldGuard` authenticates that target and consumes its one-byte readiness acknowledgement before acknowledging native readiness; neither local prelude/acknowledgement reaches Minecraft. Unauthenticated local users cannot bypass the outer guard by connecting directly to this listener. A single Mod-owned NIO event loop drives accept/child registration, so unauthenticated local connects cannot build an unbounded registration queue on another game event loop. At most 32 children, 40 prelude bytes per child and one two-second timer per child are retained; existing Minecraft packet/player internals remain Minecraft-owned. Target revocation fences inbound/outbound game bytes and closes owned channels. Target cleanup waits at most two seconds each for children/listener closure and three seconds for the sole event loop to terminate; failed cleanup does not release the publication slot. This still does not defend against malicious same-OS-user code or another malicious Mod.
 
-The required, exact-version server Mixin is checked during bootstrap; absence fails before an unguarded bind. Its explicitly scoped bind reuses Vanilla's bind/stop ordering under the existing channel-list monitor, with a two-second wait limit. The Mod owns and closes its extra listener rather than accumulating closed entries in Vanilla's listener list. Ordinary Vanilla binds retain their original behavior. Full-game bind/stop competition and integrated/dedicated world behavior have not yet been accepted. A required client-only IntegratedServer Mixin derives remote/pause semantics from the exact current `HOSTED` publication and its world/runtime fence. It does not maintain another hosting flag, change cheats/default game mode, announce a LAN port, or alter ordinary Vanilla LAN publication. Integrated pause/remote behavior still requires real-world acceptance.
+The required, exact-version server Mixin is checked during bootstrap; absence fails before an unguarded bind. Its explicitly scoped bind reuses Vanilla's bind/stop ordering under the existing channel-list monitor, with a two-second wait limit. The Mod owns and closes its extra listener rather than accumulating closed entries in Vanilla's listener list. Ordinary Vanilla binds retain their original behavior. Concurrent full-game bind/stop competition and integrated-world behavior remain unverified; the isolated local gameplay fixture below checks the dedicated-world path. A required client-only IntegratedServer Mixin derives remote/pause semantics from the exact current `HOSTED` publication and its world/runtime fence. It does not maintain another hosting flag, change cheats/default game mode, announce a LAN port, or alter ordinary Vanilla LAN publication. Integrated pause/remote behavior still requires real-world acceptance.
 
 In an integrated world, the runtime screen exposes explicit host/unhost intents without requiring cheats. One server-thread task is retained per world, with a three-second deadline. An expired result keeps its capacity until the queued runnable actually drains; the late runnable cannot mutate a replacement world/runtime or begin a host intent after its view expires. Closing a view after the effect has already begun does not undo that world-owned intent. Host receives the originally selected runtime rather than reacquiring a newer one. `Stop room` revokes local publication before requesting native stop, including a runtime still `starting`. A stop acknowledgement waits for a matching native status transition before returning to account controls; late presentation rejects another active runtime. None of these actions silently accept terms or automatically publish a world.
 
@@ -348,7 +348,7 @@ Operator/console commands (permission level 4):
 - `/p2wlan disconnect`: revoke the local world before requesting native runtime stop, retaining account/membership. A failed stop reports that local revocation already occurred; it is not silently undone.
 - `/p2wlan unhost`: immediately revoke the local world capability and perform bounded cleanup off the game thread. This does not change room membership or claim to roll back an already delivered native mutation.
 
-The subprocess/world tests check capacity, native-owner/runtime fencing, cancellation during setup, cleanup of late host replies and malformed registration failure. Protected-target socket tests check that both local capability handshakes disappear before game bytes. Fabric transport tests use actual Netty pipelines with fragmented/coalesced input, virtual-time expiry, capacity, revocation and delayed Vanilla initialization, plus a real 128,000-byte TCP exchange between the Java guard and a protected Netty echo target. The echo target is not Minecraft. They are **not** Minecraft world/login acceptance. Dedicated-server accounts can be initialized with the independent console above while the server is stopped. Remote Minecraft authentication/login, sustained gameplay, integrated hosting/pause, cancellation during actual configuration and world-replacement acceptance remain incomplete. No EULA/account term is accepted by any build/test entry point.
+The subprocess/world tests check capacity, native-owner/runtime fencing, cancellation during setup, cleanup of late host replies and malformed registration failure. Protected-target socket tests check that both local capability handshakes disappear before game bytes. Fabric transport tests use actual Netty pipelines with fragmented/coalesced input, virtual-time expiry, capacity, revocation and delayed Vanilla initialization, plus a real 128,000-byte TCP exchange between the Java guard and a protected Netty echo target. The echo target is not Minecraft. They are **not** Minecraft world/login acceptance. Dedicated-server accounts can be initialized with the independent console above while the server is stopped. Cross-machine Minecraft authentication/login, long-running gameplay, integrated hosting/pause, cancellation during actual configuration and world-replacement acceptance remain incomplete. Ordinary builds and the hook/server-boot fixtures do not accept EULA/account terms; the separate local gameplay fixture below requires explicit consent.
 
 
 ## Isolated real-client hook verification
@@ -384,6 +384,61 @@ An explicitly labelled development resource requires `--development`. Missing co
 The fixture executes 29 checks against the actual dedicated Minecraft world and required server transformation: current world ownership, native helper readiness/idle status, an additional guarded loopback listener, wrong-capability rejection, coalesced capability plus real Vanilla status handshake/response, listener revocation, ordinary Vanilla status after private-listener cleanup, exact native-child cleanup and world-owner retirement on server stop. `online-mode` remains enabled, but no player authentication/login is performed. The private test listener is not a native room publication; no P2WLAN game tunnel, Direct/Relay selection, Minecraft client play, sustained traffic, integrated-world hosting/pause or public NAT is accepted by these checks.
 
 The wrapper accepts only a bounded, exact-schema, run-bound result with the full case set, exact nonzero check count and cleanup flags. It shares the bounded 240-second process-group/1 MiB diagnostic runner with the client fixture; logs and Gradle exit are not the result contract. Dedicated-world execution is verified on macOS/aarch64 only; the remaining platform/version/gameplay limits above still apply.
+
+
+## Isolated local gameplay verification
+
+`localGameFixture` is an opt-in test Mod/source set, excluded from ordinary jars
+and runs. The production archive verifier rejects fixture classes. It drives the
+actual Minecraft account/room/service widgets and Vanilla login, configuration
+and play through the production Mod, not a direct connection to the ordinary
+server port or an echo server.
+
+Prerequisites are Python 3, Rust, Go on `PATH`, Java 21, a working graphical
+Minecraft session and the pinned Cargo/Gradle dependencies. From the repository
+root, explicitly accept the server EULA and the disposable loopback server's
+**offline Minecraft authentication** mode:
+
+```sh
+python3 minecraft-mod/tools/local_game.py --accept-eula --offline-mode --offline --development
+```
+
+`--offline` restricts dependency resolution to local caches; it does not disable
+the runtime's normal network discovery. `--development` admits only explicitly
+labelled, source-bound development native resources; omit it only for a clean
+release-mode checkout. Neither option bypasses archive/source verification.
+
+The wrapper builds the unchanged local Go Control and current native agent,
+creates fresh private P2WLAN accounts and one room, and starts separate dedicated
+server and client JVMs. It completes fresh-install Vanilla accessibility setup,
+checks empty/filled/saved-account button eligibility and the HTTP warning, then
+uses the actual register, login, join-room, connect, discover-service, game-join
+and room-stop controls. Native peer snapshots are fenced observations, not a
+second path state machine or a substitute for game delivery.
+
+Success requires both exact, run-bound results: 68 server and 27 client
+assertions, one actual Vanilla player login, 20 ordered C2S player commands with
+matching S2C game messages and experience-level changes, at least 18 seconds of
+play plus world-tick progress, player disconnect, room stop, world retirement and
+both native helpers exiting. A helper `READY`, world `HOSTED`, process exit or
+log message alone cannot pass. All waits have deadlines; the wrapper owns at
+most three game/control process groups and retains at most 1 MiB of diagnostics
+per process. It does not silently rerun a failed game test.
+
+Only newly created disposable test directories are used. EULA consent and
+`online-mode=false`, creative/peaceful flat-world settings apply only to that
+fresh loopback server; existing worlds, launcher accounts, server properties,
+private profiles and release bundles are unchanged. Builds are isolated from
+active JVM classpaths. After confirmed group cleanup, temporary credentials,
+profiles, Control database and worlds are removed. Bounded private diagnostics
+and results remain under the ignored adapter `build/local-game-fixture/` tree;
+uncertain process cleanup retains private test state and fails closed. Do not
+publish these diagnostics as product documentation or release evidence.
+
+This fixture is verified on macOS/aarch64 with Fabric/Minecraft 1.21.1 only.
+Linux graphical execution, Windows/HMCL, other loaders/versions, forced Relay,
+public NAT, cross-machine play, online Minecraft authentication, integrated
+hosting/pause and long-duration/network-change behavior remain unverified.
 
 
 ## HMCL ZIP packaging
