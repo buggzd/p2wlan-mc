@@ -32,6 +32,7 @@ public final class AgentClient implements AutoCloseable {
 
     private final Object gate = new Object();
     private final Process child;
+    private final ModDiagnostics diagnostics;
     private final long timeoutNanos;
     private final long helloDeadline;
     private final ArrayBlockingQueue<Outbound> outgoing = new ArrayBlockingQueue<>(MAX_PENDING);
@@ -52,6 +53,9 @@ public final class AgentClient implements AutoCloseable {
     }
 
     public static AgentClient launch(Path executable, List<String> arguments, Duration timeout) throws AgentException {
+        return launch(executable, arguments, timeout, null);
+    }
+    static AgentClient launch(Path executable, List<String> arguments, Duration timeout, ModDiagnostics diagnostics) throws AgentException {
         if (executable == null || !executable.isAbsolute()
                 || !Files.isRegularFile(executable, LinkOption.NOFOLLOW_LINKS)
                 || !Files.isExecutable(executable) || arguments == null || arguments.size() > 16
@@ -70,14 +74,16 @@ public final class AgentClient implements AutoCloseable {
         try {
             // Child logs are not protocol/state and must not block its stderr
             // pipe or leak credentials into the game log. Failures travel in IPC.
-            return new AgentClient(new ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.DISCARD).start(), timeout);
+            return new AgentClient(new ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.DISCARD).start(), timeout, diagnostics);
         } catch (IOException error) {
             throw new AgentException(AgentException.Code.START_FAILED);
         }
     }
 
-    private AgentClient(Process child, Duration timeout) {
+    private AgentClient(Process child, Duration timeout, ModDiagnostics diagnostics) {
         this.child = child;
+        this.diagnostics = diagnostics;
+        if (diagnostics != null) diagnostics.childStarted(child.pid());
         timeoutNanos = timeout.toNanos();
         helloDeadline = System.nanoTime() + timeoutNanos;
         watchdog = Executors.newSingleThreadScheduledExecutor(runnable -> daemon("p2wlan-agent-watchdog", runnable));
@@ -88,6 +94,7 @@ public final class AgentClient implements AutoCloseable {
         daemon("p2wlan-agent-exit", () -> {
             try {
                 int status = child.waitFor();
+                if (diagnostics != null) diagnostics.childExited(status);
                 // Reaping must not overtake a final startup-error frame buffered
                 // in stdout. The reader owns decoding; drain is deadline-bounded.
                 try { readerFinished.get(timeoutNanos, TimeUnit.NANOSECONDS); }
@@ -213,7 +220,7 @@ public final class AgentClient implements AutoCloseable {
             if (closed) return;
             if (message instanceof AgentMessages.StartupError error) {
                 if (owner != null) throw new AgentException(AgentException.Code.INVALID_REPLY);
-                throw new AgentException(AgentException.Code.INITIALIZATION_FAILED, error.error());
+                throw AgentException.startup(error.error(), error.diagnostic());
             }
             if (message instanceof AgentMessages.Hello hello) {
                 if (owner != null) throw new AgentException(AgentException.Code.INVALID_REPLY);
@@ -232,7 +239,10 @@ public final class AgentClient implements AutoCloseable {
         }
         // Completing futures may invoke arbitrary UI callbacks; never do it
         // under the lifecycle/pending lock or on a Minecraft thread by accident.
-        if (message instanceof AgentMessages.Hello) ready.complete(null);
+        if (message instanceof AgentMessages.Hello) {
+            if (diagnostics != null) diagnostics.stage(ModDiagnostics.Stage.IPC_HELLO);
+            ready.complete(null);
+        }
         if (message instanceof AgentMessages.Reply reply && completion != null) {
             boolean current;
             synchronized (gate) { current = !closed && reply.owner().equals(owner); }
@@ -311,6 +321,7 @@ public final class AgentClient implements AutoCloseable {
             // Publish closure after its reason and lifecycle state are fixed.
             closed = true;
         }
+        if (diagnostics != null && reason.code() != AgentException.Code.CLOSED) diagnostics.failure(reason);
         watchdog.shutdownNow();
         // Killing the process unblocks both pipes without waiting under a lock.
         child.destroyForcibly();

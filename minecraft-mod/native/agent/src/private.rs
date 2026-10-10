@@ -1,4 +1,6 @@
 use crate::AgentError;
+#[cfg(unix)]
+use crate::ProfileIo;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
@@ -48,9 +50,12 @@ impl PrivateDirectory {
         if !path.exists() {
             let mut builder = fs::DirBuilder::new();
             builder.recursive(true).mode(0o700);
-            builder.create(path).map_err(|_| AgentError::ProfileIo)?;
+            builder.create(path).map_err(|error| {
+                ProfileIo::error("CREATE_DIRECTORY", "PROFILE_DIRECTORY", error)
+            })?;
         }
-        let metadata = fs::symlink_metadata(path).map_err(|_| AgentError::ProfileIo)?;
+        let metadata = fs::symlink_metadata(path)
+            .map_err(|error| ProfileIo::error("FILE_METADATA", "PROFILE_DIRECTORY", error))?;
         if !metadata.is_dir()
             || metadata.is_symlink()
             || metadata.mode() & 0o077 != 0
@@ -59,14 +64,19 @@ impl PrivateDirectory {
             return Err(AgentError::ProfileInvalid);
         }
         let directory = File::from(
-            open(path, read_flags() | OFlags::DIRECTORY, Mode::empty())
-                .map_err(|_| AgentError::ProfileIo)?,
+            open(path, read_flags() | OFlags::DIRECTORY, Mode::empty()).map_err(|error| {
+                ProfileIo::error("OPEN_FILE", "PROFILE_DIRECTORY", error.into())
+            })?,
         );
-        let identity = directory.metadata().map_err(|_| AgentError::ProfileIo)?;
+        let identity = directory
+            .metadata()
+            .map_err(|error| ProfileIo::error("FILE_METADATA", "PROFILE_DIRECTORY", error))?;
         if identity.dev() != metadata.dev() || identity.ino() != metadata.ino() {
             return Err(AgentError::ProfileInvalid);
         }
-        let root = path.canonicalize().map_err(|_| AgentError::ProfileIo)?;
+        let root = path
+            .canonicalize()
+            .map_err(|error| ProfileIo::error("RESOLVE_PATH", "PROFILE_DIRECTORY", error))?;
         let lock = File::from(
             openat(
                 &directory,
@@ -78,9 +88,11 @@ impl PrivateDirectory {
                     | OFlags::CREATE,
                 Mode::from_raw_mode(0o600),
             )
-            .map_err(|_| AgentError::ProfileIo)?,
+            .map_err(|error| ProfileIo::error("OPEN_FILE", "PROFILE_LOCK", error.into()))?,
         );
-        let lock_identity = lock.metadata().map_err(|_| AgentError::ProfileIo)?;
+        let lock_identity = lock
+            .metadata()
+            .map_err(|error| ProfileIo::error("FILE_METADATA", "PROFILE_LOCK", error))?;
         inspect(&lock_identity, &identity)?;
         lock.try_lock().map_err(|_| AgentError::ProfileBusy)?;
         let result = Self {
@@ -94,7 +106,8 @@ impl PrivateDirectory {
         Ok(result)
     }
     fn current(&self) -> Result<(), AgentError> {
-        let metadata = fs::symlink_metadata(&self.root).map_err(|_| AgentError::ProfileIo)?;
+        let metadata = fs::symlink_metadata(&self.root)
+            .map_err(|error| ProfileIo::error("FILE_METADATA", "PROFILE_DIRECTORY", error))?;
         if !metadata.is_dir()
             || metadata.is_symlink()
             || metadata.dev() != self.identity.dev()
@@ -106,12 +119,17 @@ impl PrivateDirectory {
         }
         let current = File::from(
             openat(&self.directory, "profile.lock", read_flags(), Mode::empty())
-                .map_err(|_| AgentError::ProfileIo)?,
+                .map_err(|error| ProfileIo::error("OPEN_FILE", "PROFILE_LOCK", error.into()))?,
         );
-        let metadata = current.metadata().map_err(|_| AgentError::ProfileIo)?;
+        let metadata = current
+            .metadata()
+            .map_err(|error| ProfileIo::error("FILE_METADATA", "PROFILE_LOCK", error))?;
         inspect(&metadata, &self.identity)?;
         inspect(
-            &self.lock.metadata().map_err(|_| AgentError::ProfileIo)?,
+            &self
+                .lock
+                .metadata()
+                .map_err(|error| ProfileIo::error("FILE_METADATA", "PROFILE_LOCK", error))?,
             &self.identity,
         )?;
         if metadata.dev() != self.lock_identity.dev() || metadata.ino() != self.lock_identity.ino()
@@ -139,16 +157,24 @@ impl PrivateDirectory {
         let file = match openat(&self.directory, name, read_flags(), Mode::empty()) {
             Ok(fd) => File::from(fd),
             Err(rustix::io::Errno::NOENT) => return Ok(None),
-            Err(_) => return Err(AgentError::ProfileIo),
+            Err(error) => {
+                return Err(ProfileIo::error(
+                    "OPEN_FILE",
+                    ProfileIo::file(name),
+                    error.into(),
+                ))
+            }
         };
         inspect(
-            &file.metadata().map_err(|_| AgentError::ProfileIo)?,
+            &file
+                .metadata()
+                .map_err(|error| ProfileIo::error("FILE_METADATA", ProfileIo::file(name), error))?,
             &self.identity,
         )?;
         let mut bytes = Vec::new();
         file.take(FILE_LIMIT as u64 + 1)
             .read_to_end(&mut bytes)
-            .map_err(|_| AgentError::ProfileIo)?;
+            .map_err(|error| ProfileIo::error("READ_FILE", ProfileIo::file(name), error))?;
         if bytes.len() > FILE_LIMIT {
             return Err(AgentError::ProfileInvalid);
         }
@@ -168,19 +194,22 @@ impl PrivateDirectory {
                 OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC | OFlags::NOFOLLOW,
                 Mode::from_raw_mode(0o600),
             )
-            .map_err(|_| AgentError::ProfileIo)?,
+            .map_err(|error| ProfileIo::error("OPEN_FILE", "TEMPORARY_FILE", error.into()))?,
         );
         let result = (|| {
             let mut file = file;
-            file.write_all(bytes).map_err(|_| AgentError::ProfileIo)?;
-            file.sync_all().map_err(|_| AgentError::ProfileIo)?;
+            file.write_all(bytes)
+                .map_err(|error| ProfileIo::error("WRITE_FILE", "TEMPORARY_FILE", error))?;
+            file.sync_all()
+                .map_err(|error| ProfileIo::error("SYNC_FILE", "TEMPORARY_FILE", error))?;
             self.read(name)?;
             self.current()?;
-            renameat(&self.directory, temporary.as_str(), &self.directory, name)
-                .map_err(|_| AgentError::ProfileIo)?;
+            renameat(&self.directory, temporary.as_str(), &self.directory, name).map_err(
+                |error| ProfileIo::error("RENAME_FILE", ProfileIo::file(name), error.into()),
+            )?;
             self.directory
                 .sync_all()
-                .map_err(|_| AgentError::ProfileIo)?;
+                .map_err(|error| ProfileIo::error("SYNC_FILE", "PROFILE_DIRECTORY", error))?;
             self.current()?;
             Ok(())
         })();
@@ -193,13 +222,17 @@ impl PrivateDirectory {
         self.current()?;
         let mut count = 0;
         for (index, entry) in fs::read_dir(&self.root)
-            .map_err(|_| AgentError::ProfileIo)?
+            .map_err(|error| ProfileIo::error("READ_DIRECTORY", "PROFILE_DIRECTORY", error))?
             .enumerate()
         {
             if index >= 256 {
                 return Err(AgentError::ProfileCapacity);
             }
-            let name = entry.map_err(|_| AgentError::ProfileIo)?.file_name();
+            let name = entry
+                .map_err(|error| {
+                    ProfileIo::error("READ_DIRECTORY_ENTRY", "PROFILE_DIRECTORY", error)
+                })?
+                .file_name();
             if name.to_str().is_some_and(|name| {
                 name.len() == 74
                     && name.starts_with("room-")
@@ -222,7 +255,12 @@ pub struct PrivateDirectory(p2wlan_mc_private_windows::PrivateDirectory);
 fn windows_error(error: p2wlan_mc_private_windows::Error) -> AgentError {
     use p2wlan_mc_private_windows::Error;
     match error {
-        Error::Io | Error::Cleanup => AgentError::ProfileIo,
+        Error::Io(detail) | Error::Cleanup(detail) => AgentError::ProfileIo(crate::ProfileIo {
+            operation: detail.operation.code(),
+            target: detail.target.code(),
+            os_code: detail.os_code,
+            path_depth: detail.path_depth,
+        }),
         Error::Invalid => AgentError::ProfileInvalid,
         Error::Busy => AgentError::ProfileBusy,
         Error::Capacity => AgentError::ProfileCapacity,

@@ -2,6 +2,9 @@
 //! The safe agent uses this capability without importing any Win32 FFI.
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod diagnostic;
+pub use diagnostic::{Failure, Operation, Target};
+
 #[cfg(windows)]
 mod handles;
 #[cfg(windows)]
@@ -13,12 +16,12 @@ pub use storage::PrivateDirectory;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
-    Io,
+    Io(Failure),
     Invalid,
     Busy,
     Capacity,
     Entropy,
-    Cleanup,
+    Cleanup(Failure),
 }
 
 // Do not allow Windows device names, ADS, ambiguous trailing dots, traversal,
@@ -76,5 +79,30 @@ mod name_tests {
             assert!(!super::valid_name(name), "{name}");
         }
         assert!(!super::valid_name(&"a".repeat(129)));
+    }
+}
+
+impl Error {
+    pub fn io(operation: Operation, error: &std::io::Error) -> Self {
+        Self::Io(Failure::new(operation, error.raw_os_error()))
+    }
+    #[cfg(windows)]
+    pub(crate) fn last(operation: Operation) -> Self {
+        Self::io(operation, &std::io::Error::last_os_error())
+    }
+    pub fn at(self, target: Target, path_depth: Option<u8>) -> Self {
+        match self {
+            Self::Io(mut failure) => {
+                failure.target = target;
+                failure.path_depth = path_depth;
+                Self::Io(failure)
+            }
+            Self::Cleanup(mut failure) => {
+                failure.target = target;
+                failure.path_depth = path_depth;
+                Self::Cleanup(failure)
+            }
+            other => other,
+        }
     }
 }

@@ -14,6 +14,7 @@ public final class AgentLifecycleTests {
         catch (ExecutionException error) { checks++; return error.getCause(); }
     }
     public static void main(String[] arguments) throws Exception {
+        Path logDirectory = java.nio.file.Files.createTempDirectory("p2wlan-lifecycle-logs-").toAbsolutePath();
         Path profile = TestProfiles.create("p2wlan-lifecycle-test-");
         try {
             try { new AgentLifecycle(Path.of("relative"), false); throw new AssertionError("relative profile accepted"); }
@@ -26,17 +27,20 @@ public final class AgentLifecycleTests {
             closed.stopped().get(5, TimeUnit.SECONDS);
             check(failed(closed.ready()) instanceof AgentException agent && agent.code() == AgentException.Code.CLOSED);
             if (arguments.length == 0) {
-                AgentLifecycle missing = new AgentLifecycle(profile, true);
+                AgentLifecycle missing = new AgentLifecycle(profile, true, logDirectory);
                 missing.start(); missing.start();
                 check(failed(missing.ready()) instanceof NativeBundleException bundle && bundle.code() == NativeBundleException.Code.RESOURCE_MISSING);
                 failed(missing.stopped());
                 check(missing.status().phase() == AgentLifecycle.Phase.FAILED);
                 check(missing.status().reason().equals(NativeBundleException.Code.RESOURCE_MISSING.name()));
                 check(!missing.isCurrent(null));
+                missing.diagnostics().flushed().get(3, TimeUnit.SECONDS);
+                check(java.nio.file.Files.readString(logDirectory.resolve("startup.log")).contains("RESOURCE_MISSING"));
+                check(missing.diagnostics().snapshot().failure().reason().equals("RESOURCE_MISSING"));
                 missing.close(); missing.start();
             } else {
                 Path invalidProfile = java.nio.file.Files.createTempFile(profile, "not-a-profile-", ".fixture");
-                AgentLifecycle rejected = new AgentLifecycle(invalidProfile, true);
+                AgentLifecycle rejected = new AgentLifecycle(invalidProfile, true, logDirectory);
                 rejected.start();
                 Throwable startup = failed(rejected.ready());
                 check(startup instanceof AgentException agent && agent.code() == AgentException.Code.INITIALIZATION_FAILED
@@ -46,6 +50,10 @@ public final class AgentLifecycleTests {
                 check(rejected.status().reason().equals("INITIALIZATION_FAILED / PROFILE_INVALID"));
                 check(!rejected.status().reason().contains(invalidProfile.toString()));
                 check(rejected.current().isEmpty());
+                rejected.diagnostics().flushed().get(3, TimeUnit.SECONDS);
+                check(rejected.diagnostics().snapshot().failure().startup().stage().equals("PROFILE_OPEN"));
+                check(java.nio.file.Files.readString(logDirectory.resolve("startup.log")).contains("PROFILE_INVALID"));
+                check(!rejected.diagnostics().snapshot().copyText().contains(invalidProfile.toString()));
                 rejected.close();
                 java.nio.file.Files.delete(invalidProfile);
                 for (int iteration = 0; iteration < 3; iteration++) {
@@ -87,11 +95,14 @@ public final class AgentLifecycleTests {
             boolean ended;
             do {
                 ended = Thread.getAllStackTraces().keySet().stream().noneMatch(thread -> thread.isAlive()
-                        && (thread.getName().equals("p2wlan-mod-startup") || thread.getName().startsWith("p2wlan-agent-")));
+                        && (thread.getName().equals("p2wlan-mod-startup") || thread.getName().equals("p2wlan-mod-log") || thread.getName().startsWith("p2wlan-agent-")));
                 if (!ended) Thread.sleep(10);
             } while (!ended && System.nanoTime() - deadline < 0);
             check(ended);
-        } finally { TestProfiles.dispose(profile); }
+        } finally {
+            for (String name : java.util.List.of("startup.log", "startup.log.1", "startup.lock")) java.nio.file.Files.deleteIfExists(logDirectory.resolve(name));
+            java.nio.file.Files.delete(logDirectory); TestProfiles.dispose(profile);
+        }
         System.out.println("PASS application agent lifecycle: " + checks + " explicit checks" + (arguments.length == 1 ? " against actual packaged agents" : ""));
     }
 }

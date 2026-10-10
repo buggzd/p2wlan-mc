@@ -169,3 +169,11 @@ tasks.register('displaySettingsTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.common.DisplaySettingsTests'
 }
 check.dependsOn displaySettingsTest
+
+// File/queue/diagnostic failure injection, independent of native initialization.
+tasks.register('modDiagnosticsTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.ModDiagnosticsTests'
+}
+check.dependsOn modDiagnosticsTest

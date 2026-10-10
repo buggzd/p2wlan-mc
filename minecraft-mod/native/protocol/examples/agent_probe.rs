@@ -25,6 +25,13 @@ async fn run() -> Result<(), ProtocolError> {
     let mut writer = FrameWriter::new(tokio::io::stdout());
     if mode.starts_with("startup_") && mode != "startup_after_hello" {
         let mut frame = json!({"version":1, "event":"startup_error", "error":"PROFILE_BUSY"});
+        if mode == "startup_diagnostic" || mode == "startup_diagnostic_secret" {
+            frame["error"] = json!("PROFILE_IO");
+            frame["diagnostic"] = json!({"stage":"PROFILE_OPEN", "operation":"OPEN_FILE", "target":"ACCOUNT_FILE", "os_code":32, "path_depth":null});
+            if mode == "startup_diagnostic_secret" {
+                frame["diagnostic"]["operation"] = json!("fixture-private-value");
+            }
+        }
         if mode == "startup_unknown" {
             frame["error"] = json!("fixture-private-value");
         }

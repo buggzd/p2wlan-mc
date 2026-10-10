@@ -31,6 +31,8 @@ import net.minecraft.client.gui.widget.TextFieldWidget;
 public final class LocalGameClient implements ClientModInitializer {
     private GameFixtureData data;
     private AgentClient helper;
+    private io.p2wlan.mc.common.AgentLifecycle diagnosticOwner;
+    private Screen diagnosticParent;
     private RuntimeView runtime;
     private String peer;
     private CompletableFuture<AgentReply> pending;
@@ -99,7 +101,14 @@ public final class LocalGameClient implements ClientModInitializer {
         if (finished) return;
         try {
             data.withinDeadline();
-            if (client.currentScreen instanceof DisconnectedScreen && !"CLEANUP".equals(data.stage)) throw new IllegalStateException("VANILLA_DISCONNECTED");
+            if (client.currentScreen instanceof DisconnectedScreen && !"CLEANUP".equals(data.stage)) {
+                // Fixture-only private evidence, never parsed as control flow or packaged.
+                var reason = DisconnectedScreen.class.getDeclaredField("reason"); reason.setAccessible(true);
+                var text = (net.minecraft.text.Text) reason.get(client.currentScreen);
+                Files.writeString(data.root.resolve("vanilla-disconnect.fixture.txt"), text.getString().substring(0, Math.min(1024, text.getString().length())),
+                        java.nio.file.StandardOpenOption.CREATE_NEW);
+                throw new IllegalStateException("VANILLA_DISCONNECTED");
+            }
             switch (data.stage) {
                 case "AGENT" -> {
                     // A fresh Vanilla install first presents accessibility setup.
@@ -119,6 +128,36 @@ public final class LocalGameClient implements ClientModInitializer {
                     if (helper.snapshot().map(value -> AccountPresentation.state(value.data().get("account")) == AccountPresentation.State.UNKNOWN).orElse(true)) return;
                     var form = fields(client.currentScreen);
                     data.check(form.size() == 3 && !enabled(client.currentScreen, "登录") && !enabled(client.currentScreen, "注册"), "EMPTY_ACCOUNT_BUTTONS");
+                    data.check(enabled(client.currentScreen, "诊断日志"), "DIAGNOSTICS_ENTRY");
+                    press(client.currentScreen, "诊断日志");
+                    diagnosticParent = ((io.p2wlan.mc.fabric.client.screen.DiagnosticsScreen) client.currentScreen);
+                    diagnosticParent.close(); diagnosticParent = client.currentScreen;
+                    Files.writeString(data.root.resolve("diagnostic-blocker.fixture"), "fixture-diagnostic-secret", java.nio.file.StandardOpenOption.CREATE_NEW);
+                    diagnosticOwner = new io.p2wlan.mc.common.AgentLifecycle(data.root.resolve("diagnostic-blocker.fixture/profile"),
+                            Boolean.getBoolean("p2wlan.allowDevelopmentNative"), data.root.resolve("diagnostic-logs"));
+                    diagnosticOwner.start();
+                    client.setScreen(new io.p2wlan.mc.fabric.client.screen.DiagnosticsScreen(diagnosticParent, diagnosticOwner));
+                    data.advance("DIAGNOSTICS", 20);
+                }
+                case "DIAGNOSTICS" -> {
+                    if (paintedScreen != client.currentScreen || !diagnosticOwner.stopped().isDone() || !diagnosticOwner.diagnostics().flushed().isDone()) return;
+                    var snapshot = diagnosticOwner.diagnostics().snapshot();
+                    data.check(diagnosticOwner.status().phase() == io.p2wlan.mc.common.AgentLifecycle.Phase.FAILED, "DIAGNOSTIC_FAILED_HELPER");
+                    data.check(snapshot.failure() != null && snapshot.failure().reason().equals("INITIALIZATION_FAILED / PROFILE_IO"), "DIAGNOSTIC_IO_REASON");
+                    data.check(enabled(client.currentScreen, "复制诊断") && enabled(client.currentScreen, "打开日志目录"), "FAILED_HELPER_DIAGNOSTIC_BUTTONS");
+                    press(client.currentScreen, "复制诊断");
+                    String copied = client.keyboard.getClipboard();
+                    data.check(copied.contains("stage=PROFILE_OPEN") && copied.contains("operation=CREATE_DIRECTORY") && snapshot.failure().startup().osCode() != null, "DIAGNOSTIC_OS_EVIDENCE");
+                    data.check(!copied.contains("fixture-diagnostic-secret") && !copied.contains(data.root.toString()), "DIAGNOSTIC_REDACTED_COPY");
+                    data.check(Files.readString(data.root.resolve("diagnostic-logs/startup.log")).contains("PROFILE_IO"), "DIAGNOSTIC_INDEPENDENT_LOG");
+                    press(client.currentScreen, "返回");
+                    data.check(client.currentScreen == diagnosticParent && FabricP2wlan.AGENT.isCurrent(helper), "DIAGNOSTIC_RETURN_OWNER");
+                    diagnosticOwner.close(); diagnosticOwner = null;
+                    Files.delete(data.root.resolve("diagnostic-blocker.fixture"));
+                    data.cases.add("startup_diagnostics"); data.advance("FORM_FILLED", 10);
+                }
+                case "FORM_FILLED" -> {
+                    var form = fields(client.currentScreen);
                     form.get(0).setText(data.control); form.get(1).setText(data.identifier); form.get(2).setText(data.password); client.currentScreen.tick();
                     data.check(enabled(client.currentScreen, "登录") && enabled(client.currentScreen, "注册"), "FILLED_ACCOUNT_BUTTONS");
                     var warning = client.currentScreen.getClass().getDeclaredMethod("insecureControl"); warning.setAccessible(true);
@@ -318,7 +357,7 @@ public final class LocalGameClient implements ClientModInitializer {
                 default -> throw new IllegalStateException("CLIENT_STEP");
             }
         } catch (Throwable error) {
-            data.fail(error); FabricGameJoins.shutdown(); FabricP2wlan.AGENT.close(); finish(client);
+            data.fail(error); if (diagnosticOwner != null) diagnosticOwner.close(); FabricGameJoins.shutdown(); FabricP2wlan.AGENT.close(); finish(client);
         }
     }
     private void checkLogo(Screen screen) {

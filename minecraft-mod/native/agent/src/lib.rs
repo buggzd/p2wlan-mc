@@ -1,6 +1,8 @@
 //! Native networking Agent. No game/loader dependency or alternate path owner.
 #![forbid(unsafe_code)]
 mod account;
+mod diagnostic;
+pub use diagnostic::ProfileIo;
 mod private;
 mod profile;
 mod request;
@@ -62,7 +64,7 @@ pub enum AgentError {
     DiscoveryChanged,
     ProfileRequired,
     ProfileUnsupported,
-    ProfileIo,
+    ProfileIo(ProfileIo),
     ProfileInvalid,
     ProfileBusy,
     ProfileCapacity,
@@ -105,7 +107,7 @@ impl AgentError {
             Self::DiscoveryChanged => "DISCOVERY_CHANGED",
             Self::ProfileRequired => "PROFILE_REQUIRED",
             Self::ProfileUnsupported => "PROFILE_UNSUPPORTED_PLATFORM",
-            Self::ProfileIo => "PROFILE_IO",
+            Self::ProfileIo(_) => "PROFILE_IO",
             Self::ProfileInvalid => "PROFILE_INVALID",
             Self::ProfileBusy => "PROFILE_BUSY",
             Self::ProfileCapacity => "PROFILE_CAPACITY",
@@ -576,9 +578,12 @@ where
     W: AsyncWrite + Unpin,
 {
     let mut writer = FrameWriter::new(output);
+    let mut stage = "PROFILE_OPEN";
     let initialized = (|| {
         let profile = directory.map(Profile::open).transpose()?;
+        stage = "CONTROL_INIT";
         let api = AccountApi::new()?;
+        stage = "IDENTITY_INIT";
         let owner = Identity::generate()?;
         Ok::<_, AgentError>((profile, api, owner))
     })();
@@ -589,7 +594,7 @@ where
             // FrameWriter supplies the existing two-second write deadline; no
             // retry or hello is sent after failed initialization. Stderr is not IPC.
             let _ = writer
-                .write(&json!({"version":1, "event":"startup_error", "error":error.code()}))
+                .write(&json!({"version":1, "event":"startup_error", "error":error.code(), "diagnostic":diagnostic::startup(stage, error)}))
                 .await;
             return Err(error);
         }

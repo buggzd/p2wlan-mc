@@ -8,7 +8,7 @@ import java.util.Set;
 final class AgentMessages {
     sealed interface Message permits Owned, StartupError {}
     sealed interface Owned extends Message permits Hello, Reply, Status { String owner(); }
-    record StartupError(String error) implements Message {}
+    record StartupError(String error, StartupDiagnostic diagnostic) implements Message {}
     record Hello(String owner) implements Owned {}
     record Reply(String owner, long id, JsonObject result, String error) implements Owned {}
     record Status(String owner, long revision, JsonObject data) implements Owned {}
@@ -38,10 +38,11 @@ final class AgentMessages {
             throw new AgentException(AgentException.Code.PROTOCOL_MISMATCH);
         }
         if (message.has("event") && text(message.get("event")).equals("startup_error")) {
-            fields(message, "version", "event", "error");
+            if (message.has("diagnostic")) fields(message, "version", "event", "error", "diagnostic");
+            else fields(message, "version", "event", "error");
             String error = text(message.get("error"));
             if (!startupCode(error)) throw invalid();
-            return new StartupError(error);
+            return new StartupError(error, message.has("diagnostic") ? StartupDiagnostic.parse(message.get("diagnostic")) : null);
         }
         String owner = text(message.get("owner"));
         if (!owner.matches("[a-f0-9]{32}")) throw invalid();

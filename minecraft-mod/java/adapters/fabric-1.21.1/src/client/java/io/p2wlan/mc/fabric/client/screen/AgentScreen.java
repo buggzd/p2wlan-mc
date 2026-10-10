@@ -40,6 +40,8 @@ abstract class AgentScreen extends Screen {
         layout = ScreenLayout.of(width, height);
         formWidth = layout.width(); left = layout.left(); top = layout.top();
         // Local settings are usable even when helper initialization failed.
+        addDrawableChild(new PixelButton(Text.literal("诊断日志"), left + formWidth - 160, top - 42, 76,
+                button -> client.setScreen(new DiagnosticsScreen(this))));
         addDrawableChild(new PixelButton(Text.literal("显示设置"), left + formWidth - 76, top - 42, 76,
                 button -> client.setScreen(new DisplaySettingsScreen(this))));
     }
@@ -156,7 +158,7 @@ abstract class AgentScreen extends Screen {
         context.fill(left - 10, header - 6, left + formWidth + 10, header - 4, 0xff60a5fa);
         super.render(context, mouseX, mouseY, delta);
         context.drawTextWithShadow(textRenderer, "P2WLAN", left, header, 0xff60a5fa);
-        context.drawTextWithShadow(textRenderer, textRenderer.trimToWidth(title.getString(), formWidth - 95), left, header + 16, 0xfff7f9fc);
+        context.drawTextWithShadow(textRenderer, textRenderer.trimToWidth(title.getString(), formWidth - 170), left, header + 16, 0xfff7f9fc);
         var helper = FabricP2wlan.AGENT.status();
         String helperText = "IPC: " + helper.phase() + (helper.reason() == null ? " / " + "native" : " / " + helper.reason());
         boolean ready = helper.phase() == io.p2wlan.mc.common.AgentLifecycle.Phase.READY;
@@ -167,7 +169,8 @@ abstract class AgentScreen extends Screen {
         context.drawTextWithShadow(textRenderer, state, badge, header, tone);
         if (insecureControl()) context.drawTextWithShadow(textRenderer, "HTTP · 未加密", left, header + 40, 0xfff1c96a);
         for (Label label : labels) context.drawTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(label.text(), labelWidth())), left, label.y(), 0xd0d0d0);
-        String feedback = REQUESTS.busy() ? "正在处理…" : message.isEmpty() ? hint() : message;
+        String feedback = REQUESTS.busy() ? "正在处理…" : message.isEmpty()
+                ? !ready && helper.reason() != null ? "助手启动失败。点击「诊断日志」查看步骤和系统错误码。" : hint() : message;
         // Runtime/world truth remains visible even after a request result.
         String live = liveSummary();
         int reserved = live.isEmpty() ? 0 : 1;
@@ -177,7 +180,7 @@ abstract class AgentScreen extends Screen {
         for (int index = 0; index < count; index++) context.drawTextWithShadow(textRenderer, lines.get(index), left, layout.messageY() + (index + reserved) * (textRenderer.fontHeight + 2), (REQUESTS.busy() || !message.isEmpty()) ? 0xfff1c96a : 0xff7f8ba0);
         if (mouseX >= left && mouseX < left + formWidth) {
             String tooltip = mouseY >= header && mouseY < header + 10 ? helperText
-                    : mouseY >= header + 16 && mouseY < header + 26 && mouseX < left + formWidth - 80 ? "登录会话保存在本机私有目录，不保存密码。返回游戏或断开房间不会退出账号；Control 会在房间操作时重新检查授权。"
+                    : mouseY >= header + 16 && mouseY < header + 26 && mouseX < left + formWidth - 165 ? "登录会话保存在本机私有目录，不保存密码。返回游戏或断开房间不会退出账号；Control 会在房间操作时重新检查授权。"
                     : insecureControl() && mouseY >= header + 40 && mouseY < header + 49 ? ControlTransport.BANNER
                     : mouseY >= layout.messageY() && (reserved != 0 || lines.size() > 3) ? (reserved == 0 ? feedback : live + "\n" + feedback) : null;
             if (tooltip != null) setTooltip(Text.literal(tooltip));

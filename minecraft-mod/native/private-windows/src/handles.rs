@@ -1,5 +1,5 @@
 //! Win32 file handles, identity and bounded handle-relative mutation.
-use crate::{security::Security, Error};
+use crate::{security::Security, Error, Failure, Operation, Target};
 use std::fs::File;
 use std::io;
 use std::mem::{offset_of, size_of, zeroed};
@@ -83,7 +83,7 @@ pub(crate) fn open(
         )
     };
     if raw == INVALID_HANDLE_VALUE {
-        return Err(Error::Io);
+        return Err(Error::last(Operation::OpenFile));
     }
     Ok(unsafe { File::from_raw_handle(raw) })
 }
@@ -93,10 +93,11 @@ pub(crate) fn create_directory(path: &Path, security: &Security) -> Result<(), E
     let attributes = security.attributes();
     // SAFETY: input buffers live through this synchronous call. Existing
     // directories are not chmod'ed, taken over or interpreted as success yet.
-    if unsafe { CreateDirectoryW(name.as_ptr(), &attributes) } == 0
-        && io::Error::last_os_error().raw_os_error() != Some(ERROR_ALREADY_EXISTS as i32)
-    {
-        return Err(Error::Io);
+    if unsafe { CreateDirectoryW(name.as_ptr(), &attributes) } == 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(ERROR_ALREADY_EXISTS as i32) {
+            return Err(Error::io(Operation::CreateDirectory, &error));
+        }
     }
     Ok(())
 }
@@ -105,7 +106,7 @@ pub(crate) fn identity(file: &File, directory: bool, maximum: u64) -> Result<Fil
     // SAFETY: valid file handle and correctly-sized output structure.
     let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { zeroed() };
     if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
-        return Err(Error::Io);
+        return Err(Error::last(Operation::FileIdentity));
     }
     let is_directory = info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0;
     let size = ((info.nFileSizeHigh as u64) << 32) | info.nFileSizeLow as u64;
@@ -138,9 +139,11 @@ pub(crate) fn require_acls(file: &File) -> Result<(), Error> {
             0,
         )
     } == 0
-        || flags & FILE_PERSISTENT_ACLS == 0
     {
-        // FILE_PERSISTENT_ACLS; FAT/exFAT are intentionally not credentials stores.
+        return Err(Error::last(Operation::VolumeInformation));
+    }
+    if flags & FILE_PERSISTENT_ACLS == 0 {
+        // FAT/exFAT are intentionally not credentials stores.
         return Err(Error::Invalid);
     }
     Ok(())
@@ -172,7 +175,7 @@ pub(crate) fn rename(file: &File, target: &Path) -> Result<(), Error> {
             size as u32,
         ) == 0
         {
-            return Err(Error::Io);
+            return Err(Error::last(Operation::RenameFile));
         }
     }
     Ok(())
@@ -191,7 +194,12 @@ pub(crate) fn discard(file: &File) -> Result<(), Error> {
         )
     } == 0
     {
-        return Err(Error::Cleanup);
+        let error = io::Error::last_os_error();
+        return Err(Error::Cleanup(Failure::new(
+            Operation::DiscardTemporary,
+            error.raw_os_error(),
+        ))
+        .at(Target::TemporaryFile, None));
     }
     Ok(())
 }

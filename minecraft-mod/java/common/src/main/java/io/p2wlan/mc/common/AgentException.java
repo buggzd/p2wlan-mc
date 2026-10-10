@@ -12,16 +12,22 @@ public final class AgentException extends IOException {
     private final Code code;
     private final String remoteCode;
     private final Integer exitCode;
+    private final StartupDiagnostic startupDiagnostic;
 
     public AgentException(Code code) { this(code, null); }
-    public AgentException(Code code, String remoteCode) { this(code, remoteCode, null); }
-    private AgentException(Code code, String remoteCode, Integer exitCode) {
+    public AgentException(Code code, String remoteCode) { this(code, remoteCode, null, null); }
+    private AgentException(Code code, String remoteCode, Integer exitCode, StartupDiagnostic startupDiagnostic) {
         super(code.name());
         this.code = code;
         this.remoteCode = remoteCode;
         this.exitCode = exitCode;
+        this.startupDiagnostic = startupDiagnostic;
     }
-    static AgentException exited(int status) { return new AgentException(Code.UNEXPECTED_EXIT, null, status); }
+    static AgentException exited(int status) { return new AgentException(Code.UNEXPECTED_EXIT, null, status, null); }
+    static AgentException startup(String code, StartupDiagnostic detail) {
+        return new AgentException(Code.INITIALIZATION_FAILED, code, null, detail);
+    }
+    public StartupDiagnostic startupDiagnostic() { return startupDiagnostic; }
     public Code code() { return code; }
     public String remoteCode() { return remoteCode; }
     public Integer exitCode() { return exitCode; }

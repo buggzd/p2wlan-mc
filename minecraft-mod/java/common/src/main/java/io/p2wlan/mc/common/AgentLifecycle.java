@@ -15,6 +15,7 @@ public final class AgentLifecycle implements AutoCloseable {
     private final Object gate = new Object();
     private final Path profile;
     private final boolean development;
+    private final ModDiagnostics diagnostics;
     private final CompletableFuture<AgentClient> ready = new CompletableFuture<>();
     private final CompletableFuture<Void> stopped = new CompletableFuture<>();
     private Phase phase = Phase.NEW;
@@ -24,9 +25,14 @@ public final class AgentLifecycle implements AutoCloseable {
     private BundledAgent bundle;
 
     public AgentLifecycle(Path profile, boolean allowDevelopment) {
+        this(profile, allowDevelopment, null);
+    }
+    public AgentLifecycle(Path profile, boolean allowDevelopment, Path logDirectory) {
         if (profile == null || !profile.isAbsolute()) throw new IllegalArgumentException("INVALID_PROFILE_PATH");
         this.profile = profile;
         development = allowDevelopment;
+        diagnostics = new ModDiagnostics(logDirectory);
+        stopped.whenComplete((ignored, error) -> { diagnostics.stage(ModDiagnostics.Stage.CLEANUP_FINISHED); diagnostics.close(); });
     }
     public void start() {
         Thread worker;
@@ -37,6 +43,7 @@ public final class AgentLifecycle implements AutoCloseable {
             worker.setDaemon(true);
             starter = worker;
         }
+        diagnostics.start();
         ready.orTimeout(40, TimeUnit.SECONDS).whenComplete((client, error) -> {
             if (error instanceof TimeoutException) stop(error);
         });
@@ -51,7 +58,7 @@ public final class AgentLifecycle implements AutoCloseable {
         BundledAgent created = null;
         try {
             synchronized (gate) { if (closing) return; }
-            created = BundledAgent.launch(profile, development);
+            created = BundledAgent.launch(profile, development, diagnostics);
             boolean admit;
             synchronized (gate) {
                 admit = !closing;
@@ -67,7 +74,7 @@ public final class AgentLifecycle implements AutoCloseable {
                     current = !closing && bundle == owner && !owner.client().isClosed();
                     if (current) phase = Phase.READY;
                 }
-                if (current) ready.complete(owner.client());
+                if (current) { diagnostics.stage(ModDiagnostics.Stage.READY); ready.complete(owner.client()); }
                 else stop(new AgentException(AgentException.Code.CLOSED));
             });
         } catch (Exception error) {
@@ -94,6 +101,7 @@ public final class AgentLifecycle implements AutoCloseable {
             if (phase == Phase.CLOSING) phase = error == null ? Phase.CLOSED : Phase.FAILED;
             if (error != null) reason = reason(error);
         }
+        if (error != null) diagnostics.failure(error);
         if (error == null) stopped.complete(null); else stopped.completeExceptionally(error);
     }
     public CompletableFuture<AgentClient> ready() { return ready.copy(); }
@@ -111,6 +119,7 @@ public final class AgentLifecycle implements AutoCloseable {
                     ? java.util.Optional.of(bundle.client()) : java.util.Optional.empty();
         }
     }
+    public ModDiagnostics diagnostics() { return diagnostics; }
     public Status status() { synchronized (gate) { return new Status(phase, reason); } }
     private void stop(Throwable failure) {
         BundledAgent owner;
@@ -123,6 +132,8 @@ public final class AgentLifecycle implements AutoCloseable {
             owner = bundle;
             worker = starter;
         }
+        if (failure != null) diagnostics.failure(failure);
+        diagnostics.stage(ModDiagnostics.Stage.CLOSE_REQUESTED);
         if (worker != null && worker != Thread.currentThread()) worker.interrupt();
         if (owner != null) owner.close();
         ready.completeExceptionally(failure == null ? new AgentException(AgentException.Code.CLOSED) : failure);

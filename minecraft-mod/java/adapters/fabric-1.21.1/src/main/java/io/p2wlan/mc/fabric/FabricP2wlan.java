@@ -15,7 +15,8 @@ import net.minecraft.text.Text;
 public final class FabricP2wlan implements ModInitializer {
     public static final AgentLifecycle AGENT = new AgentLifecycle(
             FabricLoader.getInstance().getConfigDir().toAbsolutePath().resolve("p2wlan-private"),
-            Boolean.getBoolean("p2wlan.allowDevelopmentNative"));
+            Boolean.getBoolean("p2wlan.allowDevelopmentNative"),
+            FabricLoader.getInstance().getGameDir().toAbsolutePath().resolve("logs/p2wlan-mod"));
     @Override public void onInitialize() {
         FabricWorlds.initialize();
         if (FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER) {

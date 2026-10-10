@@ -35,7 +35,8 @@ async fn initialization_failure_emits_only_closed_reason_without_hello_or_owner(
     let message = frames.next().await.unwrap().unwrap();
     assert_eq!(
         message,
-        serde_json::json!({"version":1, "event":"startup_error", "error":"PROFILE_INVALID"})
+        serde_json::json!({"version":1, "event":"startup_error", "error":"PROFILE_INVALID", "diagnostic":{
+            "stage":"PROFILE_OPEN", "operation":"NONE", "target":"UNKNOWN", "os_code":null, "path_depth":null}})
     );
     assert!(!message.to_string().contains("fixture-private-value"));
     assert!(!message.to_string().contains(profile.0.to_str().unwrap()));
@@ -53,4 +54,29 @@ async fn startup_failure_write_is_bounded_and_never_retried_or_reported_ready() 
     .await
     .unwrap();
     assert_eq!(result, Err(AgentError::ProfileInvalid));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn profile_syscall_failure_retains_only_operation_category_and_numeric_os_code() {
+    let parent = InvalidProfile::create();
+    let path = parent.0.join("fixture-private-account-name");
+    let (output, input) = tokio::io::duplex(2048);
+    let result = run_with_profile(tokio::io::empty(), output, Some(&path)).await;
+    let detail = match result {
+        Err(AgentError::ProfileIo(detail)) => detail,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(detail.operation, "CREATE_DIRECTORY");
+    assert_eq!(detail.target, "PROFILE_DIRECTORY");
+    assert!(detail.os_code.is_some());
+    let mut frames = FrameReader::new(input);
+    let message = frames.next().await.unwrap().unwrap();
+    assert_eq!(message["error"], "PROFILE_IO");
+    assert_eq!(message["diagnostic"]["os_code"], detail.os_code.unwrap());
+    assert_eq!(message["diagnostic"]["operation"], "CREATE_DIRECTORY");
+    assert!(!message.to_string().contains("fixture-private"));
+    assert!(!message.to_string().contains(parent.0.to_str().unwrap()));
+    assert!(message.get("owner").is_none());
+    assert!(frames.next().await.unwrap().is_none());
 }

@@ -1,11 +1,11 @@
 //! Token/descriptor ownership and ACL validation; raw pointers never escape.
-use crate::Error;
+use crate::{Error, Failure, Operation, Target};
 use std::ffi::c_void;
 use std::fs::File;
 use std::mem::{size_of, zeroed};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::ptr::null_mut;
-use windows_sys::Win32::Foundation::{LocalFree, HANDLE};
+use windows_sys::Win32::Foundation::{LocalFree, ERROR_INSUFFICIENT_BUFFER, HANDLE};
 use windows_sys::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
     SE_FILE_OBJECT,
@@ -42,19 +42,27 @@ impl Security {
         unsafe {
             let mut handle: HANDLE = null_mut();
             if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut handle) == 0 {
-                return Err(Error::Io);
+                return Err(Error::last(Operation::OpenProcessToken).at(Target::ProcessToken, None));
             }
             let handle = File::from_raw_handle(handle);
             let mut needed = 0;
-            GetTokenInformation(
+            let measured = GetTokenInformation(
                 handle.as_raw_handle(),
                 TokenUser,
                 null_mut(),
                 0,
                 &mut needed,
             );
+            if measured == 0 {
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() != Some(ERROR_INSUFFICIENT_BUFFER as i32) {
+                    return Err(Error::io(Operation::TokenInformation, &error)
+                        .at(Target::ProcessToken, None));
+                }
+            }
             if needed < size_of::<TOKEN_USER>() as u32 || needed > 4096 {
-                return Err(Error::Io);
+                return Err(Error::Io(Failure::new(Operation::TokenInformation, None))
+                    .at(Target::ProcessToken, None));
             }
             let mut token = vec![0usize; (needed as usize).div_ceil(size_of::<usize>())];
             let size = (token.len() * size_of::<usize>()) as u32;
@@ -65,10 +73,12 @@ impl Security {
                 size,
                 &mut needed,
             ) == 0
-                || needed < size_of::<TOKEN_USER>() as u32
-                || needed > size
             {
-                return Err(Error::Io);
+                return Err(Error::last(Operation::TokenInformation).at(Target::ProcessToken, None));
+            }
+            if needed < size_of::<TOKEN_USER>() as u32 || needed > size {
+                return Err(Error::Io(Failure::new(Operation::TokenInformation, None))
+                    .at(Target::ProcessToken, None));
             }
             let sid = (*(token.as_ptr().cast::<TOKEN_USER>())).User.Sid;
             let sid_text = sid_string(sid)?;
@@ -86,7 +96,9 @@ impl Security {
                 null_mut(),
             ) == 0
             {
-                return Err(Error::Io);
+                return Err(
+                    Error::last(Operation::SecurityDescriptor).at(Target::ProcessToken, None)
+                );
             }
             Ok(Self {
                 token,
@@ -108,7 +120,7 @@ impl Security {
             let mut descriptor = null_mut();
             let mut owner = null_mut();
             let mut dacl = null_mut();
-            if GetSecurityInfo(
+            let result = GetSecurityInfo(
                 file.as_raw_handle(),
                 SE_FILE_OBJECT,
                 OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
@@ -117,9 +129,13 @@ impl Security {
                 &mut dacl,
                 null_mut(),
                 &mut descriptor,
-            ) != 0
-            {
-                return Err(Error::Io);
+            );
+            // GetSecurityInfo returns the Win32 error directly, not GetLastError.
+            if result != 0 {
+                return Err(Error::Io(Failure::new(
+                    Operation::SecurityInformation,
+                    Some(result as i32),
+                )));
             }
             let _memory = LocalMemory(descriptor);
             let sid = (*(self.token.as_ptr().cast::<TOKEN_USER>())).User.Sid;
@@ -181,11 +197,11 @@ unsafe fn sid_string(sid: PSID) -> Result<String, Error> {
     // ConvertSidToStringSidW yields a bounded, NUL-terminated LocalAlloc string.
     unsafe {
         if sid.is_null() || IsValidSid(sid) == 0 {
-            return Err(Error::Io);
+            return Err(Error::Invalid);
         }
         let mut text = null_mut();
         if ConvertSidToStringSidW(sid, &mut text) == 0 {
-            return Err(Error::Io);
+            return Err(Error::last(Operation::SidString).at(Target::ProcessToken, None));
         }
         let _memory = LocalMemory(text.cast());
         let mut result = String::new();
@@ -196,11 +212,11 @@ unsafe fn sid_string(sid: PSID) -> Result<String, Error> {
                 return Ok(result);
             }
             if value > 127 {
-                return Err(Error::Io);
+                return Err(Error::Invalid);
             }
             result.push(value as u8 as char);
         }
-        Err(Error::Io)
+        Err(Error::Invalid)
     }
 }
 

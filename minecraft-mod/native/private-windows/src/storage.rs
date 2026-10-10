@@ -1,4 +1,4 @@
-use crate::{handles, security::Security, valid_name, Error};
+use crate::{handles, security::Security, valid_name, Error, Operation, Target};
 use handles::{FileId, Kind};
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -59,29 +59,41 @@ impl PrivateDirectory {
         let security = Security::current_user()?;
         let mut directories = Vec::with_capacity(paths.len());
         for (index, path) in paths.into_iter().enumerate() {
+            let target = if path == root {
+                Target::ProfileDirectory
+            } else {
+                Target::Ancestor
+            };
+            let classify = |error: Error| error.at(target, Some(index as u8));
             if index != 0 {
-                handles::create_directory(&path, &security)?;
+                handles::create_directory(&path, &security).map_err(classify)?;
             }
             let kind = if path == root {
                 Kind::PrivateDirectory
             } else {
                 Kind::Directory
             };
-            let directory = handles::open(&path, kind, OPEN_EXISTING, None)?;
-            let identity = handles::identity(&directory, true, 0)?;
-            handles::require_acls(&directory)?;
+            let directory = handles::open(&path, kind, OPEN_EXISTING, None).map_err(classify)?;
+            let identity = handles::identity(&directory, true, 0).map_err(classify)?;
+            handles::require_acls(&directory).map_err(classify)?;
             directories.push((path, directory, identity));
         }
         let (_, directory, _) = directories.last().ok_or(Error::Invalid)?;
-        security.validate(directory, true)?;
+        security
+            .validate(directory, true)
+            .map_err(|error| error.at(Target::ProfileDirectory, None))?;
         let lock = handles::open(
             &root.join("profile.lock"),
             Kind::Lock,
             OPEN_ALWAYS,
             Some(&security),
-        )?;
-        let lock_id = handles::identity(&lock, false, FILE_LIMIT as u64)?;
-        security.validate(&lock, false)?;
+        )
+        .map_err(|error| error.at(Target::ProfileLock, None))?;
+        let lock_id = handles::identity(&lock, false, FILE_LIMIT as u64)
+            .map_err(|error| error.at(Target::ProfileLock, None))?;
+        security
+            .validate(&lock, false)
+            .map_err(|error| error.at(Target::ProfileLock, None))?;
         lock.try_lock().map_err(|_| Error::Busy)?;
         let result = Self {
             root,
@@ -94,29 +106,47 @@ impl PrivateDirectory {
         Ok(result)
     }
     fn current(&self) -> Result<(), Error> {
-        for (path, file, expected) in &self.directories {
-            let current = handles::open(path, Kind::Directory, OPEN_EXISTING, None)?;
-            if handles::identity(file, true, 0)? != *expected
-                || handles::identity(&current, true, 0)? != *expected
+        for (index, (path, file, expected)) in self.directories.iter().enumerate() {
+            let target = if path == &self.root {
+                Target::ProfileDirectory
+            } else {
+                Target::Ancestor
+            };
+            let classify = |error: Error| error.at(target, Some(index as u8));
+            let current =
+                handles::open(path, Kind::Directory, OPEN_EXISTING, None).map_err(classify)?;
+            if handles::identity(file, true, 0).map_err(classify)? != *expected
+                || handles::identity(&current, true, 0).map_err(classify)? != *expected
             {
                 return Err(Error::Invalid);
             }
         }
         let (_, directory, _) = self.directories.last().ok_or(Error::Invalid)?;
-        self.security.validate(directory, true)?;
+        self.security
+            .validate(directory, true)
+            .map_err(|error| error.at(Target::ProfileDirectory, None))?;
         let lock = handles::open(
             &self.root.join("profile.lock"),
             Kind::Read,
             OPEN_EXISTING,
             None,
-        )?;
-        if handles::identity(&lock, false, FILE_LIMIT as u64)? != self.lock_id
-            || handles::identity(&self.lock, false, FILE_LIMIT as u64)? != self.lock_id
+        )
+        .map_err(|error| error.at(Target::ProfileLock, None))?;
+        if handles::identity(&lock, false, FILE_LIMIT as u64)
+            .map_err(|error| error.at(Target::ProfileLock, None))?
+            != self.lock_id
+            || handles::identity(&self.lock, false, FILE_LIMIT as u64)
+                .map_err(|error| error.at(Target::ProfileLock, None))?
+                != self.lock_id
         {
             return Err(Error::Invalid);
         }
-        self.security.validate(&lock, false)?;
-        self.security.validate(&self.lock, false)
+        self.security
+            .validate(&lock, false)
+            .map_err(|error| error.at(Target::ProfileLock, None))?;
+        self.security
+            .validate(&self.lock, false)
+            .map_err(|error| error.at(Target::ProfileLock, None))
     }
     pub fn path(&self, name: &str) -> Result<PathBuf, Error> {
         if !valid_name(name) {
@@ -127,6 +157,7 @@ impl PrivateDirectory {
     }
     pub fn read(&self, name: &str) -> Result<Option<Vec<u8>>, Error> {
         let path = self.path(name)?;
+        let classify = |error: Error| error.at(Target::file(name), None);
         // symlink_metadata distinguishes absent from inaccessible, and avoids
         // classifying a dangling reparse target as an absent ordinary file.
         match fs::symlink_metadata(&path) {
@@ -134,7 +165,7 @@ impl PrivateDirectory {
                 self.current()?;
                 return Ok(None);
             }
-            Err(_) => return Err(Error::Io),
+            Err(error) => return Err(classify(Error::io(Operation::FileMetadata, &error))),
             Ok(metadata)
                 if !metadata.is_file()
                     || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 =>
@@ -143,18 +174,20 @@ impl PrivateDirectory {
             }
             Ok(_) => (),
         }
-        let file = handles::open(&path, Kind::Read, OPEN_EXISTING, None)?;
-        let id = handles::identity(&file, false, FILE_LIMIT as u64)?;
-        self.security.validate(&file, false)?;
+        let file = handles::open(&path, Kind::Read, OPEN_EXISTING, None).map_err(classify)?;
+        let id = handles::identity(&file, false, FILE_LIMIT as u64).map_err(classify)?;
+        self.security.validate(&file, false).map_err(classify)?;
         let mut bytes = Vec::new();
         (&file)
             .take(FILE_LIMIT as u64 + 1)
             .read_to_end(&mut bytes)
-            .map_err(|_| Error::Io)?;
-        if bytes.len() > FILE_LIMIT || handles::identity(&file, false, FILE_LIMIT as u64)? != id {
+            .map_err(|error| classify(Error::io(Operation::ReadFile, &error)))?;
+        if bytes.len() > FILE_LIMIT
+            || handles::identity(&file, false, FILE_LIMIT as u64).map_err(classify)? != id
+        {
             return Err(Error::Invalid);
         }
-        self.security.validate(&file, false)?;
+        self.security.validate(&file, false).map_err(classify)?;
         self.current()?;
         Ok(Some(bytes))
     }
@@ -163,6 +196,7 @@ impl PrivateDirectory {
             return Err(Error::Invalid);
         }
         let target = self.path(name)?;
+        let classify = |error: Error| error.at(Target::TemporaryFile, None);
         self.read(name)?;
         if self.entries()?.0 >= 256 {
             return Err(Error::Capacity);
@@ -181,26 +215,30 @@ impl PrivateDirectory {
             Kind::Temporary,
             CREATE_NEW,
             Some(&self.security),
-        )?;
+        )
+        .map_err(classify)?;
         let mut committed = false;
         let result = (|| {
-            let id = handles::identity(&file, false, FILE_LIMIT as u64)?;
-            self.security.validate(&file, false)?;
-            file.write_all(bytes).map_err(|_| Error::Io)?;
-            file.sync_all().map_err(|_| Error::Io)?;
+            let id = handles::identity(&file, false, FILE_LIMIT as u64).map_err(classify)?;
+            self.security.validate(&file, false).map_err(classify)?;
+            file.write_all(bytes)
+                .map_err(|error| classify(Error::io(Operation::WriteFile, &error)))?;
+            file.sync_all()
+                .map_err(|error| classify(Error::io(Operation::SyncFile, &error)))?;
             self.read(name)?;
             self.current()?;
-            if handles::identity(&file, false, FILE_LIMIT as u64)? != id {
+            if handles::identity(&file, false, FILE_LIMIT as u64).map_err(classify)? != id {
                 return Err(Error::Invalid);
             }
-            self.security.validate(&file, false)?;
-            handles::rename(&file, &target)?;
+            self.security.validate(&file, false).map_err(classify)?;
+            handles::rename(&file, &target).map_err(|error| error.at(Target::file(name), None))?;
             committed = true;
-            file.sync_all().map_err(|_| Error::Io)?;
-            if handles::identity(&file, false, FILE_LIMIT as u64)? != id {
+            file.sync_all()
+                .map_err(|error| classify(Error::io(Operation::SyncFile, &error)))?;
+            if handles::identity(&file, false, FILE_LIMIT as u64).map_err(classify)? != id {
                 return Err(Error::Invalid);
             }
-            self.security.validate(&file, false)?;
+            self.security.validate(&file, false).map_err(classify)?;
             self.current()?;
             Ok(())
         })();
@@ -219,12 +257,22 @@ impl PrivateDirectory {
         self.current()?;
         let mut count = 0;
         let mut entries = 0;
-        for (index, entry) in fs::read_dir(&self.root).map_err(|_| Error::Io)?.enumerate() {
+        for (index, entry) in fs::read_dir(&self.root)
+            .map_err(|error| {
+                Error::io(Operation::ReadDirectory, &error).at(Target::ProfileDirectory, None)
+            })?
+            .enumerate()
+        {
             if index >= 256 {
                 return Err(Error::Capacity);
             }
             entries = index + 1;
-            let name = entry.map_err(|_| Error::Io)?.file_name();
+            let name = entry
+                .map_err(|error| {
+                    Error::io(Operation::ReadDirectoryEntry, &error)
+                        .at(Target::ProfileDirectory, None)
+                })?
+                .file_name();
             if name.to_str().is_some_and(|name| {
                 name.len() == 74
                     && name.starts_with("room-")

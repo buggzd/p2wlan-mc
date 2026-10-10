@@ -23,24 +23,33 @@ public final class BundledAgent implements AutoCloseable {
         });
     }
     public static BundledAgent launch(Path profile, boolean allowDevelopment) throws NativeBundleException {
+        return launch(profile, allowDevelopment, null);
+    }
+    static BundledAgent launch(Path profile, boolean allowDevelopment, ModDiagnostics diagnostics) throws NativeBundleException {
         if (profile == null || !profile.isAbsolute()) throw new NativeBundleException(Code.START_FAILED);
         NativeInstallation installation = null;
         BundledAgent owner = null;
         try {
+            if (diagnostics != null) diagnostics.stage(ModDiagnostics.Stage.BUNDLE_PLATFORM);
             String platform = NativeManifest.currentPlatform();
             String prefix = "p2wlan/native/" + platform + "/";
             NativeManifest manifest;
+            if (diagnostics != null) diagnostics.stage(ModDiagnostics.Stage.BUNDLE_MANIFEST);
             try (InputStream metadata = resource(prefix + "manifest.properties")) {
                 manifest = NativeManifest.read(metadata, platform, allowDevelopment);
             }
+            if (diagnostics != null) { diagnostics.build(manifest); diagnostics.stage(ModDiagnostics.Stage.BUNDLE_EXTRACT); }
             try (InputStream bytes = resource(prefix + manifest.executableName())) {
                 installation = NativeInstallation.extract(manifest, bytes, Path.of(System.getProperty("java.io.tmpdir")));
             }
-            AgentClient client = AgentClient.launch(installation.validatedExecutable(), List.of("--profile-dir", profile.toString()));
+            if (diagnostics != null) diagnostics.stage(ModDiagnostics.Stage.CHILD_START);
+            AgentClient client = AgentClient.launch(installation.validatedExecutable(), List.of("--profile-dir", profile.toString()),
+                    AgentClient.DEFAULT_TIMEOUT, diagnostics);
             owner = new BundledAgent(client, installation);
             installation.checkLaunchedIdentity();
             return owner;
         } catch (IOException | RuntimeException error) {
+            if (diagnostics != null) diagnostics.failure(error);
             if (owner != null) owner.close(); // Child exit callback owns cleanup now.
             else if (installation != null) installation.close();
             if (error instanceof NativeBundleException known) throw known;

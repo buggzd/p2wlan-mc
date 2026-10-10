@@ -68,7 +68,19 @@ public final class AgentClientTests {
                 check(client.failureDetails().orElseThrow().remoteCode().equals("PROFILE_BUSY"));
             }
         }
-        for (String mode : List.of("startup_unknown", "startup_extra")) {
+        ModDiagnostics startupLog = new ModDiagnostics(null); startupLog.start();
+        try (AgentClient client = AgentClient.launch(probe, List.of("startup_diagnostic"), Duration.ofSeconds(1), startupLog)) {
+            AgentException error = failure(client.ready(), AgentException.Code.INITIALIZATION_FAILED);
+            check(error.startupDiagnostic().osCode() == 32);
+            check(error.startupDiagnostic().target().equals("ACCOUNT_FILE"));
+            ended(client, AgentException.Code.INITIALIZATION_FAILED);
+            client.terminated().get(3, TimeUnit.SECONDS);
+            check(startupLog.snapshot().copyText().contains("os_code=32"));
+            check(startupLog.snapshot().copyText().contains("event=CHILD_EXIT"));
+            check(!startupLog.snapshot().copyText().contains("fixture-private-value"));
+        }
+        startupLog.close();
+        for (String mode : List.of("startup_unknown", "startup_extra", "startup_diagnostic_secret")) {
             try (AgentClient client = AgentClient.launch(probe, List.of(mode), Duration.ofSeconds(1))) {
                 AgentException error = failure(client.ready(), AgentException.Code.INVALID_REPLY);
                 check(!error.diagnostic().contains("fixture-private-value"));

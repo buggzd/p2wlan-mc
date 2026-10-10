@@ -86,7 +86,10 @@ fn only_private_leaf_allows_atomic_rename_parent_write_access() {
     );
     storage.write("account.json", b"first").unwrap();
     storage.write("account.json", b"replacement").unwrap();
-    assert_eq!(storage.read("account.json").unwrap().unwrap(), b"replacement");
+    assert_eq!(
+        storage.read("account.json").unwrap().unwrap(),
+        b"replacement"
+    );
     assert!(fs::rename(&path, path.with_file_name("moved")).is_err());
     assert!(fs::remove_file(path.join("profile.lock")).is_err());
     assert_eq!(fs::read_dir(&path).unwrap().count(), 2);
@@ -214,4 +217,36 @@ fn bounded_enumeration_has_explicit_capacity_failure() {
     assert_eq!(fs::read_dir(&path).unwrap().count(), 256);
     fs::write(path.join("one-extra"), b"").unwrap();
     assert_eq!(storage.room_count(), Err(Error::Capacity));
+}
+
+#[test]
+fn sharing_failure_retains_win32_code_and_safe_account_category() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let fixture = Fixture::new();
+    let path = fixture.profile();
+    let storage = PrivateDirectory::open(&path).unwrap();
+    storage
+        .write("account.json", b"fixture-secret-not-log-data")
+        .unwrap();
+    let exclusive = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(path.join("account.json"))
+        .unwrap();
+    let error = storage.read("account.json").unwrap_err();
+    let crate::Error::Io(detail) = error else {
+        panic!("expected syscall failure, got {error:?}")
+    };
+    assert_eq!(detail.os_code, Some(32));
+    assert_eq!(detail.target, crate::Target::AccountFile);
+    assert!(matches!(
+        detail.operation,
+        crate::Operation::OpenFile | crate::Operation::FileMetadata
+    ));
+    assert!(!format!("{error:?}").contains("fixture-secret"));
+    drop(exclusive);
+    assert_eq!(
+        storage.read("account.json").unwrap().unwrap(),
+        b"fixture-secret-not-log-data"
+    );
 }
