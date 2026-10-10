@@ -55,6 +55,7 @@ public final class NetworkCatalogTests {
         reject(() -> ServiceCatalog.parse(reply(services("[]")), RUNTIME, "foreign"));
         reject(() -> ServiceCatalog.parse(new AgentReply("c".repeat(32), 1, catalog.evidence().data()), RUNTIME, "peer"));
         com.google.gson.JsonObject metric = JsonParser.parseString("{\"label\":\"Minecraft server\",\"virtual_ip\":\"10.77.0.2\",\"latency_ms\":17,\"jitter_ms\":2,\"last_success_age_ms\":100,\"bytes_sent\":2048,\"bytes_received\":4096}").getAsJsonObject();
+        metric.add("latency_stats", JsonParser.parseString("{\"window_ms\":60000,\"capacity\":256,\"samples\":1,\"capacity_limited\":false,\"last_sample_age_ms\":100,\"min_us\":17000,\"avg_us\":17000,\"max_us\":17000,\"p50_us\":17000,\"p90_us\":17000,\"p95_us\":17000,\"p99_us\":17000}"));
         com.google.gson.JsonObject view = new com.google.gson.JsonObject(); view.addProperty("network_generation","1");view.addProperty("peer_session","2");view.addProperty("online",true);view.addProperty("path","relay");view.add("metrics",metric);
         for (String key : List.of("remote_candidate_epoch", "path_revision", "udp_publication_owner", "mtu", "direct_budget_ready")) view.add(key, com.google.gson.JsonNull.INSTANCE);
         for (String key : List.of("direct_validation_owned", "direct_validation_request_bound", "direct_pair_present", "direct_pair_local_bound",
@@ -66,9 +67,9 @@ public final class NetworkCatalogTests {
         check(measured.tooltip(2).contains("不是 Control 延迟") && measured.tooltip(2).contains("2 ms"));
         metric.add("latency_ms",com.google.gson.JsonNull.INSTANCE);
         check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).latencyLabel(2).equals("未测得"));
-        metric.addProperty("latency_ms",17);metric.addProperty("last_success_age_ms",15001);
+        metric.addProperty("latency_ms",17);metric.addProperty("last_success_age_ms",15001);metric.getAsJsonObject("latency_stats").addProperty("last_sample_age_ms",15001);
         check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).latencyMs()==null);
-        metric.addProperty("last_success_age_ms",100);
+        metric.addProperty("last_success_age_ms",100);metric.getAsJsonObject("latency_stats").addProperty("last_sample_age_ms",100);
         view.addProperty("online",false);
         check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).latencyMs()==null);
         view.addProperty("online",true);
@@ -94,10 +95,12 @@ public final class NetworkCatalogTests {
         view.addProperty("mtu", 1);
         reject(()->PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1)); view.add("mtu", com.google.gson.JsonNull.INSTANCE);
         metric.addProperty("last_success_age_ms", 14_999);
+        metric.getAsJsonObject("latency_stats").addProperty("last_sample_age_ms",14_999);
         measured = PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1);
         check(measured.latencyLabel(2_000_001).equals("未测得"));
         check(!measured.fresh(0));
         metric.addProperty("last_success_age_ms", 100);
+        metric.getAsJsonObject("latency_stats").addProperty("last_sample_age_ms",100);
         metric.addProperty("latency_ms", 0);
         check(PeerTelemetry.parse(new AgentReply(RUNTIME.owner(),1,packet),RUNTIME,"peer",1).latencyLabel(2).equals("<1 ms"));
         metric.addProperty("latency_ms", 17);

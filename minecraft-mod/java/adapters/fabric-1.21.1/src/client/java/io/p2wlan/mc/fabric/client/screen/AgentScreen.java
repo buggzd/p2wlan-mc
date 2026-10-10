@@ -39,6 +39,9 @@ abstract class AgentScreen extends Screen {
         actions.clear(); labels.clear();
         layout = ScreenLayout.of(width, height);
         formWidth = layout.width(); left = layout.left(); top = layout.top();
+        // Local settings are usable even when helper initialization failed.
+        addDrawableChild(new PixelButton(Text.literal("显示设置"), left + formWidth - 76, top - 42, 76,
+                button -> client.setScreen(new DisplaySettingsScreen(this))));
     }
     private int labelWidth() { return Math.min(84, formWidth / 3); }
     protected TextFieldWidget field(int y, String name, int maximum) {
@@ -174,7 +177,7 @@ abstract class AgentScreen extends Screen {
         for (int index = 0; index < count; index++) context.drawTextWithShadow(textRenderer, lines.get(index), left, layout.messageY() + (index + reserved) * (textRenderer.fontHeight + 2), (REQUESTS.busy() || !message.isEmpty()) ? 0xfff1c96a : 0xff7f8ba0);
         if (mouseX >= left && mouseX < left + formWidth) {
             String tooltip = mouseY >= header && mouseY < header + 10 ? helperText
-                    : mouseY >= header + 16 && mouseY < header + 26 ? "登录会话保存在本机私有目录，不保存密码。返回游戏或断开房间不会退出账号；Control 会在房间操作时重新检查授权。"
+                    : mouseY >= header + 16 && mouseY < header + 26 && mouseX < left + formWidth - 80 ? "登录会话保存在本机私有目录，不保存密码。返回游戏或断开房间不会退出账号；Control 会在房间操作时重新检查授权。"
                     : insecureControl() && mouseY >= header + 40 && mouseY < header + 49 ? ControlTransport.BANNER
                     : mouseY >= layout.messageY() && (reserved != 0 || lines.size() > 3) ? (reserved == 0 ? feedback : live + "\n" + feedback) : null;
             if (tooltip != null) setTooltip(Text.literal(tooltip));

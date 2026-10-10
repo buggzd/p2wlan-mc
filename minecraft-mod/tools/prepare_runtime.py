@@ -61,6 +61,39 @@ def adapt_run(source: str) -> str:
     source = source[:first] + "        if !userspace {\n" + block + "\n        }" + source[last:]
     return source
 
+def adapt_path_health(source: str) -> str:
+    if "mc_latency" in source:
+        raise ContractError("upstream_contract_changed:latency-already-instrumented")
+    # Instrument only existing timed measurement commits, under their original
+    # owner/locks/fences. Untimed success/traffic and IPC reads cannot add samples.
+    source = replace_once(source, "    authoritative_sample_count: u64,",
+        "    authoritative_sample_count: u64,\n    pub(super) mc_latency: super::mc_latency::LatencyWindow,", "latency-history-owner")
+    regular = """    pub(super) fn record_success_with_latency(&mut self, latency: Duration) {
+        self.record_success();
+        let latency_ms = duration_millis(latency);
+        self.latency_ms = Some(latency_ms);
+        update_latency_ewma(&mut self.rtt_ewma_ms, &mut self.jitter_ms, latency_ms);
+    }"""
+    authoritative = """    pub(super) fn record_success_with_authoritative_latency(&mut self, latency: Duration) {
+        if self.authoritative_sample_count == 0 {
+            self.rtt_ewma_ms = None;
+            self.jitter_ms = None;
+        }
+        self.record_success();
+        let latency_ms = duration_millis(latency);
+        self.latency_ms = Some(latency_ms);
+        update_latency_ewma(&mut self.rtt_ewma_ms, &mut self.jitter_ms, latency_ms);
+        self.authoritative_sample_count = self.authoritative_sample_count.saturating_add(1);
+    }"""
+    for before, label in ((regular, "latency-regular-commit"), (authoritative, "latency-authoritative-commit")):
+        after = before[:-5] + "        self.mc_latency.record(latency, Instant::now());\n    }"
+        source = replace_once(source, before, after, label)
+    source = replace_once(source, "        if self.authoritative_sample_count == 0 {",
+        "        if self.authoritative_sample_count == 0 {\n            self.mc_latency.clear();", "latency-authoritative-reset")
+    source = replace_once(source, "        self.authoritative_sample_count = 0;",
+        "        self.authoritative_sample_count = 0;\n        self.mc_latency.clear();", "latency-lifecycle-reset")
+    return source
+
 def toml_value(value):
     if isinstance(value, str):
         return json.dumps(value)
@@ -159,9 +192,10 @@ def prepare(root: Path = ROOT, destination: Path = DESTINATION) -> Path:
                             None,
                         )""")
     peer_source = replace_once(source("src/peer.rs"), 'include!("peer/utils.rs");',
-        'include!("peer/utils.rs");\n#[path = "mc_metrics.rs"]\nmod mc_metrics;\npub use mc_metrics::PeerMetrics;', "peer-metrics-owner")
+        'include!("peer/utils.rs");\n#[path = "mc_metrics.rs"]\nmod mc_metrics;\n#[path = "mc_latency.rs"]\nmod mc_latency;\npub use mc_metrics::PeerMetrics;', "peer-metrics-owner")
     adapted = {
         "src/peer.rs": peer_source,
+        "src/peer/types/path_health.rs": adapt_path_health(source("src/peer/types/path_health.rs")),
         "src/dataplane/core.rs": adapt_dataplane(source("src/dataplane/core.rs")),
         "src/transport/inbound.rs": adapt_inbound(source("src/transport/inbound.rs")),
         "src/udp/business_mtu.rs": adapt_udp_business_mtu(source("src/udp/business_mtu.rs")),

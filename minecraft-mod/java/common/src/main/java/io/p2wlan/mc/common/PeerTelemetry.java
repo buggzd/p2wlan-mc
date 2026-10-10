@@ -10,7 +10,7 @@ import java.util.Set;
  * Missing/contended/stale samples are unknown, never invented zero latency. */
 public record PeerTelemetry(AgentReply evidence, RuntimeView runtime, String peer, String generation,
         String session, boolean online, String path, String label, String virtualIp, Long latencyMs,
-        Long jitterMs, Long lastSuccessAgeMs, Long bytesSent, Long bytesReceived, Integer overlayBudget, long observedAt) {
+        Long jitterMs, Long lastSuccessAgeMs, Long bytesSent, Long bytesReceived, Integer overlayBudget, LatencyStatistics statistics, long observedAt) {
     public static final long FRESH_NANOS = 5_000_000_000L;
     private static final Set<String> VIEW_FIELDS = Set.of("network_generation", "peer_session", "remote_candidate_epoch",
             "path_revision", "udp_publication_owner", "online", "path", "direct_validation_owned", "direct_validation_request_bound",
@@ -38,16 +38,22 @@ public record PeerTelemetry(AgentReply evidence, RuntimeView runtime, String pee
         boolean online = live.getAsBoolean(); String path = RuntimeView.text(view, "path");
         if (!view.get("path").isJsonNull() && (path == null || !Set.of("direct", "relay").contains(path))) throw invalid();
         String label = "", ip = ""; Long latency = null, jitter = null, age = null, tx = null, rx = null;
+        LatencyStatistics statistics = null;
         JsonElement raw = view.get("metrics");
         if (raw != null && !raw.isJsonNull()) {
             if (!raw.isJsonObject()) throw invalid();
             JsonObject metrics = raw.getAsJsonObject();
-            if (!metrics.keySet().equals(Set.of("label", "virtual_ip", "latency_ms", "jitter_ms", "last_success_age_ms", "bytes_sent", "bytes_received"))) throw invalid();
+            if (!metrics.keySet().equals(Set.of("label", "virtual_ip", "latency_ms", "jitter_ms", "last_success_age_ms", "bytes_sent", "bytes_received", "latency_stats"))) throw invalid();
             label = text(metrics, "label", 128, true); ip = text(metrics, "virtual_ip", 15, false);
             if (!ipv4(ip)) throw invalid();
             latency = number(metrics, "latency_ms"); jitter = number(metrics, "jitter_ms"); age = number(metrics, "last_success_age_ms");
             tx = number(metrics, "bytes_sent"); rx = number(metrics, "bytes_received");
             if (tx == null || rx == null) throw invalid();
+            var stats = metrics.get("latency_stats");
+            if (!stats.isJsonNull()) {
+                if (!stats.isJsonObject()) throw invalid();
+                statistics = LatencyStatistics.parse(stats.getAsJsonObject());
+            }
         }
         Integer budget = null;
         raw = view.get("mtu");
@@ -72,8 +78,8 @@ public record PeerTelemetry(AgentReply evidence, RuntimeView runtime, String pee
                 budget = value == null ? null : value.intValue();
             }
         }
-        if (!online || path == null || age == null || age > 15_000) { latency = null; jitter = null; }
-        return new PeerTelemetry(reply, runtime, peer, generation, session, online, path, label, ip, latency, jitter, age, tx, rx, budget, now);
+        if (!online || path == null || statistics == null || statistics.samples() == 0 || statistics.lastSampleAgeMs() == null || statistics.lastSampleAgeMs() > 15_000) { latency = null; jitter = null; }
+        return new PeerTelemetry(reply, runtime, peer, generation, session, online, path, label, ip, latency, jitter, age, tx, rx, budget, statistics, now);
     }
     private static boolean bool(JsonObject value, String key) throws AgentException {
         JsonElement raw = value.get(key);
@@ -91,7 +97,7 @@ public record PeerTelemetry(AgentReply evidence, RuntimeView runtime, String pee
                 || result.indexOf('§') >= 0 || result.codePoints().anyMatch(Character::isISOControl)) throw invalid();
         return result;
     }
-    private static Long number(JsonObject object, String key) throws AgentException {
+    static Long number(JsonObject object, String key) throws AgentException {
         JsonElement value = object.get(key);
         if (value == null || value.isJsonNull()) return null;
         if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber() || !value.getAsString().matches("0|[1-9][0-9]{0,18}")) throw invalid();
@@ -106,20 +112,26 @@ public record PeerTelemetry(AgentReply evidence, RuntimeView runtime, String pee
     public boolean fresh(long now) { return now >= observedAt && now - observedAt <= FRESH_NANOS; }
     public String name() { return label.isBlank() || label.startsWith("node-") ? "Minecraft 设备" : label; }
     public String pathLabel() { return !online ? "离线" : path == null ? "连接中" : path.equals("direct") ? "直连" : "中继"; }
-    private boolean recentRtt(long now) {
-        return fresh(now) && latencyMs != null && lastSuccessAgeMs != null && lastSuccessAgeMs <= 15_000
-                && (now - observedAt) / 1_000_000 <= 15_000 - lastSuccessAgeMs;
+    public boolean recentRtt(long now) {
+        return fresh(now) && latencyMs != null && statistics != null && statistics.lastSampleAgeMs() != null && statistics.lastSampleAgeMs() <= 15_000
+                && (now - observedAt) / 1_000_000 <= 15_000 - statistics.lastSampleAgeMs();
     }
     public String latencyLabel(long now) { return !fresh(now) ? "待更新" : !recentRtt(now) ? "未测得" : latencyMs == 0 ? "<1 ms" : latencyMs + " ms"; }
+    public boolean statisticsCurrent(long now) {
+        return fresh(now) && online && path != null && statistics != null
+                && (statistics.samples() == 0 || statistics.lastSampleAgeMs() != null
+                && (now - observedAt) / 1_000_000 <= LatencyStatistics.WINDOW_MS - statistics.lastSampleAgeMs());
+    }
     public String tooltip(long now) {
         return name() + "\n虚拟地址：" + (virtualIp.isEmpty() ? "待分配" : virtualIp)
                 + "\n链路：" + (fresh(now) ? pathLabel() : "待更新") + " · 端到端 RTT：" + latencyLabel(now)
-                + "\n抖动：" + (recentRtt(now) && jitterMs != null ? jitterMs + " ms" : "未测得")
+                + "\n抖动（平滑 RTT 偏差，不是标准差）：" + (recentRtt(now) && jitterMs != null ? jitterMs + " ms" : "未测得")
                 + "\n路径载荷 MTU：" + (fresh(now) && overlayBudget != null ? overlayBudget + " B" : "未确认")
                 + "\n发送 / 接收（累计）：" + bytes(bytesSent) + " / " + bytes(bytesReceived)
+                + (statisticsCurrent(now) ? "\n" + statistics.tooltip() + "\n最新计时样本：" + (statistics.lastSampleAgeMs() == null ? "未测得" : (statistics.lastSampleAgeMs() + (now - observedAt) / 1_000_000) + " ms 前") : "\n窗口统计：待测量 / 待更新")
                 + "\nMTU 为原生路径测量值，不是本 Mod 当前 TCP 分段上限。\nRTT 为 P2WLAN 实测往返时间，不是 Control 延迟或游戏 FPS。\n直连和中继都可用；状态与统计不是游戏可加入的保证。";
     }
-    private static String bytes(Long value) {
+    public static String bytes(Long value) {
         if (value == null) return "—";
         if (value < 1024) return value + " B";
         if (value < 1024 * 1024) return value / 1024 + " KiB";

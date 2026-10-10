@@ -40,7 +40,8 @@ public final class LocalGameClient implements ClientModInitializer {
     private io.p2wlan.mc.common.GameService chosenService, paintedSelection;
     private int sent, received, joins, peerQueries;
     private long nextQuery, nextRound, worldTime;
-    private boolean finished, telemetryConfirmed, savedServerInserted;
+    private boolean finished, telemetryConfirmed, savedServerInserted, hudCaptured;
+    private io.p2wlan.mc.common.DisplayPreferences paintedHud;
     @Override public void onInitializeClient() {
         try { data = new GameFixtureData("client"); }
         catch (Exception error) { throw new IllegalArgumentException("LOCAL_GAME_FIXTURE_CONFIG"); }
@@ -56,6 +57,10 @@ public final class LocalGameClient implements ClientModInitializer {
                             && ((io.p2wlan.mc.fabric.client.lan.VanillaLanScreen) multiplayer).p2wlan$list().getSelectedOrNull()
                                     instanceof io.p2wlan.mc.fabric.client.lan.VirtualLanEntry entry ? entry.service() : null;
                 }));
+        net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register((draw,ticks) -> {
+            var client=MinecraftClient.getInstance();
+            paintedHud=FabricGameJoins.playingService(client)==null?null:io.p2wlan.mc.fabric.client.ClientDisplaySettings.current();
+        });
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             String expected = "P2WLAN-fixture:" + data.run + ":" + sent;
             if ("PLAY".equals(data.stage) && sent > received && expected.equals(message.getString())) received = sent;
@@ -107,7 +112,7 @@ public final class LocalGameClient implements ClientModInitializer {
                     data.check(FabricP2wlan.AGENT.isCurrent(helper), "HELPER_OWNER");
                     var ready = JsonParser.parseString(Files.readString(data.root.resolve("server-ready.json"))).getAsJsonObject();
                     data.check(ready.keySet().equals(Set.of("schema", "run", "peer")) && ready.get("run").getAsString().equals(data.run), "READY_RUN");
-                    peer = ready.get("peer").getAsString(); press(client.currentScreen, "P2WLAN"); data.advance("FORM", 10);
+                    peer = ready.get("peer").getAsString(); checkLogo(client.currentScreen); press(client.currentScreen, "P2WLAN"); data.advance("FORM", 10);
                 }
                 case "FORM" -> {
                     if (!screen(client, "AccountScreen")) return;
@@ -177,7 +182,7 @@ public final class LocalGameClient implements ClientModInitializer {
                                 data.check(runtime.isCurrent(helper) && helper.isCurrent(reply), "PEER_READY_OWNER");
                                 data.cases.add("runtime_peer");
                                 net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(data.root.toFile(),"p2wlan-network.png",client.getFramebuffer(),message->{});
-                                press(client.currentScreen,"打开多人游戏"); pending = null; data.advance("DISCOVERY", 20); return;
+                                press(client.currentScreen,"显示设置"); pending = null; data.advance("DISPLAY_SETTINGS", 20); return;
                             }
                         } catch (java.util.concurrent.CompletionException error) {
                             var failure = io.p2wlan.mc.common.UiCompletionGate.unwrap(error);
@@ -190,6 +195,39 @@ public final class LocalGameClient implements ClientModInitializer {
                         var args = runtime.arguments(); args.addProperty("peer", peer);
                         pending = helper.request("peer_status", args, () -> runtime.isCurrent(helper));
                     }
+                }
+                case "DISPLAY_SETTINGS" -> {
+                    if (!screen(client,"DisplaySettingsScreen") || paintedScreen!=client.currentScreen) return;
+                    data.check(!io.p2wlan.mc.fabric.client.ClientDisplaySettings.current().hudVisible(),"HUD_DEFAULT_OFF");
+                    net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(data.root.toFile(),"p2wlan-display-basic.png",client.getFramebuffer(),message->{});
+                    press(client.currentScreen,"游戏浮层：");press(client.currentScreen,"高级");press(client.currentScreen,"浮层位置：");
+                    press(client.currentScreen,"保存并返回");data.advance("DISPLAY_SAVED",10);
+                }
+                case "DISPLAY_SAVED" -> {
+                    if (!screen(client,"RuntimeScreen")) return;
+                    var settings=io.p2wlan.mc.fabric.client.ClientDisplaySettings.current();
+                    var loaded=new io.p2wlan.mc.common.DisplayPreferencesStore(net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("p2wlan-display.json")).load();
+                    data.check(settings.hudVisible() && settings.detail()==io.p2wlan.mc.common.DisplayPreferences.Detail.ADVANCED
+                            && settings.corner()==io.p2wlan.mc.common.DisplayPreferences.Corner.TOP_RIGHT && loaded.preferences().equals(settings)
+                            && loaded.reason()==io.p2wlan.mc.common.DisplayPreferencesStore.Reason.OK,"DISPLAY_PERSISTED");
+                    press(client.currentScreen,"显示设置");data.advance("DISPLAY_REOPEN",10);
+                }
+                case "DISPLAY_REOPEN" -> {
+                    if (!screen(client,"DisplaySettingsScreen") || paintedScreen!=client.currentScreen) return;
+                    data.check(button(client.currentScreen,"游戏浮层：开启")!=null && button(client.currentScreen,"[ 高级 ]")!=null,"DISPLAY_REOPENED");
+                    net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(data.root.toFile(),"p2wlan-display-advanced.png",client.getFramebuffer(),message->{});
+                    press(client.currentScreen,"延迟统计");data.advance("LATENCY_STATS",15);
+                }
+                case "LATENCY_STATS" -> {
+                    if (!screen(client,"LatencyStatsScreen") || paintedScreen!=client.currentScreen || paintedTelemetry==null
+                            || !paintedTelemetry.statisticsCurrent(System.nanoTime()) || paintedTelemetry.statistics().samples()==0) return;
+                    var stats=paintedTelemetry.statistics();
+                    data.check(stats.samples()<=256 && stats.minUs()<=stats.avgUs() && stats.avgUs()<=stats.maxUs()
+                            && stats.p50Us()<=stats.p90Us() && stats.p90Us()<=stats.p95Us() && stats.p95Us()<=stats.p99Us() && stats.p99Us()<=stats.maxUs(),"NATIVE_WINDOW_STATS");
+                    net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(data.root.toFile(),"p2wlan-latency-statistics.png",client.getFramebuffer(),message->{});
+                    press(client.currentScreen,"返回");press(client.currentScreen,"取消");
+                    data.cases.add("display_preferences");data.cases.add("latency_statistics");
+                    press(client.currentScreen,"打开多人游戏");data.advance("DISCOVERY",20);
                 }
                 case "DISCOVERY" -> {
                     if (!(client.currentScreen instanceof net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen multiplayer)) return;
@@ -212,6 +250,7 @@ public final class LocalGameClient implements ClientModInitializer {
                 case "BROWSER_JOIN" -> {
                     if (!(client.currentScreen instanceof net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen multiplayer)
                             || paintedScreen != multiplayer || !chosenService.equals(paintedSelection)) return;
+                    checkLogo(multiplayer);
                     net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(data.root.toFile(),"p2wlan-multiplayer.png",client.getFramebuffer(),message->{});
                     press(multiplayer,net.minecraft.text.Text.translatable("selectServer.select").getString());
                     data.cases.add("discovery");data.cases.add("vanilla_browser");data.advance("JOIN",40);
@@ -229,8 +268,15 @@ public final class LocalGameClient implements ClientModInitializer {
                         data.check(runtime.equals(measured.runtime()) && !measured.virtualIp().isEmpty() && measured.lastSuccessAgeMs() != null
                                 && measured.lastSuccessAgeMs() <= 15_000 && Set.of("direct", "relay").contains(measured.path()), "NATIVE_TIMED_PEER_TELEMETRY");
                         telemetryConfirmed = true; data.cases.add("telemetry");
+                        client.setScreen(new net.minecraft.client.gui.screen.GameMenuScreen(true));data.advance("PLAY_MENU",10);return;
                     }
-                    if (received == GameFixtureData.ROUNDS && client.player.experienceLevel == received && telemetryConfirmed) {
+                    if (!hudCaptured && paintedHud!=null && sent>=1 && received>=1) {
+                        data.check(paintedHud.hudVisible() && paintedHud.detail()==io.p2wlan.mc.common.DisplayPreferences.Detail.ADVANCED
+                                && io.p2wlan.mc.common.TelemetryPresentation.hud(paintedHud,measured,System.nanoTime()).size()==6,"ADVANCED_HUD_PAINTED");
+                        net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(data.root.toFile(),"p2wlan-hud-advanced.png",client.getFramebuffer(),message->{});
+                        hudCaptured=true;data.cases.add("latency_hud");
+                    }
+                    if (received == GameFixtureData.ROUNDS && client.player.experienceLevel == received && telemetryConfirmed && hudCaptured) {
                         data.check(client.world.getTime() - worldTime >= 350, "WORLD_TICK_PROGRESS");
                         data.cases.add("sustained_duplex"); client.world.disconnect(); client.disconnect(); client.setScreen(new TitleScreen());
                         FabricGameJoins.shutdown(); data.advance("DISCONNECT", 15); return;
@@ -239,6 +285,12 @@ public final class LocalGameClient implements ClientModInitializer {
                         sent++; client.getNetworkHandler().sendChatCommand("p2wlan-game-fixture " + data.run + " " + sent);
                         nextRound = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
                     }
+                }
+                case "PLAY_MENU" -> {
+                    if (!(client.currentScreen instanceof net.minecraft.client.gui.screen.GameMenuScreen) || paintedScreen!=client.currentScreen) return;
+                    checkLogo(client.currentScreen);data.cases.add("menu_logo");
+                    net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(data.root.toFile(),"p2wlan-pause-logo.png",client.getFramebuffer(),message->{});
+                    client.setScreen(null);data.advance("PLAY",55);
                 }
                 case "DISCONNECT" -> {
                     if (client.world != null || client.getNetworkHandler() != null) return;
@@ -268,6 +320,14 @@ public final class LocalGameClient implements ClientModInitializer {
         } catch (Throwable error) {
             data.fail(error); FabricGameJoins.shutdown(); FabricP2wlan.AGENT.close(); finish(client);
         }
+    }
+    private void checkLogo(Screen screen) {
+        var logo=button(screen,"P2WLAN");
+        data.check(logo instanceof io.p2wlan.mc.fabric.client.screen.LogoButton && logo.getWidth()==20 && logo.getHeight()==20
+                && buttons(screen).stream().filter(other->other!=logo).anyMatch(other->other.getY()==logo.getY()
+                    && (other.getX()+other.getWidth()+4==logo.getX() || logo.getX()+24==other.getX()))
+                && buttons(screen).stream().filter(other->other!=logo).noneMatch(other->logo.getX()<other.getX()+other.getWidth()
+                    && logo.getX()+20>other.getX() && logo.getY()<other.getY()+other.getHeight() && logo.getY()+20>other.getY()),"ADJACENT_SQUARE_LOGO");
     }
     private ButtonWidget member(Screen screen) {
         return buttons(screen).stream().filter(value -> value.active && !value.getMessage().getString().isBlank() && peer.startsWith(value.getMessage().getString())).findFirst().orElse(null);

@@ -195,11 +195,9 @@ impl PeerGrant {
             direct_budget_ready: udp
                 .as_ref()
                 .map(|udp| udp.direct_business_budget_ready_for_peer(&self.id)),
-            metrics: committed.as_ref().and_then(|path| {
-                self.authority
-                    .peers
-                    .mc_peer_metrics(&self.id, &path.virtual_ip, path.active_path())
-            }),
+            metrics: committed
+                .as_ref()
+                .and_then(|path| self.authority.peers.mc_peer_metrics(&self.id, path)),
             mtu: mtu.map(MtuView::from),
         };
         // Recheck identity after projections; consumers must not use this view

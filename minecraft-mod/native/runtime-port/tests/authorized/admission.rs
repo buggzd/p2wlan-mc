@@ -350,6 +350,7 @@ async fn peer_view_is_secret_free_authorized_and_fenced_after_projection() {
                 "virtual_ip",
                 "latency_ms",
                 "jitter_ms",
+                "latency_stats",
                 "last_success_age_ms",
                 "bytes_sent",
                 "bytes_received"

@@ -100,6 +100,24 @@ class RuntimeOverlayTests(unittest.TestCase):
                     with self.assertRaises(overlay.ContractError):
                         transform(invalid)
 
+    def test_latency_instrumentation_is_exact_owned_and_never_samples_untimed_success(self):
+        source = (ROOT / "client/daemon/src/peer/types/path_health.rs").read_text()
+        adapted = overlay.adapt_path_health(source)
+        self.assertEqual(adapted.count("mc_latency.record(latency, Instant::now())"), 2)
+        untimed = adapted.split("fn record_success(&mut self)", 1)[1].split("fn record_success_with_latency", 1)[0]
+        self.assertNotIn("mc_latency.record", untimed)
+        authoritative = adapted.split("fn record_success_with_authoritative_latency", 1)[1].split("fn record_failure", 1)[0]
+        self.assertLess(authoritative.index("mc_latency.clear()"), authoritative.index("mc_latency.record"))
+        self.assertIn("self.authoritative_sample_count = 0;\n        self.mc_latency.clear();", adapted)
+        for invalid in ("", source + source, adapted, source.replace("record_success_with_latency", "new_success")):
+            with self.assertRaises(overlay.ContractError):
+                overlay.adapt_path_health(invalid)
+        projection = (PROJECT / "native/runtime-overlay/mc_metrics.rs").read_text()
+        self.assertIn("state.epoch != expected.epoch", projection)
+        self.assertIn("state.active != expected.active", projection)
+        self.assertIn("state.lifecycle != expected.lifecycle", projection)
+        self.assertNotIn(".await", projection)
+
     def test_original_control_families_are_classified_before_business_admission(self):
         from runtime_fencing import adapt_inbound
         source = (ROOT / "client/daemon/src/transport/inbound.rs").read_text()

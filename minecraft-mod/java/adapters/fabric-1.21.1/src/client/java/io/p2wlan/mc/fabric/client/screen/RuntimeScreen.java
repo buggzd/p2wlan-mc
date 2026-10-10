@@ -87,12 +87,7 @@ final class RuntimeScreen extends AgentScreen {
     @Override public void render(DrawContext draw,int mouseX,int mouseY,float delta) {
         super.render(draw,mouseX,mouseY,delta);
         long now=System.nanoTime(); var observations=FabricNetworkView.peers();
-        var playing = FabricGameJoins.playingService(client);
-        PeerTelemetry peer = playing == null ? null : FabricNetworkView.peer(playing.peer());
-        if (playing == null) {
-            peer = observations.stream().filter(value -> value.online() && value.fresh(now))
-                    .min(java.util.Comparator.comparingLong(value -> value.latencyMs() == null ? Long.MAX_VALUE : value.latencyMs())).orElse(null);
-        }
+        PeerTelemetry peer = FabricNetworkView.displayPeer(client);
         String latency=peer==null?"未测得":peer.latencyLabel(now);
         long online=observations.stream().filter(value->value.online() && value.fresh(now)).count();
         String ip=runtime.isCurrent(agent())?agent().snapshot().map(value->RuntimeView.text(value.data(),"virtual_ip")).orElse(null):null;

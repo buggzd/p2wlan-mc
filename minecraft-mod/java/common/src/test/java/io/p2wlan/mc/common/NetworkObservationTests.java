@@ -21,7 +21,7 @@ final class NetworkObservationTests {
     }
     private static PeerTelemetry peer(RuntimeView runtime, String id, String generation, String session, boolean online, long at) {
         return new PeerTelemetry(reply(runtime), runtime, id, generation, session, online, online ? "direct" : null,
-                "Minecraft", "10.77.0.2", 17L, 2L, 100L, 2048L, 4096L, 1168, at);
+                "Minecraft", "10.77.0.2", 17L, 2L, 100L, 2048L, 4096L, 1168, new LatencyStatistics(1,false,100L,17000L,17000L,17000L,17000L,17000L,17000L,17000L), at);
     }
     private static ServiceCatalog catalog(RuntimeView runtime, String peer, int count) {
         return new ServiceCatalog(reply(runtime), runtime, peer, IntStream.range(0, count)

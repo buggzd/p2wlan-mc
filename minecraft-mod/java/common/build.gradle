@@ -161,3 +161,11 @@ tasks.register('screenPresentationTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.common.ScreenPresentationTests'
 }
 check.dependsOn screenPresentationTest
+
+// Rendering preferences and native-owner RTT aggregate contracts.
+tasks.register('displaySettingsTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.DisplaySettingsTests'
+}
+check.dependsOn displaySettingsTest

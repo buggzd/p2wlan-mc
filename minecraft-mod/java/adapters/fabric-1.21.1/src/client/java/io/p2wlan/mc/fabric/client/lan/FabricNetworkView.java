@@ -30,6 +30,13 @@ public final class FabricNetworkView {
     public static List<GameService> services() { return current() ? observations.services(System.nanoTime()) : List.of(); }
     public static List<PeerTelemetry> peers() { return current() ? observations.peers() : List.of(); }
     public static PeerTelemetry peer(String id) { return current() ? observations.peer(id) : null; }
+    public static PeerTelemetry displayPeer(MinecraftClient client) {
+        var playing = FabricGameJoins.playingService(client);
+        if (playing != null) return peer(playing.peer());
+        long now = System.nanoTime();
+        return peers().stream().filter(value -> value.online() && value.fresh(now))
+                .min(java.util.Comparator.comparingLong(value -> value.recentRtt(now) ? value.latencyMs() : Long.MAX_VALUE)).orElse(null);
+    }
     public static boolean authorized() { return current() && observations.authorized(System.nanoTime()); }
     public static String reason() { return current() ? observations.reason() : ""; }
     public static String roomName() {
