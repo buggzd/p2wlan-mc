@@ -16,12 +16,17 @@ public final class AccountScreen extends AgentScreen {
     private PasswordField password;
     public AccountScreen(Screen parent) { super(parent, "P2WLAN 账号 / Account"); }
     public static Screen entry(Screen parent) {
-        var runtime = RuntimeView.active(FabricP2wlan.AGENT.current().orElse(null));
-        return runtime.<Screen>map(value -> new RuntimeScreen(parent, value)).orElseGet(() -> new AccountScreen(parent));
+        var agent = FabricP2wlan.AGENT.current().orElse(null);
+        var runtime = RuntimeView.active(agent);
+        if (runtime.isPresent()) return new RuntimeScreen(parent, runtime.get());
+        var account = agent == null ? null : agent.snapshot().map(value -> value.data().get("account")).orElse(null);
+        if (agent != null && FabricP2wlan.AGENT.isCurrent(agent) && !agent.isClosed()
+                && AccountPresentation.state(account) == AccountPresentation.State.SAVED_SESSION) return new RoomsScreen(parent);
+        return new AccountScreen(parent);
     }
     @Override protected void init() {
         // Preserve only non-secret input across resize/back. Passwords are cleared.
-        String enteredServer = server == null ? "" : server.getText();
+        String enteredServer = server == null ? savedServer() : server.getText();
         String enteredIdentifier = identifier == null ? "" : identifier.getText();
         if (password != null) password.setText("");
         super.init();
@@ -35,6 +40,11 @@ public final class AccountScreen extends AgentScreen {
         action("注册 / Register", layout.right(), layout.row(3), layout.halfWidth(), this::canRegister, button -> authenticate("register"));
         footerAction("我的房间 / Rooms", this::savedAccount, button -> client.setScreen(new RoomsScreen(this)));
         back(true); setInitialFocus(server);
+    }
+    private String savedServer() {
+        var current = agent();
+        return current != null && FabricP2wlan.AGENT.isCurrent(current) && !current.isClosed()
+                ? current.snapshot().map(value -> AccountPresentation.server(value.data().get("account"))).orElse("") : "";
     }
     private boolean filled() {
         return server != null && identifier != null && password != null && !server.getText().isBlank()

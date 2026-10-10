@@ -24,7 +24,7 @@ CASES = {
     "server": {"world_host", "vanilla_login", "sustained_duplex", "player_disconnect", "world_cleanup", "helper_cleanup"},
     "client": {"account_buttons", "register_login", "room_join", "runtime_peer", "discovery", "vanilla_play", "sustained_duplex", "disconnect", "room_stop", "helper_cleanup"},
 }
-CHECKS = {"server": 68, "client": 27}
+CHECKS = {"server": 68, "client": 28}
 FIELDS = {"schema", "run", "role", "status", "reason", "checks", "minecraft", "helper_cleanup", "world_cleanup", "joins", "rounds", "cases"}
 
 

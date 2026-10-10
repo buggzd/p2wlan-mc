@@ -195,8 +195,10 @@ public final class LocalGameClient implements ClientModInitializer {
                     press(client.currentScreen, "断开房间"); data.advance("STOPPED", 15);
                 }
                 case "STOPPED" -> {
-                    if (RuntimeView.active(helper).isPresent() || !screen(client, "AccountScreen")) return;
+                    if (RuntimeView.active(helper).isPresent() || !screen(client, "RoomsScreen")) return;
                     data.check("idle".equals(helper.snapshot().map(value -> RuntimeView.text(value.data(), "phase")).orElse(null)), "ROOM_STOPPED");
+                    data.check(helper.snapshot().map(value -> AccountPresentation.state(value.data().get("account")) == AccountPresentation.State.SAVED_SESSION
+                            && AccountPresentation.server(value.data().get("account")).equals(data.control)).orElse(false), "ROOM_STOP_RETAINS_ACCOUNT_AND_CONTROL");
                     data.cases.add("room_stop"); FabricP2wlan.AGENT.close(); data.advance("CLEANUP", 25);
                 }
                 case "CLEANUP" -> {

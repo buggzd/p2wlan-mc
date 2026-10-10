@@ -24,6 +24,11 @@ public final class ScreenPresentationTests {
         }
         check(AccountPresentation.state(account(false)) == AccountPresentation.State.NO_SESSION);
         check(AccountPresentation.state(account(true)) == AccountPresentation.State.SAVED_SESSION);
+        check(AccountPresentation.server(account(true)).equals("http://control.example.com:18080"));
+        check(AccountPresentation.server(account(false)).isEmpty());
+        check(AccountPresentation.server(null).isEmpty());
+        JsonObject secret = account(true); secret.addProperty("token", "never-project");
+        check(AccountPresentation.server(secret).isEmpty());
         for (String field : new String[]{"server", "user_id", "authenticated"}) {
             JsonObject missing = account(true); missing.remove(field);
             check(AccountPresentation.state(missing) == AccountPresentation.State.UNKNOWN);

@@ -24,6 +24,10 @@ public final class AccountPresentation {
                 && boundedText(account.get("server"), 2048) && boundedText(account.get("user_id"), 128)
                 ? State.SAVED_SESSION : State.UNKNOWN;
     }
+    /** Non-secret saved endpoint. Callers still fence the native process owner. */
+    public static String server(JsonElement projected) {
+        return state(projected) == State.SAVED_SESSION ? projected.getAsJsonObject().get("server").getAsString() : "";
+    }
     private static boolean boundedText(JsonElement value, int maximum) {
         return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()
                 && !value.getAsString().isEmpty() && value.getAsString().getBytes(StandardCharsets.UTF_8).length <= maximum;
