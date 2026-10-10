@@ -95,6 +95,66 @@ fn only_private_leaf_allows_atomic_rename_parent_write_access() {
     assert_eq!(fs::read_dir(&path).unwrap().count(), 2);
 }
 #[test]
+fn drive_root_guard_accepts_existing_writer_and_still_pins_identity() {
+    use handles::Kind;
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ADD_FILE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    let fixture = Fixture::new();
+    // Exercise the exact drive-root handle policy on an owned disposable
+    // directory. Do not request write access to or modify the system root.
+    let writer = fs::OpenOptions::new()
+        .access_mode(FILE_ADD_FILE | FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&fixture.0)
+        .unwrap();
+    let old_policy = handles::open(&fixture.0, Kind::Directory, OPEN_EXISTING, None);
+    assert!(matches!(old_policy, Err(Error::Io(detail)) if detail.os_code == Some(32)));
+    let guard = handles::open(&fixture.0, Kind::DriveRoot, OPEN_EXISTING, None).unwrap();
+    assert_eq!(
+        handles::identity(&guard, true, 0).unwrap(),
+        handles::identity(&writer, true, 0).unwrap()
+    );
+    let moved = fixture.0.with_extension("moved");
+    drop(writer);
+    assert!(fs::rename(&fixture.0, &moved).is_err());
+    drop(guard);
+    fs::rename(&fixture.0, &moved).unwrap();
+    fs::rename(&moved, &fixture.0).unwrap();
+}
+
+#[test]
+fn revalidation_keeps_private_parent_write_sharing() {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ADD_FILE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    let fixture = Fixture::new();
+    let path = fixture.profile();
+    let storage = PrivateDirectory::open(&path).unwrap();
+    let writer = fs::OpenOptions::new()
+        .access_mode(FILE_ADD_FILE | FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&path)
+        .unwrap();
+    // Acquisition and every later identity check must use the same role.
+    // Reopening the private parent as a strict ancestor would fail here.
+    storage.write("account.json", b"first").unwrap();
+    storage.write("account.json", b"replacement").unwrap();
+    assert_eq!(
+        storage.read("account.json").unwrap().unwrap(),
+        b"replacement"
+    );
+    assert!(fs::rename(&path, path.with_file_name("moved")).is_err());
+    drop(writer);
+}
+
+#[test]
 fn pins_directory_ancestors_and_lock_until_owner_release() {
     let fixture = Fixture::new();
     let path = fixture.profile();

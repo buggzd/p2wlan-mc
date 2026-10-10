@@ -26,6 +26,7 @@ pub(crate) fn wide(path: &Path) -> Result<Vec<u16>, Error> {
 
 #[derive(Clone, Copy)]
 pub(crate) enum Kind {
+    DriveRoot,
     Directory,
     PrivateDirectory,
     Read,
@@ -49,10 +50,13 @@ pub(crate) fn open(
             Kind::Lock => FILE_WRITE_DATA,
             _ => 0,
         };
-    // Ancestors refuse data-write/delete sharing. The private leaf alone
-    // permits write sharing: Win32 atomic rename opens its destination parent
-    // for FILE_ADD_FILE, even when renaming an already-open temporary file.
-    // No directory permits delete sharing, so the exact tree stays pinned.
+    // The local drive root is a shared filesystem boundary, not our private
+    // profile. Permit unrelated root writers without granting this handle
+    // write access. Ordinary ancestors still refuse data-write sharing; the
+    // private leaf permits it for Win32 atomic rename's FILE_ADD_FILE open.
+    // Retain FILE_READ_DATA (FILE_LIST_DIRECTORY for directories): metadata-
+    // only opens do not enforce read/write/delete sharing and cannot pin a
+    // directory against rename. No directory permits delete sharing.
     // Attribute-only access is NOT covered by sharing flags. Every ancestor
     // is rechecked before credential I/O and has a pinned non-deletable child;
     // the private leaf contains the non-deletable profile lock. Identity,
@@ -61,7 +65,7 @@ pub(crate) fn open(
     // lock/ACL remains the sole writer capability, not another state owner.
     let share = match kind {
         Kind::Directory | Kind::Temporary => FILE_SHARE_READ,
-        Kind::PrivateDirectory | Kind::Lock => FILE_SHARE_READ | FILE_SHARE_WRITE,
+        Kind::DriveRoot | Kind::PrivateDirectory | Kind::Lock => FILE_SHARE_READ | FILE_SHARE_WRITE,
         Kind::Read => FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
     };
     // SAFETY: NUL-terminated name and descriptor live through the synchronous
@@ -74,7 +78,10 @@ pub(crate) fn open(
             attributes.as_ref().map_or(null(), |attributes| attributes),
             disposition,
             FILE_FLAG_OPEN_REPARSE_POINT
-                | if matches!(kind, Kind::Directory | Kind::PrivateDirectory) {
+                | if matches!(
+                    kind,
+                    Kind::DriveRoot | Kind::Directory | Kind::PrivateDirectory
+                ) {
                     FILE_FLAG_BACKUP_SEMANTICS
                 } else {
                     0

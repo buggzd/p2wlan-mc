@@ -48,6 +48,11 @@ public final class ModDiagnosticsTests {
         frame = frame(); frame.getAsJsonObject("diagnostic").addProperty("os_code", -1);
         frame.getAsJsonObject("diagnostic").addProperty("path_depth", 64);
         check(((AgentMessages.StartupError) AgentMessages.parse(frame)).diagnostic().pathDepth() == 64);
+        frame = frame(); frame.getAsJsonObject("diagnostic").addProperty("target", "DRIVE_ROOT");
+        frame.getAsJsonObject("diagnostic").addProperty("path_depth", 0);
+        var root = ((AgentMessages.StartupError) AgentMessages.parse(frame)).diagnostic();
+        check(root.target().equals("DRIVE_ROOT") && root.pathDepth() == 0 && root.osCode() == 32);
+        check(root.safeText().contains("target=DRIVE_ROOT"));
     }
     private static void memory() throws Exception {
         ModDiagnostics log = new ModDiagnostics(null); log.start();

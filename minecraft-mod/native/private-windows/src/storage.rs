@@ -11,6 +11,16 @@ use windows_sys::Win32::Storage::FileSystem::{
 const FILE_LIMIT: usize = 64 * 1024;
 const DIRECTORY_LIMIT: usize = 64;
 
+fn directory_role(index: usize, private: bool) -> (Kind, Target) {
+    if index == 0 {
+        (Kind::DriveRoot, Target::DriveRoot)
+    } else if private {
+        (Kind::PrivateDirectory, Target::ProfileDirectory)
+    } else {
+        (Kind::Directory, Target::Ancestor)
+    }
+}
+
 /// One OS-user-private profile. No process-global cache or permission repair.
 /// Ancestor handles and the profile lock stay live for this capability's entire
 /// lifetime. All mutations revalidate exact directory/lock/file identities.
@@ -59,20 +69,11 @@ impl PrivateDirectory {
         let security = Security::current_user()?;
         let mut directories = Vec::with_capacity(paths.len());
         for (index, path) in paths.into_iter().enumerate() {
-            let target = if path == root {
-                Target::ProfileDirectory
-            } else {
-                Target::Ancestor
-            };
+            let (kind, target) = directory_role(index, path == root);
             let classify = |error: Error| error.at(target, Some(index as u8));
             if index != 0 {
                 handles::create_directory(&path, &security).map_err(classify)?;
             }
-            let kind = if path == root {
-                Kind::PrivateDirectory
-            } else {
-                Kind::Directory
-            };
             let directory = handles::open(&path, kind, OPEN_EXISTING, None).map_err(classify)?;
             let identity = handles::identity(&directory, true, 0).map_err(classify)?;
             handles::require_acls(&directory).map_err(classify)?;
@@ -107,14 +108,9 @@ impl PrivateDirectory {
     }
     fn current(&self) -> Result<(), Error> {
         for (index, (path, file, expected)) in self.directories.iter().enumerate() {
-            let target = if path == &self.root {
-                Target::ProfileDirectory
-            } else {
-                Target::Ancestor
-            };
+            let (kind, target) = directory_role(index, path == &self.root);
             let classify = |error: Error| error.at(target, Some(index as u8));
-            let current =
-                handles::open(path, Kind::Directory, OPEN_EXISTING, None).map_err(classify)?;
+            let current = handles::open(path, kind, OPEN_EXISTING, None).map_err(classify)?;
             if handles::identity(file, true, 0).map_err(classify)? != *expected
                 || handles::identity(&current, true, 0).map_err(classify)? != *expected
             {

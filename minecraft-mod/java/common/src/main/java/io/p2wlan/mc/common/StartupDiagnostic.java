@@ -11,7 +11,7 @@ public record StartupDiagnostic(String stage, String operation, String target, I
             "VOLUME_INFORMATION", "RENAME_FILE", "DISCARD_TEMPORARY", "OPEN_PROCESS_TOKEN", "TOKEN_INFORMATION",
             "SID_STRING", "SECURITY_DESCRIPTOR", "SECURITY_INFORMATION", "FILE_METADATA", "READ_FILE",
             "WRITE_FILE", "SYNC_FILE", "READ_DIRECTORY", "READ_DIRECTORY_ENTRY", "RESOLVE_PATH", "REMOVE_FILE");
-    private static final Set<String> TARGETS = Set.of("UNKNOWN", "PROCESS_TOKEN", "ANCESTOR", "PROFILE_DIRECTORY",
+    private static final Set<String> TARGETS = Set.of("UNKNOWN", "PROCESS_TOKEN", "DRIVE_ROOT", "ANCESTOR", "PROFILE_DIRECTORY",
             "PROFILE_LOCK", "ACCOUNT_FILE", "ROOM_FILE", "TEMPORARY_FILE");
     public StartupDiagnostic {
         if (!STAGES.contains(stage) || !OPERATIONS.contains(operation) || !TARGETS.contains(target)

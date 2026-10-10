@@ -47,6 +47,7 @@ impl Operation {
 pub enum Target {
     Unknown,
     ProcessToken,
+    DriveRoot,
     Ancestor,
     ProfileDirectory,
     ProfileLock,
@@ -59,6 +60,7 @@ impl Target {
         match self {
             Self::Unknown => "UNKNOWN",
             Self::ProcessToken => "PROCESS_TOKEN",
+            Self::DriveRoot => "DRIVE_ROOT",
             Self::Ancestor => "ANCESTOR",
             Self::ProfileDirectory => "PROFILE_DIRECTORY",
             Self::ProfileLock => "PROFILE_LOCK",
