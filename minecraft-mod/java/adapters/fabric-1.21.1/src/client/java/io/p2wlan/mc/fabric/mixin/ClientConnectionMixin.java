@@ -3,7 +3,7 @@ package io.p2wlan.mc.fabric.mixin;
 import io.netty.bootstrap.AbstractBootstrap;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.ChannelHandler;
-import io.p2wlan.mc.fabric.connect.ScopedClientConnect;
+import io.p2wlan.mc.transport.ScopedClientConnect;
 import java.net.InetSocketAddress;
 import net.minecraft.network.ClientConnection;
 import org.spongepowered.asm.mixin.Mixin;

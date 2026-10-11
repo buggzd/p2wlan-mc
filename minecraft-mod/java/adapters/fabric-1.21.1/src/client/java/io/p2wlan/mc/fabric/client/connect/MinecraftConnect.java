@@ -2,8 +2,8 @@ package io.p2wlan.mc.fabric.client.connect;
 
 import io.netty.channel.ChannelFuture;
 import io.p2wlan.mc.common.LocalEndpoint;
-import io.p2wlan.mc.fabric.connect.ProxyPrelude;
-import io.p2wlan.mc.fabric.connect.ScopedClientConnect;
+import io.p2wlan.mc.transport.ProxyPrelude;
+import io.p2wlan.mc.transport.ScopedClientConnect;
 import java.time.Duration;
 import java.util.function.Consumer;
 import net.minecraft.client.MinecraftClient;

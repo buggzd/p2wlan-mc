@@ -18,6 +18,8 @@ dependencies {
     include 'net.java.dev.jna:jna:5.14.0'
     implementation project(':common')
     include project(':common')
+    implementation project(':netty-transport')
+    include project(':netty-transport')
     implementation project(':native-bundle')
     include project(':native-bundle')
 }
@@ -60,25 +62,13 @@ if (developmentEnabled) {
     loom.runs.configureEach { vmArg '-Dp2wlan.allowDevelopmentNative=true' }
 }
 
-tasks.register('worldTransportTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'io.p2wlan.mc.fabric.world.LoopbackAdmissionTests'
-}
+tasks.register('worldTransportTest') { dependsOn ':netty-transport:worldTransportTest' }
 check.dependsOn worldTransportTest
 
-tasks.register('joinTransportTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'io.p2wlan.mc.fabric.connect.ProxyPreludeTests'
-}
+tasks.register('joinTransportTest') { dependsOn ':netty-transport:joinTransportTest' }
 check.dependsOn joinTransportTest
 
-tasks.register('clientBootstrapTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'io.p2wlan.mc.fabric.connect.ScopedClientConnectTests'
-}
+tasks.register('clientBootstrapTest') { dependsOn ':netty-transport:clientBootstrapTest' }
 check.dependsOn clientBootstrapTest
 
 // Test-only source set/mod/run. It is absent from every ordinary build and run,

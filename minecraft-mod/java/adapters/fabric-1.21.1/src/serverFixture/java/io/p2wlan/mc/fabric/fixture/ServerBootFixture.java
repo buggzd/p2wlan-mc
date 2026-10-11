@@ -8,7 +8,7 @@ import io.p2wlan.mc.common.LocalEndpoint;
 import io.p2wlan.mc.common.ScheduledTaskGate;
 import io.p2wlan.mc.fabric.FabricP2wlan;
 import io.p2wlan.mc.fabric.world.FabricWorlds;
-import io.p2wlan.mc.fabric.world.LoopbackBind;
+import io.p2wlan.mc.transport.LoopbackBind;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.SharedConstants;
@@ -109,7 +109,7 @@ public final class ServerBootFixture implements ModInitializer {
                 var value = FabricWorlds.current(server);
                 check(value != null && value.isCurrent()); check(server.getOverworld() != null);
                 check(value.status() == null && !FabricWorlds.hosted(server));
-                check(server.getNetworkIo() instanceof LoopbackBind.Hooks); check(LoopbackBind.supported());
+                check(server.getNetworkIo() instanceof LoopbackBind.Hooks); check(LoopbackBind.supported(net.minecraft.server.ServerNetworkIo.class));
                 check(server.isOnlineMode()); check(server.isRunning());
                 return value;
             });
@@ -122,7 +122,7 @@ public final class ServerBootFixture implements ModInitializer {
             var capturedWorld = world;
             // Own the target before queueing open, including timeout/late-drain
             // failure. Cleanup stays off the server thread; its fence is exact.
-            binding = new LoopbackBind(server.getNetworkIo(), () -> live.get() && capturedWorld.isCurrent());
+            binding = new LoopbackBind(server.getNetworkIo(), server.getNetworkIo()::bind, () -> live.get() && capturedWorld.isCurrent());
             var target = binding;
             onGame(server, () -> { target.open(); return true; });
             var endpoint = binding.endpoint();

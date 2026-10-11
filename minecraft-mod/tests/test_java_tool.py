@@ -70,6 +70,15 @@ class JavaToolTests(unittest.TestCase):
                 self.assertIn("--offline", arguments)
                 self.assertFalse(any("fabric" in item or "Loom" in item for item in arguments))
 
+    def test_shared_netty_harnesses_run_without_configuring_a_loader(self):
+        with patch("sys.argv", ["java.py", "test", "--offline"]), \
+                patch.object(java.subprocess, "check_output", return_value="fixture-jdk\n"), \
+                patch.object(java.subprocess, "call", return_value=0) as run:
+            self.assertEqual(java.main(), 0)
+            arguments = run.call_args.args[0]
+            self.assertIn(":netty-transport:check", arguments)
+            self.assertFalse(any("fabricAdapter" in item or "neoforgeAdapter" in item for item in arguments))
+
     def test_presentation_regressions_run_with_the_standard_java_test_entry(self):
         with patch("sys.argv", ["java.py", "test", "--offline"]), \
                 patch.object(java.subprocess, "check_output", return_value="fixture-jdk\n"), \

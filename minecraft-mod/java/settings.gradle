@@ -6,6 +6,7 @@ pluginManagement {
 }
 rootProject.name = 'p2wlan-minecraft'
 include 'common'
+include 'netty-transport'
 
 include 'native-bundle'
 include 'account-cli'

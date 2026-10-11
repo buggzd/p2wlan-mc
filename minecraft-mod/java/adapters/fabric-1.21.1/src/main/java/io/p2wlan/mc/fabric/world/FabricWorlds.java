@@ -8,6 +8,7 @@ import io.p2wlan.mc.common.UiCompletionGate;
 import io.p2wlan.mc.common.WorldHost;
 import io.p2wlan.mc.common.WorldHostException;
 import io.p2wlan.mc.fabric.FabricP2wlan;
+import io.p2wlan.mc.transport.LoopbackBind;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -42,7 +43,7 @@ public final class FabricWorlds {
             if (host != null && !host.isReleased()) throw new WorldHostException(WorldHostException.Code.CAPACITY);
             AgentClient client = FabricP2wlan.AGENT.current().orElse(null);
             if (runtime == null || !runtime.isCurrent(client)) throw new WorldHostException(WorldHostException.Code.RUNTIME_CHANGED);
-            host = WorldHost.start(client, runtime, () -> isCurrent() && FabricP2wlan.AGENT.isCurrent(client), fence -> new LoopbackBind(network, fence));
+            host = WorldHost.start(client, runtime, () -> isCurrent() && FabricP2wlan.AGENT.isCurrent(client), fence -> new LoopbackBind(network, network::bind, fence));
         }
         public void unhost() { WorldHost value = host; if (value != null) value.revoke(); }
         private boolean hosted() { WorldHost value = host; return isCurrent() && value != null && value.status().phase() == WorldHost.Phase.HOSTED && value.isCurrent(); }
@@ -64,7 +65,7 @@ public final class FabricWorlds {
     public static void initialize() {
         // Force required hook transformation during bootstrap, without binding
         // a listener, loading a world or accepting the Minecraft EULA.
-        transportSupported = LoopbackBind.supported();
+        transportSupported = LoopbackBind.supported(ServerNetworkIo.class);
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             World previous = CURRENT.get(); if (previous != null) previous.revoke();
             CURRENT.set(new World(server));

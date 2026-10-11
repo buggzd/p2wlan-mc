@@ -13,6 +13,8 @@ from artifact_checks import MAX_BINARY, VerificationError, entries, read, classf
 MAIN = "io/p2wlan/mc/fabric/FabricP2wlan.class"
 CLIENT = "io/p2wlan/mc/fabric/client/FabricP2wlanClient.class"
 COMMON = "io/p2wlan/mc/common/BundledAgent.class"
+TRANSPORT = tuple(f"io/p2wlan/mc/transport/{name}.class" for name in
+                  ("LoopbackBind", "LoopbackAdmission", "ProxyPrelude", "ScopedClientConnect"))
 SERVER_MIXIN = "io/p2wlan/mc/fabric/mixin/ServerNetworkIoMixin.class"
 MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.fabric.mixin", "compatibilityLevel": "JAVA_21",
                 "mixins": ["ServerNetworkIoMixin"], "injectors": {"defaultRequire": 1},
@@ -74,6 +76,7 @@ def verify(path, development=False):
         if not isinstance(children, list) or not 1 <= len(children) <= 8:
             raise VerificationError("mod_nested_resources_missing")
         common_count = 0
+        transport_count = 0
         jna_count = 0
         natives = []
         child_names = set()
@@ -87,8 +90,13 @@ def verify(path, development=False):
                 if "com/sun/jna/Native.class" in names:
                     jna_payloads(child)
                     jna_count += 1
-                if COMMON in names:
-                    common_count += 1
+                if TRANSPORT[0] in names:
+                    transport_count += 1
+                    for name in TRANSPORT:
+                        classfile(child, name, 61)
+                if COMMON in names or TRANSPORT[0] in names:
+                    if COMMON in names:
+                        common_count += 1
                     for name in names:
                         if name.endswith(".class"):
                             value = classfile(child, name, 61)
@@ -103,6 +111,8 @@ def verify(path, development=False):
         platforms = [item["verification-platform"] for item in natives]
         if jna_count != 1:
             raise VerificationError("mod_jna_resources_ambiguous")
+        if transport_count != 1:
+            raise VerificationError("mod_shared_transport_resources_ambiguous")
         if common_count != 1 or not natives or len(platforms) > len(PLATFORMS) or len(set(platforms)) != len(platforms):
             raise VerificationError("mod_native_resources_ambiguous")
         return natives

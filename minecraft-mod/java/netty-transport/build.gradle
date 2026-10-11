@@ -1,0 +1,31 @@
+plugins { id 'java-library' }
+
+// Minecraft already supplies Netty. Keep it compile-only in the reusable jar;
+// account/IPC consumers need not load it or acquire a Minecraft dependency.
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+}
+dependencies {
+    api project(':common')
+    compileOnly 'io.netty:netty-transport:4.1.97.Final'
+    testImplementation 'io.netty:netty-transport:4.1.97.Final'
+}
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+    options.encoding = 'UTF-8'
+}
+[
+    worldTransportTest: 'LoopbackAdmissionTests',
+    joinTransportTest: 'ProxyPreludeTests',
+    clientBootstrapTest: 'ScopedClientConnectTests',
+    scopedBindTest: 'LoopbackBindTests'
+].each { taskName, harness ->
+    tasks.register(taskName, JavaExec) {
+        dependsOn testClasses
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = "io.p2wlan.mc.transport.${harness}"
+    }
+    check.dependsOn taskName
+}

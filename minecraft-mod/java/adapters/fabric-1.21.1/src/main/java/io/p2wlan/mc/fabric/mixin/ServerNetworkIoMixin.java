@@ -5,7 +5,7 @@ import io.netty.bootstrap.AbstractBootstrap;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.ServerChannel;
 import io.netty.channel.ChannelFuture;
-import io.p2wlan.mc.fabric.world.LoopbackBind;
+import io.p2wlan.mc.transport.LoopbackBind;
 import java.io.IOException;
 import java.util.List;
 import net.minecraft.server.ServerNetworkIo;

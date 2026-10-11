@@ -1,4 +1,4 @@
-package io.p2wlan.mc.fabric.connect;
+package io.p2wlan.mc.transport;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;

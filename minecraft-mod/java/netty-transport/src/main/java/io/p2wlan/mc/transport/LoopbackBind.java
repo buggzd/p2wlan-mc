@@ -1,4 +1,4 @@
-package io.p2wlan.mc.fabric.world;
+package io.p2wlan.mc.transport;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.bootstrap.AbstractBootstrap;
@@ -16,16 +16,17 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
-import net.minecraft.server.ServerNetworkIo;
 
 /** Owns only the additional private Minecraft listener and its admission scope.
  * Vanilla codecs/handshake/connection-list ownership are reused unchanged. */
 public final class LoopbackBind implements WorldHost.Target {
     /** Added by the required Mixin; absence must fail before any unguarded bind. */
     public interface Hooks {}
-    public static boolean supported() { return Hooks.class.isAssignableFrom(ServerNetworkIo.class); }
+    public static boolean supported(Class<?> networkType) { return Hooks.class.isAssignableFrom(networkType); }
+    @FunctionalInterface public interface Binder { void bind(InetAddress address, int port) throws IOException; }
     private static final ThreadLocal<LoopbackBind> ACTIVE = new ThreadLocal<>();
-    private final ServerNetworkIo network;
+    private final Object network;
+    private final Binder binder;
     private final LoopbackAdmission admission;
     private final AtomicBoolean live = new AtomicBoolean(true);
     private final AtomicBoolean listenerCloseRequested = new AtomicBoolean();
@@ -33,30 +34,30 @@ public final class LoopbackBind implements WorldHost.Target {
     // local connects cannot queue unbounded work onto another game's event loop.
     private final NioEventLoopGroup loops = new NioEventLoopGroup(1);
     private volatile ChannelFuture bound;
-    public LoopbackBind(ServerNetworkIo network, BooleanSupplier current) throws WorldHostException {
-        this.network = network; admission = new LoopbackAdmission(() -> live.get() && current.getAsBoolean());
+    public LoopbackBind(Object network, Binder binder, BooleanSupplier current) throws WorldHostException {
+        this.network = network; this.binder = binder; admission = new LoopbackAdmission(() -> live.get() && current.getAsBoolean());
     }
     @Override public void open() throws WorldHostException {
-        if (!supported()) throw new WorldHostException(WorldHostException.Code.BIND_FAILED);
+        if (!(network instanceof Hooks)) throw new WorldHostException(WorldHostException.Code.BIND_FAILED);
         if (bound != null || ACTIVE.get() != null || !admission.isCurrent()) throw new WorldHostException(WorldHostException.Code.WORLD_CHANGED);
         ACTIVE.set(this);
         try {
-            network.bind(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), 0);
+            binder.bind(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), 0);
             if (bound == null || !bound.isSuccess() || !admission.isCurrent()) throw new WorldHostException(WorldHostException.Code.BIND_FAILED);
         } catch (WorldHostException typed) { throw typed; }
         catch (IOException | RuntimeException failure) { throw new WorldHostException(WorldHostException.Code.BIND_FAILED); }
         finally { ACTIVE.remove(); }
     }
-    private static LoopbackBind current(ServerNetworkIo network) {
+    private static LoopbackBind current(Object network) {
         LoopbackBind value = ACTIVE.get(); return value != null && value.network == network ? value : null;
     }
-    public static AbstractBootstrap<?, ?> channel(ServerNetworkIo network, ServerBootstrap bootstrap, Class<? extends ServerChannel> channel) {
+    public static AbstractBootstrap<?, ?> channel(Object network, ServerBootstrap bootstrap, Class<? extends ServerChannel> channel) {
         return bootstrap.channel(current(network) == null ? channel : NioServerSocketChannel.class);
     }
-    public static ServerBootstrap group(ServerNetworkIo network, ServerBootstrap bootstrap, EventLoopGroup group) {
+    public static ServerBootstrap group(Object network, ServerBootstrap bootstrap, EventLoopGroup group) {
         LoopbackBind value = current(network); return bootstrap.group(value == null ? group : value.loops);
     }
-    public static ChannelFuture bind(ServerNetworkIo network, ServerBootstrap bootstrap) throws IOException {
+    public static ChannelFuture bind(Object network, ServerBootstrap bootstrap) throws IOException {
         LoopbackBind value = current(network);
         if (value == null) return bootstrap.bind();
         if (!value.admission.isCurrent()) throw new WorldHostException(WorldHostException.Code.WORLD_CHANGED);
@@ -67,7 +68,7 @@ public final class LoopbackBind implements WorldHost.Target {
         if (!value.admission.isCurrent()) { value.revoke(); throw new WorldHostException(WorldHostException.Code.WORLD_CHANGED); }
         return future;
     }
-    public static ChannelFuture await(ServerNetworkIo network, ChannelFuture future) throws IOException {
+    public static ChannelFuture await(Object network, ChannelFuture future) throws IOException {
         LoopbackBind value = current(network);
         if (value == null) return future.syncUninterruptibly();
         // Vanilla serializes bind/stop under its channel-list monitor. Keep that
@@ -80,7 +81,7 @@ public final class LoopbackBind implements WorldHost.Target {
     }
     /** The Mod owns/removes this listener, so do not accumulate closed entries
      * in Vanilla's server-lifetime channel list. This is not a second game list. */
-    public static boolean owns(ServerNetworkIo network, Object future) {
+    public static boolean owns(Object network, Object future) {
         LoopbackBind value = current(network); return value != null && value.bound == future;
     }
     @Override public LocalEndpoint endpoint() throws WorldHostException {

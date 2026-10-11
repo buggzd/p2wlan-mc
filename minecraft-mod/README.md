@@ -34,6 +34,22 @@ python3 minecraft-mod/tools/java.py test
 
 The protocol test runs an explicit executable test harness. It verifies malformed/partial frames, Unicode, capacity limits, snapshot immutability, and stale-owner/revision rejection.
 
+## Shared Netty transport
+
+`java/netty-transport` contains the loopback capability admission, scoped listener
+binding and join-preface transport. It compiles to Java 17, imports no Minecraft
+or loader class, and receives the game network object as an opaque identity plus
+a version adapter's bind callback. A required adapter Mixin supplies the marker
+interface; missing hooks fail before opening an unguarded listener. The protected
+listener uses one event loop, at most 32 children and two-second admission/bind
+deadlines. Revocation checks remain at the actual bind and pipeline boundaries.
+Fabric's client/server Mixins delegate to this same implementation.
+
+`python3 minecraft-mod/tools/java.py test` executes its explicit Netty/socket
+harnesses as well as the common protocol tests. The Fabric archive check requires
+one complete portable transport jar. Actual Minecraft Mixin transformation and
+gameplay are checked by the corresponding game fixtures.
+
 ## Upstream runtime packet port
 
 The native build generates an adapted runtime under the ignored `native/target/upstream-runtime/` directory. It reuses this checkout's upstream daemon and networking crates without modifying their source or manifests. Exact source anchors are checked before generation; incompatible upstream changes fail the build rather than silently selecting another code path. Generated metadata records upstream source, Rust adapter, and build-transform hashes. Required upstream compile-time Windows resources are copied byte-for-byte, checked against their exact include-site contract and included in the native-input digest; missing, linked, oversized or changed references fail before generation.

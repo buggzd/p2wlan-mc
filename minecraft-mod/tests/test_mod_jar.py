@@ -55,18 +55,42 @@ class ModJarTests(unittest.TestCase):
                     "entrypoints": {"main": [verify.MAIN.removesuffix(".class").replace("/", ".")],
                                     "client": [verify.CLIENT.removesuffix(".class").replace("/", ".")]},
                     "depends": {"minecraft": "1.21.1", "java": ">=21"}, "mixins": verify.MIXINS,
-                    "jars": [{"file": "META-INF/jars/common.jar"}, {"file": "META-INF/jars/native.jar"}, {"file": "META-INF/jars/jna.jar"}]}
+                    "jars": [{"file": "META-INF/jars/common.jar"}, {"file": "META-INF/jars/native.jar"}, {"file": "META-INF/jars/jna.jar"}, {"file": "META-INF/jars/transport.jar"}]}
         top = {"fabric.mod.json": json.dumps(metadata), "p2wlan.mixins.json": json.dumps(verify.MIXIN_CONFIG),
                verify.MIXIN_CONFIG["refmap"]: json.dumps(verify.REFMAP), verify.SERVER_MIXIN: bytecode(65), verify.MAIN: bytecode(65), verify.CLIENT: bytecode(65),
                "p2wlan.client.mixins.json": json.dumps(verify.CLIENT_MIXIN_CONFIG),
                verify.CLIENT_MIXIN_CONFIG["refmap"]: json.dumps(verify.CLIENT_REFMAP), verify.CLIENT_MIXIN: bytecode(65), verify.INTEGRATED_MIXIN: bytecode(65),
                "META-INF/jars/common.jar": jar(common), "META-INF/jars/native.jar": jar(native),
-               "META-INF/jars/jna.jar": jar(JNA_FIXTURE)}
+               "META-INF/jars/jna.jar": jar(JNA_FIXTURE),
+               "META-INF/jars/transport.jar": jar({name: bytecode(61) for name in verify.TRANSPORT})}
         top.update({name: bytecode(65) for name in verify.LAN_MIXINS})
         return top, metadata, common, native
 
     def check(self, top, development=True):
         return verify.verify(io.BytesIO(jar(top)), development)
+
+    def test_shared_transport_required_complete_portable_and_unique(self):
+        top, metadata, _, _ = self.fixture()
+        metadata["jars"] = metadata["jars"][:-1]
+        top["fabric.mod.json"] = json.dumps(metadata)
+        with self.assertRaisesRegex(verify.VerificationError, "mod_shared_transport_resources_ambiguous"):
+            self.check(top)
+        for missing in verify.TRANSPORT:
+            top, _, _, _ = self.fixture()
+            top["META-INF/jars/transport.jar"] = jar({name: bytecode(61) for name in verify.TRANSPORT if name != missing})
+            with self.assertRaises(verify.VerificationError):
+                self.check(top)
+        for prefix in (b"net/minecraft/", b"net/fabricmc/", b"net/neoforged/", b"net/minecraftforge/"):
+            top, _, _, _ = self.fixture()
+            top["META-INF/jars/transport.jar"] = jar({name: bytecode(61) + prefix for name in verify.TRANSPORT})
+            with self.assertRaisesRegex(verify.VerificationError, "mod_common_game_dependency"):
+                self.check(top)
+        top, metadata, _, _ = self.fixture()
+        metadata["jars"].append({"file": "META-INF/jars/duplicate-transport.jar"})
+        top["fabric.mod.json"] = json.dumps(metadata)
+        top["META-INF/jars/duplicate-transport.jar"] = top["META-INF/jars/transport.jar"]
+        with self.assertRaisesRegex(verify.VerificationError, "mod_shared_transport_resources_ambiguous"):
+            self.check(top)
 
     def test_complete_nested_artifact_and_development_policy(self):
         top, _, _, _ = self.fixture()
