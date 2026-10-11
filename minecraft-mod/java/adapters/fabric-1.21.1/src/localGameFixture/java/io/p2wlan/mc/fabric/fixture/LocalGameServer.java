@@ -28,7 +28,7 @@ public final class LocalGameServer implements ModInitializer {
     private GameFixtureData data;
     private AgentClient helper;
     private RuntimeView runtime;
-    private FabricWorlds.World world;
+    private io.p2wlan.mc.common.WorldSessions.World<MinecraftServer> world;
     private CompletableFuture<AgentReply> pending;
     private int joins, rounds, disconnects;
     private long playStarted;

@@ -177,3 +177,11 @@ tasks.register('modDiagnosticsTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.common.ModDiagnosticsTests'
 }
 check.dependsOn modDiagnosticsTest
+
+// Loader-neutral local-world identity and late-cleanup decisions.
+tasks.register('worldSessionsTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.WorldSessionsTests'
+}
+check.dependsOn worldSessionsTest

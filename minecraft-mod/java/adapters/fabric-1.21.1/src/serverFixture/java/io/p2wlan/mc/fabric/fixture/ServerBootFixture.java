@@ -36,7 +36,7 @@ public final class ServerBootFixture implements ModInitializer {
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicInteger checks = new AtomicInteger();
     private final ScheduledTaskGate game = new ScheduledTaskGate(Duration.ofSeconds(3));
-    private volatile FabricWorlds.World world;
+    private volatile io.p2wlan.mc.common.WorldSessions.World<MinecraftServer> world;
     private volatile boolean helperCleaned;
     private volatile String reason = "FIXTURE_NOT_COMPLETED";
     private void check(boolean value) { if (!value) throw new AssertionError("SERVER_CHECK_" + checks.get()); checks.incrementAndGet(); }
