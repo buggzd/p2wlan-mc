@@ -1,0 +1,121 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+base { archivesName = 'p2wlan-neoforge-1.21.1' }
+def installedFixture = providers.gradleProperty('serverInstalledFixture').isPresent()
+if (installedFixture && !providers.gradleProperty('serverBootFixture').isPresent()) {
+    throw new GradleException('NEOFORGE_INSTALLED_FIXTURE_REQUIRES_SERVER_FIXTURE')
+}
+def developmentEnabled = providers.gradleProperty('developmentNative').map { value ->
+    value.isEmpty() || value == 'true'
+}.getOrElse(false)
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+neoForge {
+    version = '21.1.256'
+    runs {
+        server {
+            server()
+            programArgument '--nogui'
+        }
+        client { client() }
+        configureEach {
+            if (developmentEnabled) {
+                systemProperty 'p2wlan.allowDevelopmentNative', 'true'
+            }
+        }
+    }
+    mods {
+        p2wlan { sourceSet sourceSets.main }
+    }
+}
+dependencies {
+    implementation project(':common')
+    implementation project(':netty-transport')
+    implementation project(':native-bundle')
+    // NeoForge 1.21.1 ignores plain libraries on the ordinary development
+    // classpath. JarJar handles installed mods; development runs need this
+    // explicit legacy classpath as well (including transitive IPC/JNA inputs).
+    if (!installedFixture) {
+        additionalRuntimeClasspath project(':common')
+        additionalRuntimeClasspath project(':netty-transport')
+        additionalRuntimeClasspath project(':native-bundle')
+    }
+    // Portable implementation/resources are identical to Fabric, not a fork.
+    jarJar project(':common')
+    jarJar project(':netty-transport')
+    jarJar project(':native-bundle')
+    // This pinned Minecraft/NeoForge runtime already provides JNA 5.14.0 in
+    // its bootstrap layer. A second named JNA module prevents layer resolution.
+}
+// ModDev's game/bootstrap API is supplied to main; the policy harness uses
+// that same SDK rather than an independent, mismatched dependency graph.
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
+tasks.register('resourcePolicyTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.neoforge.LocalNativeResourcesTests'
+    // SecureJarHandler uses this same lookup access in the game launcher.
+    // This opens only the standalone policy-test JVM, not production runs.
+    jvmArgs '--add-opens=java.base/java.lang.invoke=ALL-UNNAMED'
+}
+check.dependsOn resourcePolicyTest
+// Stable named resource module: it contains no class/package for a classloader
+// lookup to discover. Installed native reads select this exact local module.
+project(':native-bundle').tasks.named('jar') {
+    manifest.attributes('Automatic-Module-Name': 'io.p2wlan.mc.nativebundle')
+}
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/neoforge.mods.toml') { expand version: project.version }
+}
+
+// Every game run depends on the same production archive check, including the
+// test-only server fixture. Ordinary task ordering is not sufficient.
+tasks.register('verifyModJar', Exec) {
+    dependsOn jar
+    doFirst {
+        commandLine 'python3', rootProject.file('../tools/verify_neoforge_jar.py'),
+                tasks.named('jar').get().archiveFile.get().asFile
+        if (developmentEnabled) args '--development'
+    }
+}
+check.dependsOn verifyModJar
+tasks.matching { it.name in ['runServer', 'runClient', 'runServerFixture'] }.configureEach {
+    dependsOn tasks.named('verifyModJar')
+}
+
+// Opt-in test mod/source set, excluded from the production jar and ordinary
+// runs. The wrapper owns a fresh loopback/offline world and requires consent.
+if (providers.gradleProperty('serverBootFixture').isPresent()) {
+    def fixture = sourceSets.create('serverFixture')
+    fixture.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    fixture.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    neoForge.mods.register('p2wlan_server_boot_test') { sourceSet fixture }
+    neoForge.runs.register('serverFixture') {
+        server()
+        sourceSet = fixture
+        // Installed mode discovers the production archive from game/mods;
+        // neither production source outputs nor a legacy-library fallback
+        // may make this JarJar acceptance pass.
+        loadedMods = installedFixture ? [neoForge.mods.p2wlan_server_boot_test] :
+                [neoForge.mods.p2wlan, neoForge.mods.p2wlan_server_boot_test]
+        systemProperty 'p2wlan.fixture.installation', installedFixture ? 'jarjar' : 'development'
+        gameDirectory = file(providers.gradleProperty('serverFixtureDirectory').get())
+        programArgument '--nogui'
+        systemProperty 'p2wlan.fixture.run', providers.gradleProperty('serverFixtureRun').get()
+        systemProperty 'p2wlan.fixture.result', providers.gradleProperty('serverFixtureResult').get()
+        if (developmentEnabled) {
+            systemProperty 'p2wlan.allowDevelopmentNative', 'true'
+        }
+        disableIdeRun()
+    }
+}

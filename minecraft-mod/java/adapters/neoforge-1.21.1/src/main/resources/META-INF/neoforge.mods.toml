@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+
+[[mods]]
+modId="p2wlan"
+version="${version}"
+displayName="P2WLAN"
+description='''User-space virtual LAN over the shared P2WLAN runtime.'''
+
+[[dependencies.p2wlan]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.256]"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.p2wlan]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+ordering="NONE"
+side="BOTH"
+
+[[mixins]]
+config="p2wlan.neoforge.mixins.json"

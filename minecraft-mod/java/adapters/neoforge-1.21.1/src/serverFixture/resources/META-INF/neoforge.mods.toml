@@ -1,0 +1,13 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="p2wlan_server_boot_test"
+version="1.0.0"
+displayName="P2WLAN isolated dedicated fixture"
+[[dependencies.p2wlan_server_boot_test]]
+modId="p2wlan"
+type="required"
+versionRange="[0.1.0]"
+ordering="AFTER"
+side="SERVER"

@@ -1,6 +1,9 @@
 pluginManagement {
     repositories {
         maven { url = 'https://maven.fabricmc.net/' }
+        if (providers.gradleProperty('neoforgeAdapter').isPresent()) {
+            maven { url = 'https://maven.neoforged.net/releases/' }
+        }
         gradlePluginPortal()
     }
 }
@@ -16,4 +19,9 @@ include 'account-cli'
 if (providers.gradleProperty('fabricAdapter').isPresent()) {
     include 'fabric'
     project(':fabric').projectDir = file('adapters/fabric-1.21.1')
+}
+
+if (providers.gradleProperty('neoforgeAdapter').isPresent()) {
+    include 'neoforge'
+    project(':neoforge').projectDir = file('adapters/neoforge-1.21.1')
 }

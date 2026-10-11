@@ -13,6 +13,10 @@ import static io.p2wlan.mc.common.NativeBundleException.Code;
  * thread. Closing is nonblocking; released completes only after child exit
  * AND identity-checked cleanup. No shared executable cache or auto-download. */
 public final class BundledAgent implements AutoCloseable {
+    /** Trusted loader glue may supply its local filesystem resource resolver.
+     * It must reject remote/ambiguous resources; manifest/executable validation,
+     * extraction deadlines and child ownership stay in this common layer. */
+    @FunctionalInterface public interface Resources { InputStream open(String name) throws IOException; }
     private final AgentClient client;
     private final CompletableFuture<Void> released = new CompletableFuture<>();
     private BundledAgent(AgentClient client, NativeInstallation installation) {
@@ -26,7 +30,10 @@ public final class BundledAgent implements AutoCloseable {
         return launch(profile, allowDevelopment, null);
     }
     static BundledAgent launch(Path profile, boolean allowDevelopment, ModDiagnostics diagnostics) throws NativeBundleException {
-        if (profile == null || !profile.isAbsolute()) throw new NativeBundleException(Code.START_FAILED);
+        return launch(profile, allowDevelopment, diagnostics, BundledAgent::resource);
+    }
+    static BundledAgent launch(Path profile, boolean allowDevelopment, ModDiagnostics diagnostics, Resources resources) throws NativeBundleException {
+        if (profile == null || !profile.isAbsolute() || resources == null) throw new NativeBundleException(Code.START_FAILED);
         NativeInstallation installation = null;
         BundledAgent owner = null;
         try {
@@ -35,11 +42,11 @@ public final class BundledAgent implements AutoCloseable {
             String prefix = "p2wlan/native/" + platform + "/";
             NativeManifest manifest;
             if (diagnostics != null) diagnostics.stage(ModDiagnostics.Stage.BUNDLE_MANIFEST);
-            try (InputStream metadata = resource(prefix + "manifest.properties")) {
+            try (InputStream metadata = resources.open(prefix + "manifest.properties")) {
                 manifest = NativeManifest.read(metadata, platform, allowDevelopment);
             }
             if (diagnostics != null) { diagnostics.build(manifest); diagnostics.stage(ModDiagnostics.Stage.BUNDLE_EXTRACT); }
-            try (InputStream bytes = resource(prefix + manifest.executableName())) {
+            try (InputStream bytes = resources.open(prefix + manifest.executableName())) {
                 installation = NativeInstallation.extract(manifest, bytes, Path.of(System.getProperty("java.io.tmpdir")));
             }
             if (diagnostics != null) diagnostics.stage(ModDiagnostics.Stage.CHILD_START);
@@ -61,6 +68,10 @@ public final class BundledAgent implements AutoCloseable {
         if (!candidates.hasMoreElements()) throw new NativeBundleException(Code.RESOURCE_MISSING);
         URL url = candidates.nextElement();
         if (candidates.hasMoreElements()) throw new NativeBundleException(Code.RESOURCE_AMBIGUOUS);
+        return openLocal(url);
+    }
+    /** Portable default: ordinary local files and file-backed JARs only. */
+    public static InputStream openLocal(URL url) throws IOException {
         var connection = url.openConnection();
         connection.setUseCaches(false);
         if (!url.getProtocol().equals("file") && !(connection instanceof JarURLConnection jar

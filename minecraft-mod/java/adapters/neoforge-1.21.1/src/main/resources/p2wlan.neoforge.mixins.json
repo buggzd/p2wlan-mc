@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "io.p2wlan.mc.neoforge.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["ServerConnectionMixin"],
+  "injectors": {"defaultRequire": 1}
+}

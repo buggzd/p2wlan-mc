@@ -4,7 +4,7 @@
 
 This page documents implementation contracts and component-specific build/test entry points. Start with the user guide for Mod installation, accounts, rooms and game controls. Unless stated otherwise, commands run from the complete repository root.
 
-This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The adapter is pinned to Fabric/Minecraft 1.21.1. An opt-in local fixture checks actual offline-mode client/dedicated-server play through the Mod. Platform and gameplay verification scope is summarized in [Project status](../README.md#项目状态); the sections below describe each component and its test entry points.
+This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The Fabric baseline is pinned to Minecraft 1.21.1; an opt-in NeoForge 1.21.1 dedicated-server adapter shares the same common and transport modules. An opt-in local fixture checks actual offline-mode client/dedicated-server play through the Mod. Platform and gameplay verification scope is summarized in [Project status](../README.md#项目状态); the sections below describe each component and its test entry points.
 
 ## Native TCP endpoint
 
@@ -384,7 +384,7 @@ The join lifetime owns one native proxy, one real Minecraft connection and two o
 
 ## Guarded local world publication
 
-The Fabric adapter retains one exact dedicated/integrated server lifetime and revokes its world guard **before** server stop/replacement. A publication has one worker and one JVM capacity slot, with no queued setup or automatic retry. A revoked, delayed native `host` reply is retained only for exact registration cleanup, never published for a replacement world. Local cleanup failure holds the capacity slot; uncertain native cleanup terminates that exact helper rather than replaying a mutation. Queued world IPC requests recheck their lifetime immediately before the pipe write.
+The shared `WorldSessions` owner retains one exact dedicated/integrated server lifetime and revokes its world guard **before** server stop/replacement. Fabric forwards start/tick/stop events and supplies its version-specific bind callback; queued intents and native publication use the same world identity. A publication has one worker and one JVM capacity slot, with no queued setup or automatic retry. A revoked, delayed native `host` reply is retained only for exact registration cleanup, never published for a replacement world. Local cleanup failure holds the capacity slot; uncertain native cleanup terminates that exact helper rather than replaying a mutation. Queued world IPC requests recheck their lifetime immediately before the pipe write.
 
 The adapter uses Minecraft's existing codecs, rate limiter, handshake handler and authoritative game-connection list, with an additional ephemeral **127.0.0.1** listener. It does not call the integrated-server open-to-LAN operation or advertise a LAN port. Existing dedicated-server listeners/configuration are unchanged: server operators remain responsible for restricting any separately configured public game port. Minecraft sees a loopback source, not the remote player's physical/virtual IP; IP-based bans or other Mods that rely on source IP need separate consideration. No forwarded-IP identity spoofing is performed.
 
@@ -405,6 +405,63 @@ Operator/console commands (permission level 4):
 
 The subprocess/world tests check capacity, native-owner/runtime fencing, cancellation during setup, cleanup of late host replies and malformed registration failure. Protected-target socket tests check that both local capability handshakes disappear before game bytes. Fabric transport tests use actual Netty pipelines with fragmented/coalesced input, virtual-time expiry, capacity, revocation and delayed Vanilla initialization, plus a real 128,000-byte TCP exchange between the Java guard and a protected Netty echo target. The socket tests use a protected Netty echo target. Dedicated-server accounts can be initialized with the independent console above while the server is stopped. Cross-machine Minecraft authentication/login, long-running gameplay, integrated hosting/pause, cancellation during actual configuration and world-replacement acceptance remain incomplete. Ordinary builds and the hook/server-boot fixtures do not accept EULA/account terms; the separate local gameplay fixture below requires explicit consent.
 
+
+## NeoForge dedicated-server adapter
+
+The opt-in `java/adapters/neoforge-1.21.1/` adapter targets **Minecraft 1.21.1**,
+**NeoForge 21.1.256**, **ModDevGradle 2.0.148** and **Java 21**, using the game's
+Mojang-named API. It supplies dedicated-server events, operator commands and the
+required server-connection Mixin. `WorldSessions`, Native IPC, account/runtime
+ownership and the protected Netty transport are shared with Fabric. NeoForge
+client menus, Multiplayer joins and integrated-server hosting are not implemented.
+
+From a clean checkout with the fixed dependencies cached:
+
+```sh
+python3 minecraft-mod/tools/native_bundle.py --offline
+python3 minecraft-mod/tools/java.py neoforge-build --offline
+python3 minecraft-mod/tools/java.py neoforge-server --offline
+```
+
+The JAR is
+`minecraft-mod/java/adapters/neoforge-1.21.1/build/libs/p2wlan-neoforge-1.21.1-0.1.0.jar`.
+The server run uses the adapter's normal development directory and does not
+accept the EULA. Dedicated operators initialize accounts with the common account
+console and explicitly connect/host using the commands above. Development native
+resources require `native_bundle.py --development` and `-PdevelopmentNative` for
+the Java build/run, as with Fabric.
+
+The installed JAR contains exactly three JarJar components: common Java, portable
+Netty transport and native resources. The resource module has the stable Java
+module name `io.p2wlan.mc.nativebundle`. JNA 5.14.0 comes from the pinned game's
+bootstrap layer; no second named JNA module is embedded. Development runs
+explicitly add the portable libraries to ModDev's additional runtime classpath.
+The adapter resolves the exact local native-resource module through its module
+reader, or uses the development classloader. Typed Union/JarJar filesystem
+backings are checked within eight levels before reading; ambiguous/remote
+resources fail, and common manifest, executable, extraction and lifetime checks
+remain unchanged. The portable default retains its local file/JAR policy.
+
+Two create-new, disposable **offline-mode** dedicated-world fixture modes require
+explicit EULA consent and use isolated build/cache/game directories:
+
+```sh
+python3 minecraft-mod/tests/neoforge_server_fixture.py --accept-eula --development --offline
+python3 minecraft-mod/tests/neoforge_server_fixture.py --accept-eula --development --offline --installed
+```
+
+Installed mode copies only the checked production archive into the fresh `mods/`
+directory, excludes the production source mod and disables the development
+library fallback. Each mode requires an exact run/loader/installation-bound
+32-check result: actual world startup, source-versus-JarJar module identities,
+native helper IPC, protected Vanilla status, wrong-capability refusal, listener
+revocation, ordinary Vanilla status and world/helper cleanup. This scope is
+local dedicated-world/status verification, not client login or game traffic.
+Both modes are verified on macOS/aarch64 with the pinned versions above.
+The standalone `:neoforge:resourcePolicyTest` checks real Union/JarJar filesystems,
+resource-only named-module access, ambiguity, remote refusal and the depth limit;
+it runs as part of `neoforge-build` without starting Minecraft. Fixture classes
+stay out of production archives.
 
 ## Isolated real-client hook verification
 

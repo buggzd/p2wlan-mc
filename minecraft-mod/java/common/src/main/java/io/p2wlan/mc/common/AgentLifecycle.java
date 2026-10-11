@@ -16,6 +16,7 @@ public final class AgentLifecycle implements AutoCloseable {
     private final Path profile;
     private final boolean development;
     private final ModDiagnostics diagnostics;
+    private final BundledAgent.Resources resources;
     private final CompletableFuture<AgentClient> ready = new CompletableFuture<>();
     private final CompletableFuture<Void> stopped = new CompletableFuture<>();
     private Phase phase = Phase.NEW;
@@ -28,10 +29,14 @@ public final class AgentLifecycle implements AutoCloseable {
         this(profile, allowDevelopment, null);
     }
     public AgentLifecycle(Path profile, boolean allowDevelopment, Path logDirectory) {
+        this(profile, allowDevelopment, logDirectory, null);
+    }
+    public AgentLifecycle(Path profile, boolean allowDevelopment, Path logDirectory, BundledAgent.Resources localResources) {
         if (profile == null || !profile.isAbsolute()) throw new IllegalArgumentException("INVALID_PROFILE_PATH");
         this.profile = profile;
         development = allowDevelopment;
         diagnostics = new ModDiagnostics(logDirectory);
+        resources = localResources;
         stopped.whenComplete((ignored, error) -> { diagnostics.stage(ModDiagnostics.Stage.CLEANUP_FINISHED); diagnostics.close(); });
     }
     public void start() {
@@ -58,7 +63,8 @@ public final class AgentLifecycle implements AutoCloseable {
         BundledAgent created = null;
         try {
             synchronized (gate) { if (closing) return; }
-            created = BundledAgent.launch(profile, development, diagnostics);
+            created = resources == null ? BundledAgent.launch(profile, development, diagnostics)
+                    : BundledAgent.launch(profile, development, diagnostics, resources);
             boolean admit;
             synchronized (gate) {
                 admit = !closing;

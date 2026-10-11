@@ -19,6 +19,18 @@ public final class AgentLifecycleTests {
         try {
             try { new AgentLifecycle(Path.of("relative"), false); throw new AssertionError("relative profile accepted"); }
             catch (IllegalArgumentException expected) { checks++; }
+            var resourceReads = new java.util.concurrent.atomic.AtomicInteger();
+            AgentLifecycle supplied = new AgentLifecycle(profile, true, null, name -> {
+                resourceReads.incrementAndGet();
+                throw new NativeBundleException(NativeBundleException.Code.RESOURCE_NOT_LOCAL);
+            });
+            supplied.start();
+            check(failed(supplied.ready()) instanceof NativeBundleException failure
+                    && failure.code() == NativeBundleException.Code.RESOURCE_NOT_LOCAL);
+            failed(supplied.stopped());
+            check(resourceReads.get() == 1 && supplied.current().isEmpty());
+            check(supplied.status().reason().equals("RESOURCE_NOT_LOCAL"));
+            supplied.close();
             AgentLifecycle closed = new AgentLifecycle(profile, true);
             check(closed.status().phase() == AgentLifecycle.Phase.NEW);
             check(!closed.isCurrent(null));

@@ -36,6 +36,20 @@ class JavaToolTests(unittest.TestCase):
             self.assertIn("-PdevelopmentNative", command)
             self.assertIn("--offline", command)
 
+    def test_neoforge_entries_preserve_loader_and_archive_gates(self):
+        for entry, task in [('neoforge-build', ':neoforge:build'), ('neoforge-server', ':neoforge:runServer')]:
+            with patch('sys.argv', ['java.py', entry, '-PdevelopmentNative', '--offline']), \
+                    patch.object(java.subprocess, 'check_output', return_value='fixture-jdk\n'), \
+                    patch.object(java.subprocess, 'call', return_value=0) as run:
+                self.assertEqual(java.main(), 0)
+                arguments = run.call_args.args[0]
+                self.assertIn('-PneoforgeAdapter', arguments)
+                self.assertIn(task, arguments)
+                self.assertIn('-PdevelopmentNative', arguments)
+                self.assertNotIn('-PfabricAdapter', arguments)
+                if entry == 'neoforge-server':
+                    self.assertLess(arguments.index(':neoforge:verifyModJar'), arguments.index(task))
+
     def test_hmcl_pack_forwards_an_explicit_target_and_does_not_launch_a_game(self):
         with patch("sys.argv", ["java.py", "hmcl-pack", "-PhmclPlatform=windows-x86_64", "--offline"]), \
                 patch.object(java.subprocess, "check_output", return_value="fixture-jdk\n"), \
