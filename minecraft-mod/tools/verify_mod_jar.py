@@ -19,21 +19,21 @@ SERVER_MIXIN = "io/p2wlan/mc/fabric/mixin/ServerNetworkIoMixin.class"
 MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.fabric.mixin", "compatibilityLevel": "JAVA_21",
                 "mixins": ["ServerNetworkIoMixin"], "injectors": {"defaultRequire": 1},
                 "refmap": "p2wlan-fabric-1.21.1-refmap.json"}
-BIND_MAPPING = {"io/p2wlan/mc/fabric/mixin/ServerNetworkIoMixin": {"bind": "Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V"}}
+BIND_MAPPING = {"io/p2wlan/mc/fabric/mixin/ServerNetworkIoMixin": {"startTcpServerListener": "Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V"}}
 REFMAP = {"mappings": BIND_MAPPING, "data": {"named:intermediary": BIND_MAPPING}}
-CLIENT_MIXIN = "io/p2wlan/mc/fabric/mixin/ClientConnectionMixin.class"
-INTEGRATED_MIXIN = "io/p2wlan/mc/fabric/mixin/IntegratedServerMixin.class"
-CLIENT_MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.fabric.mixin", "compatibilityLevel": "JAVA_21",
+CLIENT_MIXIN = "io/p2wlan/mc/game/mixin/ClientConnectionMixin.class"
+INTEGRATED_MIXIN = "io/p2wlan/mc/game/mixin/IntegratedServerMixin.class"
+CLIENT_MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.game.mixin", "compatibilityLevel": "JAVA_21",
                        "client": ["ClientConnectionMixin", "IntegratedServerMixin", "MultiplayerListMixin", "MultiplayerListAccessor", "MultiplayerScreenMixin"], "injectors": {"defaultRequire": 1},
                        "refmap": "client-p2wlan-fabric-1.21.1-refmap.json"}
-CONNECT_MAPPING = {"io/p2wlan/mc/fabric/mixin/ClientConnectionMixin": {
-    "connect(Ljava/net/InetSocketAddress;ZLnet/minecraft/network/ClientConnection;)Lio/netty/channel/ChannelFuture;":
+CONNECT_MAPPING = {"io/p2wlan/mc/game/mixin/ClientConnectionMixin": {
+    "connect(Ljava/net/InetSocketAddress;ZLnet/minecraft/network/Connection;)Lio/netty/channel/ChannelFuture;":
     "Lnet/minecraft/class_2535;method_52271(Ljava/net/InetSocketAddress;ZLnet/minecraft/class_2535;)Lio/netty/channel/ChannelFuture;"}}
-INTEGRATED_MAPPING = {"io/p2wlan/mc/fabric/mixin/IntegratedServerMixin": {"isRemote": "Lnet/minecraft/class_1132;method_3860()Z"}}
+INTEGRATED_MAPPING = {"io/p2wlan/mc/game/mixin/IntegratedServerMixin": {"isPublished": "Lnet/minecraft/class_1132;method_3860()Z"}}
 LAN_MAPPING = {
-    "io/p2wlan/mc/fabric/mixin/MultiplayerListMixin": {"updateEntries": "Lnet/minecraft/class_4267;method_20131()V"},
-    "io/p2wlan/mc/fabric/mixin/MultiplayerListAccessor": {"updateEntries": "method_20131()V"},
-    "io/p2wlan/mc/fabric/mixin/MultiplayerScreenMixin": {"connect()V": "Lnet/minecraft/class_500;method_2536()V", "tick": "Lnet/minecraft/class_500;method_25393()V"},
+    "io/p2wlan/mc/game/mixin/MultiplayerListMixin": {"refreshEntries": "Lnet/minecraft/class_4267;method_20131()V"},
+    "io/p2wlan/mc/game/mixin/MultiplayerListAccessor": {"refreshEntries": "method_20131()V"},
+    "io/p2wlan/mc/game/mixin/MultiplayerScreenMixin": {"joinSelectedServer()V": "Lnet/minecraft/class_500;method_2536()V", "tick": "Lnet/minecraft/class_500;method_25393()V"},
 }
 LAN_MIXINS = tuple(name + ".class" for name in LAN_MAPPING)
 CLIENT_MAPPING = CONNECT_MAPPING | INTEGRATED_MAPPING | LAN_MAPPING
@@ -43,7 +43,7 @@ MIXINS = ["p2wlan.mixins.json", {"config": "p2wlan.client.mixins.json", "environ
 def verify(path, development=False):
     with zipfile.ZipFile(path) as archive:
         entries(archive)
-        if any(name.startswith("io/p2wlan/mc/fabric/fixture/") for name in archive.namelist()):
+        if any("/fixture/" in name for name in archive.namelist()):
             raise VerificationError("mod_test_fixture_present")
         info = metadata(archive)
         depends = info.get("depends")
@@ -66,11 +66,11 @@ def verify(path, development=False):
         for name in LAN_MIXINS:
             classfile(archive, name, 65)
         server_mixin = classfile(archive, SERVER_MIXIN, 65)
-        if b"net/minecraft/client/" in server_mixin or b"io/p2wlan/mc/fabric/client/" in server_mixin:
+        if b"net/minecraft/client/" in server_mixin or any(prefix in server_mixin for prefix in (b"io/p2wlan/mc/fabric/client/", b"io/p2wlan/mc/game/client/")):
             raise VerificationError("mod_dedicated_client_reference")
         main = classfile(archive, MAIN, 65)
         classfile(archive, CLIENT, 65)
-        if any(value in main for value in (b"net/minecraft/client/", b"net/fabricmc/fabric/api/client/", b"io/p2wlan/mc/fabric/client/")):
+        if any(value in main for value in (b"net/minecraft/client/", b"net/fabricmc/fabric/api/client/", b"io/p2wlan/mc/fabric/client/", b"io/p2wlan/mc/game/client/")):
             raise VerificationError("mod_dedicated_client_reference")
         children = info.get("jars")
         if not isinstance(children, list) or not 1 <= len(children) <= 8:

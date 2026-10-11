@@ -8,8 +8,8 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.server.command.CommandManager;
-import net.minecraft.text.Text;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
 
 /** Common/dedicated bootstrap. Deliberately imports no client class. */
 public final class FabricP2wlan implements ModInitializer {
@@ -24,10 +24,10 @@ public final class FabricP2wlan implements ModInitializer {
             ServerLifecycleEvents.SERVER_STOPPING.register(server -> { FabricWorlds.shutdown(); AGENT.close(); });
         }
         CommandRegistrationCallback.EVENT.register((dispatcher, registry, environment) -> {
-            var root = CommandManager.literal("p2wlan").requires(source -> source.hasPermissionLevel(4))
-                    .then(CommandManager.literal("status").executes(context -> {
+            var root = Commands.literal("p2wlan").requires(source -> source.hasPermission(4))
+                    .then(Commands.literal("status").executes(context -> {
                         AgentLifecycle.Status status = AGENT.status();
-                        context.getSource().sendFeedback(() -> Text.literal("P2WLAN helper: " + status.phase()
+                        context.getSource().sendSuccess(() -> Component.literal("P2WLAN helper: " + status.phase()
                                 + (status.reason() == null ? "" : " / " + status.reason())
                                 + "; world transport hooks: " + (FabricWorlds.transportSupported() ? "linked" : "missing")), false);
                         return status.phase() == AgentLifecycle.Phase.READY ? 1 : 0;

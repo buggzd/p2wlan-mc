@@ -64,11 +64,13 @@ def private_json(path, value):
         json.dump(value, stream, ensure_ascii=False)
 
 
-def gradle_command(job, task, offline, development):
+def gradle_command(job, task, offline, development, loader="fabric"):
+    adapter = PROJECT / f"java/adapters/{loader}-1.21.1"
+    directory = (lambda role: os.path.relpath(job / role, adapter)) if loader=="fabric" else (lambda role: str(job / role))
     command = [str(PROJECT / "java/gradlew"), "--no-daemon", "-I", str(job / "build-output.gradle"),
-               "-Dp2wlan.fixture.outputRoot=" + str(job / "build"), "--project-cache-dir", str(job / "gradle-cache"), "-PfabricAdapter", "-PlocalGameFixture",
-               "-PlocalGameServerDirectory=" + os.path.relpath(job / "server", ADAPTER),
-               "-PlocalGameClientDirectory=" + os.path.relpath(job / "client", ADAPTER),
+               "-Dp2wlan.fixture.outputRoot=" + str(job / "build"), "--project-cache-dir", str(job / "gradle-cache"), f"-P{loader}Adapter", "-PlocalGameFixture",
+               "-PlocalGameServerDirectory=" + directory("server"),
+               "-PlocalGameClientDirectory=" + directory("client"),
                "-PlocalGameServerConfig=" + str(job / "server.json"),
                "-PlocalGameClientConfig=" + str(job / "client.json"), *task]
     if offline:
@@ -118,7 +120,7 @@ def wait_game(processes, job, identity):
     return {role: verify_result(job / (role + "-result.json"), identity, role) for role in CASES}
 
 
-def prepare(job, env, offline, development):
+def prepare(job, env, offline, development, loader="fabric"):
     if not shutil.which("go", path=env.get("PATH")):
         raise ValueError("GAME_GO_REQUIRED_ON_PATH")
     (job / "build-output.gradle").write_text("allprojects { layout.buildDirectory.set(new File(System.getProperty('p2wlan.fixture.outputRoot'), project.name)) }\n", encoding="utf-8")
@@ -134,7 +136,7 @@ def prepare(job, env, offline, development):
     # Build the real, unchanged local Control; never contact a user deployment.
     subprocess.run(["go", "build", "-o", str(job / "control"), "."], cwd=PROJECT.parent / "server",
                    env=env | {"CGO_ENABLED": "0"}, check=True, timeout=300)
-    build = FixtureProcess(gradle_command(job, [":fabric:verifyModJar", ":fabric:localGameFixtureClasses", ":fabric:localGameClientFixtureClasses"], offline, development), PROJECT / "java", env, job / "build.log")
+    build = FixtureProcess(gradle_command(job, [f":{loader}:verifyModJar", f":{loader}:localGameFixtureClasses", f":{loader}:localGameClientFixtureClasses"], offline, development, loader), PROJECT / "java", env, job / "build.log")
     try:
         if build.process.wait(timeout=240):
             raise ValueError("GAME_FIXTURE_BUILD")
@@ -142,7 +144,7 @@ def prepare(job, env, offline, development):
         build.close()
 
 
-def exercise(job, env, offline, development):
+def exercise(job, env, offline, development, loader="fabric"):
     identity = uuid.uuid4().hex
     port = available_port()
     control_url = "http://127.0.0.1:" + str(port)
@@ -161,9 +163,9 @@ def exercise(job, env, offline, development):
         common = {"schema": 1, "run": identity, "control": control_url, "room": room, "room_password": password}
         private_json(job / "server.json", common | {"role": "server", "identifier": "", "password": ""})
         private_json(job / "client.json", common | {"role": "client", "identifier": "player-" + secrets.token_hex(8) + "@example.com", "password": secrets.token_hex(16)})
-        server = FixtureProcess(gradle_command(job, [":fabric:runLocalGameServer"], offline, development), PROJECT / "java", env, job / "server.log")
+        server = FixtureProcess(gradle_command(job, [f":{loader}:runLocalGameServer"], offline, development, loader), PROJECT / "java", env, job / "server.log")
         children.append(server); wait_ready(server, job, identity)
-        client = FixtureProcess(gradle_command(job, [":fabric:runLocalGameClient"], offline, development), PROJECT / "java", env, job / "client.log")
+        client = FixtureProcess(gradle_command(job, [f":{loader}:runLocalGameClient"], offline, development, loader), PROJECT / "java", env, job / "client.log")
         children.append(client)
         return wait_game([server, client], job, identity)
     finally:
@@ -192,6 +194,7 @@ def server_settings(port):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--loader", choices=("fabric", "neoforge"), default="fabric")
     parser.add_argument("--accept-eula", action="store_true", help="explicitly accept Minecraft server terms for this disposable local world")
     parser.add_argument("--offline-mode", action="store_true", help="explicitly use offline Minecraft authentication ONLY on a fresh loopback test server")
     parser.add_argument("--offline", action="store_true", help="use cached Cargo/Gradle dependencies")
@@ -206,7 +209,7 @@ def main():
         env.pop(key, None)
     if sys.platform == "darwin":
         env["JAVA_HOME"] = subprocess.check_output(["/usr/libexec/java_home", "-v", "21"], text=True, timeout=5).strip()
-    parent = ADAPTER / "build/local-game-fixture"
+    parent = PROJECT / f"java/adapters/{args.loader}-1.21.1/build/local-game-fixture"
     parent.mkdir(parents=True, exist_ok=True)
     job = Path(tempfile.mkdtemp(prefix="run-", dir=parent)).resolve()
     os.chmod(job, 0o700)
@@ -217,11 +220,11 @@ def main():
     original_eula = eula.read_bytes()
     (job / "server/server.properties").write_text(server_settings(available_port()), encoding="utf-8")
     try:
-        prepare(job, env, args.offline, args.development)
-        checked = exercise(job, env, args.offline, args.development)
+        prepare(job, env, args.offline, args.development, args.loader)
+        checked = exercise(job, env, args.offline, args.development, args.loader)
         if eula.read_bytes() != original_eula:
             raise ValueError("GAME_EULA_CHANGED")
-        print("PASS real local Minecraft: UI register/login, room join, encrypted service discovery, Vanilla play,")
+        print("PASS real local Minecraft (" + args.loader + "): UI register/login, room join, encrypted service discovery, Vanilla play,")
         print("20 ordered C2S commands + S2C game-state/message replies over at least 18 seconds, disconnect/room-stop and both helpers/world cleanup.")
         print("Assertions:", checked["server"]["checks"], "server;", checked["client"]["checks"], "client. NOT Windows/public-network/multi-loader acceptance.")
     except KeyboardInterrupt:

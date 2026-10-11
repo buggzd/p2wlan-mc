@@ -34,6 +34,7 @@ public final class NeoForgeP2wlan {
         NeoForge.EVENT_BUS.addListener(this::tick);
         NeoForge.EVENT_BUS.addListener(this::commands);
     }
+    public static void shutdownWorlds() { WORLDS.close(); }
     public static boolean transportSupported() { return transportSupported; }
     public static WorldSessions.World<MinecraftServer> world(MinecraftServer server) { return WORLDS.current(server); }
     private void starting(ServerStartingEvent event) {

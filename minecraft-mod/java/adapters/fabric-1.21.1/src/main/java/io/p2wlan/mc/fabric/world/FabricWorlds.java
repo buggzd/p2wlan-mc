@@ -6,7 +6,7 @@ import io.p2wlan.mc.transport.LoopbackBind;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.ServerNetworkIo;
+import net.minecraft.server.network.ServerConnectionListener;
 
 /** Loader events/version API only; common WorldSessions owns local scopes. */
 public final class FabricWorlds {
@@ -19,10 +19,10 @@ public final class FabricWorlds {
     public static WorldSessions.World<MinecraftServer> current(MinecraftServer server) { return WORLDS.current(server); }
     public static boolean hosted(MinecraftServer server) { var world = current(server); return world != null && world.hosted(); }
     public static void initialize() {
-        transportSupported = LoopbackBind.supported(ServerNetworkIo.class);
+        transportSupported = LoopbackBind.supported(ServerConnectionListener.class);
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-            var network = server.getNetworkIo();
-            WORLDS.started(server, server::isOnThread, fence -> new LoopbackBind(network, network::bind, fence));
+            var network = server.getConnection();
+            WORLDS.started(server, server::isSameThread, fence -> new LoopbackBind(network, network::startTcpServerListener, fence));
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> WORLDS.stopped(current(server)));
         ServerTickEvents.END_SERVER_TICK.register(server -> { var world = current(server); if (world != null) world.tick(); });

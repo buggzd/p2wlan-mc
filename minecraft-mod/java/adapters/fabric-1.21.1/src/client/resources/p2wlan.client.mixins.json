@@ -1,6 +1,6 @@
 {
   "required": true,
-  "package": "io.p2wlan.mc.fabric.mixin",
+  "package": "io.p2wlan.mc.game.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": ["ClientConnectionMixin", "IntegratedServerMixin", "MultiplayerListMixin", "MultiplayerListAccessor", "MultiplayerScreenMixin"],
   "injectors": {"defaultRequire": 1}

@@ -92,6 +92,12 @@ class ModJarTests(unittest.TestCase):
         with self.assertRaisesRegex(verify.VerificationError, "mod_shared_transport_resources_ambiguous"):
             self.check(top)
 
+    def test_shared_version_fixtures_cannot_enter_production(self):
+        top, _, _, _ = self.fixture()
+        top['io/p2wlan/mc/game/fixture/GameClientChecks.class'] = bytecode(65)
+        with self.assertRaisesRegex(verify.VerificationError, 'mod_test_fixture_present'):
+            self.check(top)
+
     def test_complete_nested_artifact_and_development_policy(self):
         top, _, _, _ = self.fixture()
         self.assertEqual(self.check(top)[0]["verification-platform"], "macos-aarch64")
@@ -224,7 +230,7 @@ class ModJarTests(unittest.TestCase):
         with self.assertRaisesRegex(verify.VerificationError, "mod_client_mixin_contract"):
             self.check(top)
         for mapping in ({"mappings": verify.CONNECT_MAPPING, "data": {"named:intermediary": verify.CONNECT_MAPPING}},
-                        {"mappings": verify.CLIENT_MAPPING | {"io/p2wlan/mc/fabric/mixin/IntegratedServerMixin": {"isRemote": "Lnet/minecraft/class_1132;method_3860(I)Z"}}, "data": {"named:intermediary": verify.CLIENT_MAPPING}}):
+                        {"mappings": verify.CLIENT_MAPPING | {"io/p2wlan/mc/game/mixin/IntegratedServerMixin": {"isPublished": "Lnet/minecraft/class_1132;method_3860(I)Z"}}, "data": {"named:intermediary": verify.CLIENT_MAPPING}}):
             top, _, _, _ = self.fixture()
             top[verify.CLIENT_MIXIN_CONFIG["refmap"]] = json.dumps(mapping)
             with self.assertRaisesRegex(verify.VerificationError, "mod_client_mixin_refmap"):

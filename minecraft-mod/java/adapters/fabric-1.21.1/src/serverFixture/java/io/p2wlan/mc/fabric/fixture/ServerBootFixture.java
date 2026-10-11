@@ -62,7 +62,7 @@ public final class ServerBootFixture implements ModInitializer {
     private static byte[] query(int port) throws Exception {
         var handshake = new ByteArrayOutputStream();
         var body = new DataOutputStream(handshake);
-        varInt(body, 0); varInt(body, SharedConstants.getGameVersion().getProtocolVersion());
+        varInt(body, 0); varInt(body, SharedConstants.getCurrentVersion().getProtocolVersion());
         byte[] host = "127.0.0.1".getBytes(StandardCharsets.UTF_8);
         varInt(body, host.length); body.write(host); body.writeShort(port); varInt(body, 1);
         var framed = new ByteArrayOutputStream(); var wire = new DataOutputStream(framed);
@@ -97,7 +97,7 @@ public final class ServerBootFixture implements ModInitializer {
             String json = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(frame.readNBytes(length))).toString();
             check(frame.available() == 0);
             JsonObject result = JsonParser.parseString(json).getAsJsonObject();
-            check(result.getAsJsonObject("version").get("protocol").getAsInt() == SharedConstants.getGameVersion().getProtocolVersion());
+            check(result.getAsJsonObject("version").get("protocol").getAsInt() == SharedConstants.getCurrentVersion().getProtocolVersion());
             check(result.getAsJsonObject("players").get("online").getAsInt() == 0);
         }
     }
@@ -107,10 +107,10 @@ public final class ServerBootFixture implements ModInitializer {
         try {
             world = onGame(server, () -> {
                 var value = FabricWorlds.current(server);
-                check(value != null && value.isCurrent()); check(server.getOverworld() != null);
+                check(value != null && value.isCurrent()); check(server.overworld() != null);
                 check(value.status() == null && !FabricWorlds.hosted(server));
-                check(server.getNetworkIo() instanceof LoopbackBind.Hooks); check(LoopbackBind.supported(net.minecraft.server.ServerNetworkIo.class));
-                check(server.isOnlineMode()); check(server.isRunning());
+                check(server.getConnection() instanceof LoopbackBind.Hooks); check(LoopbackBind.supported(net.minecraft.server.network.ServerConnectionListener.class));
+                check(server.usesAuthentication()); check(server.isRunning());
                 return value;
             });
             helper = FabricP2wlan.AGENT.ready().get(41, TimeUnit.SECONDS);
@@ -122,11 +122,11 @@ public final class ServerBootFixture implements ModInitializer {
             var capturedWorld = world;
             // Own the target before queueing open, including timeout/late-drain
             // failure. Cleanup stays off the server thread; its fence is exact.
-            binding = new LoopbackBind(server.getNetworkIo(), server.getNetworkIo()::bind, () -> live.get() && capturedWorld.isCurrent());
+            binding = new LoopbackBind(server.getConnection(), server.getConnection()::startTcpServerListener, () -> live.get() && capturedWorld.isCurrent());
             var target = binding;
             onGame(server, () -> { target.open(); return true; });
             var endpoint = binding.endpoint();
-            check(endpoint.address().getAddress().isLoopbackAddress()); check(endpoint.address().getPort() != server.getServerPort());
+            check(endpoint.address().getAddress().isLoopbackAddress()); check(endpoint.address().getPort() != server.getPort());
             try (var socket = new Socket()) {
                 socket.connect(endpoint.address(), 2000); socket.setSoTimeout(3000);
                 byte[] wrong = endpoint.prelude(); wrong[39] ^= 1;
@@ -142,7 +142,7 @@ public final class ServerBootFixture implements ModInitializer {
                 catch (java.net.ConnectException expected) { closed = true; }
                 check(closed);
             }
-            status(new InetSocketAddress("127.0.0.1", server.getServerPort()), null);
+            status(new InetSocketAddress("127.0.0.1", server.getPort()), null);
             FabricP2wlan.AGENT.close(); FabricP2wlan.AGENT.stopped().get(20, TimeUnit.SECONDS);
             check(!ProcessHandle.of(helper.processId()).map(ProcessHandle::isAlive).orElse(false));
             check(FabricP2wlan.AGENT.current().isEmpty()); helperCleaned = true;
@@ -153,7 +153,7 @@ public final class ServerBootFixture implements ModInitializer {
             FabricP2wlan.AGENT.close();
             try { FabricP2wlan.AGENT.stopped().get(20, TimeUnit.SECONDS); }
             catch (Exception error) { reason = "FIXTURE_HELPER_CLEANUP"; }
-            live.set(false); game.close(); server.stop(false);
+            live.set(false); game.close(); server.halt(false);
         }
     }
     private void stopped(MinecraftServer server) {

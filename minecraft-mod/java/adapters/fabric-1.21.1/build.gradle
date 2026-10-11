@@ -11,7 +11,7 @@ def developmentEnabled = providers.gradleProperty('developmentNative').map { val
 repositories { maven { url = 'https://maven.fabricmc.net/' } }
 dependencies {
     minecraft 'com.mojang:minecraft:1.21.1'
-    mappings 'net.fabricmc:yarn:1.21.1+build.3:v2'
+    mappings loom.officialMojangMappings()
     modImplementation 'net.fabricmc:fabric-loader:0.16.14'
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
     hmclFabricApi "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
@@ -32,6 +32,7 @@ loom {
         }
     }
 }
+sourceSets.client.java.srcDir rootProject.file('game-1.21.1/src/client/java')
 java {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
@@ -75,6 +76,7 @@ check.dependsOn clientBootstrapTest
 // never included/remapped into the production artifact or enabled by default.
 if (providers.gradleProperty('clientHookFixture').isPresent()) {
     def fixture = sourceSets.create('clientFixture')
+    fixture.java.srcDir rootProject.file('game-1.21.1/src/clientFixture/java')
     fixture.compileClasspath += sourceSets.client.output + sourceSets.client.compileClasspath
     fixture.runtimeClasspath += sourceSets.client.output + sourceSets.client.runtimeClasspath
     loom.mods.register('p2wlan_client_hook_test') { sourceSet fixture }
@@ -111,9 +113,11 @@ if (providers.gradleProperty('serverBootFixture').isPresent()) {
 // entrypoint. The wrapper owns fresh accounts, Control and disposable worlds.
 if (providers.gradleProperty('localGameFixture').isPresent()) {
     def server = sourceSets.create('localGameFixture')
+    server.java.srcDir rootProject.file('game-1.21.1/src/localGameFixture/java')
     server.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     server.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     def client = sourceSets.create('localGameClientFixture')
+    client.java.srcDir rootProject.file('game-1.21.1/src/localGameClientFixture/java')
     client.compileClasspath += server.output + sourceSets.client.output + sourceSets.client.compileClasspath
     client.runtimeClasspath += server.output + sourceSets.client.output + sourceSets.client.runtimeClasspath
     loom.mods.register('p2wlan_local_game_test') { sourceSet server; sourceSet client }

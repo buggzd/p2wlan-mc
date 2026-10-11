@@ -20,6 +20,11 @@ WORLD_COMMON = tuple('io/p2wlan/mc/common/' + name + '.class' for name in
 SERVER_MIXIN = 'io/p2wlan/mc/neoforge/mixin/ServerConnectionMixin.class'
 DEDICATED_CLASSES = (MAIN, SERVER_MIXIN, 'io/p2wlan/mc/neoforge/WorldCommands.class',
                      'io/p2wlan/mc/neoforge/LocalNativeResources.class')
+CLIENT_MIXIN_CONFIG = {'required': True, 'package': 'io.p2wlan.mc.game.mixin', 'compatibilityLevel': 'JAVA_21',
+                       'client': ['ClientConnectionMixin', 'IntegratedServerMixin', 'MultiplayerListMixin', 'MultiplayerListAccessor', 'MultiplayerScreenMixin'],
+                       'injectors': {'defaultRequire': 1}}
+CLIENT = 'io/p2wlan/mc/neoforge/client/NeoForgeClient.class'
+CLIENT_MIXINS = tuple('io/p2wlan/mc/game/mixin/' + name + '.class' for name in CLIENT_MIXIN_CONFIG['client'])
 MIXIN_CONFIG = {'required': True, 'package': 'io.p2wlan.mc.neoforge.mixin',
                 'compatibilityLevel': 'JAVA_21', 'mixins': ['ServerConnectionMixin'],
                 'injectors': {'defaultRequire': 1}}
@@ -34,7 +39,7 @@ def descriptor(archive):
         raise VerificationError('neoforge_mod_contract')
     expected = [{'modId': 'neoforge', 'type': 'required', 'versionRange': '[21.1.256]', 'ordering': 'NONE', 'side': 'BOTH'},
                 {'modId': 'minecraft', 'type': 'required', 'versionRange': '[1.21.1]', 'ordering': 'NONE', 'side': 'BOTH'}]
-    if info.get('dependencies') != {'p2wlan': expected} or info.get('mixins') != [{'config': 'p2wlan.neoforge.mixins.json'}]:
+    if info.get('dependencies') != {'p2wlan': expected} or info.get('mixins') != [{'config': 'p2wlan.neoforge.mixins.json'}, {'config': 'p2wlan.neoforge.client.mixins.json'}]:
         raise VerificationError('neoforge_dependency_contract')
     return mods[0]['version']
 
@@ -113,9 +118,13 @@ def verify(path, development=False):
         version = descriptor(archive)
         if metadata(archive, 'p2wlan.neoforge.mixins.json') != MIXIN_CONFIG:
             raise VerificationError('neoforge_mixin_contract')
+        if metadata(archive, 'p2wlan.neoforge.client.mixins.json') != CLIENT_MIXIN_CONFIG:
+            raise VerificationError('neoforge_client_mixin_contract')
+        for name in (CLIENT, *CLIENT_MIXINS):
+            classfile(archive, name, 65)
         for name in DEDICATED_CLASSES:
             value = classfile(archive, name, 65)
-            if any(prefix in value for prefix in (b'net/minecraft/client/', b'net/neoforged/neoforge/client/', b'io/p2wlan/mc/neoforge/client/')):
+            if any(prefix in value for prefix in (b'net/minecraft/client/', b'net/neoforged/neoforge/client/', b'io/p2wlan/mc/neoforge/client/', b'io/p2wlan/mc/game/client/')):
                 raise VerificationError('mod_dedicated_client_reference')
         return portable(archive, version, development)
 

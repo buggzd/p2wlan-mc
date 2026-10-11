@@ -38,10 +38,13 @@ ordering="NONE"
 side="BOTH"
 [[mixins]]
 config="p2wlan.neoforge.mixins.json"
+[[mixins]]
+config="p2wlan.neoforge.client.mixins.json"
 '''
         import json
-        top = {'META-INF/neoforge.mods.toml': descriptor, **{name: bytecode(65) for name in verify.DEDICATED_CLASSES},
-               'p2wlan.neoforge.mixins.json': json.dumps(verify.MIXIN_CONFIG)}
+        top = {'META-INF/neoforge.mods.toml': descriptor, **{name: bytecode(65) for name in (*verify.DEDICATED_CLASSES, verify.CLIENT, *verify.CLIENT_MIXINS)},
+               'p2wlan.neoforge.mixins.json': json.dumps(verify.MIXIN_CONFIG),
+               'p2wlan.neoforge.client.mixins.json': json.dumps(verify.CLIENT_MIXIN_CONFIG)}
         children = []
         for name in ('common', 'transport', 'native'):
             path = f'META-INF/jarjar/{name}.jar'

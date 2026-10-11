@@ -4,7 +4,7 @@
 
 This page documents implementation contracts and component-specific build/test entry points. Start with the user guide for Mod installation, accounts, rooms and game controls. Unless stated otherwise, commands run from the complete repository root.
 
-This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The Fabric baseline is pinned to Minecraft 1.21.1; an opt-in NeoForge 1.21.1 dedicated-server adapter shares the same common and transport modules. An opt-in local fixture checks actual offline-mode client/dedicated-server play through the Mod. Platform and gameplay verification scope is summarized in [Project status](../README.md#项目状态); the sections below describe each component and its test entry points.
+This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The Fabric baseline is pinned to Minecraft 1.21.1; an opt-in NeoForge 1.21.1 adapter shares the same common and transport modules. An opt-in local fixture checks actual offline-mode client/dedicated-server play through the Mod. Platform and gameplay verification scope is summarized in [Project status](../README.md#项目状态); the sections below describe each component and its test entry points.
 
 ## Native TCP endpoint
 
@@ -322,7 +322,7 @@ A development distribution requires explicit `--development` on this fixture and
 
 ## Fabric adapter bootstrap
 
-The explicit Fabric adapter targets **Minecraft 1.21.1**, with Fabric Loader 0.16.14, Fabric API 0.116.7+1.21.1, Yarn 1.21.1+build.3 and Loom 1.10.5 as its pinned build inputs. Its loader metadata accepts Fabric/Minecraft 1.21.1 only. Loader/version references are confined to `java/adapters/fabric-1.21.1/`; common Java and native networking remain game-independent.
+The explicit Fabric adapter targets **Minecraft 1.21.1**, with Fabric Loader 0.16.14, Fabric API 0.116.7+1.21.1, the official Minecraft 1.21.1 Mojang mappings and Loom 1.10.5 as its pinned build inputs. Its loader metadata accepts Fabric/Minecraft 1.21.1 only. Loader events stay in `java/adapters/fabric-1.21.1/`; Minecraft 1.21.1 client screens, game joins and display observers are shared under `java/game-1.21.1/`. Common Java and native networking remain game-independent.
 
 From a clean repository checkout, generate the host resource and build the adapter:
 
@@ -406,14 +406,16 @@ Operator/console commands (permission level 4):
 The subprocess/world tests check capacity, native-owner/runtime fencing, cancellation during setup, cleanup of late host replies and malformed registration failure. Protected-target socket tests check that both local capability handshakes disappear before game bytes. Fabric transport tests use actual Netty pipelines with fragmented/coalesced input, virtual-time expiry, capacity, revocation and delayed Vanilla initialization, plus a real 128,000-byte TCP exchange between the Java guard and a protected Netty echo target. The socket tests use a protected Netty echo target. Dedicated-server accounts can be initialized with the independent console above while the server is stopped. Cross-machine Minecraft authentication/login, long-running gameplay, integrated hosting/pause, cancellation during actual configuration and world-replacement acceptance remain incomplete. Ordinary builds and the hook/server-boot fixtures do not accept EULA/account terms; the separate local gameplay fixture below requires explicit consent.
 
 
-## NeoForge dedicated-server adapter
+## NeoForge adapter
 
 The opt-in `java/adapters/neoforge-1.21.1/` adapter targets **Minecraft 1.21.1**,
 **NeoForge 21.1.256**, **ModDevGradle 2.0.148** and **Java 21**, using the game's
-Mojang-named API. It supplies dedicated-server events, operator commands and the
+Mojang-named API. It supplies loader events, operator/client commands and the
 required server-connection Mixin. `WorldSessions`, Native IPC, account/runtime
-ownership and the protected Netty transport are shared with Fabric. NeoForge
-client menus, Multiplayer joins and integrated-server hosting are not implemented.
+ownership and the protected Netty transport are shared with Fabric. The same `java/game-1.21.1/` client implementation supplies account/room screens,
+Multiplayer joins, display settings, diagnostics and integrated-world controls to
+both loaders. Dedicated client/server gameplay is verified locally below;
+integrated-world gameplay acceptance remains pending.
 
 From a clean checkout with the fixed dependencies cached:
 
@@ -421,6 +423,7 @@ From a clean checkout with the fixed dependencies cached:
 python3 minecraft-mod/tools/native_bundle.py --offline
 python3 minecraft-mod/tools/java.py neoforge-build --offline
 python3 minecraft-mod/tools/java.py neoforge-server --offline
+python3 minecraft-mod/tools/java.py neoforge-client --offline
 ```
 
 The JAR is
@@ -462,6 +465,41 @@ The standalone `:neoforge:resourcePolicyTest` checks real Union/JarJar filesyste
 resource-only named-module access, ambiguity, remote refusal and the depth limit;
 it runs as part of `neoforge-build` without starting Minecraft. Fixture classes
 stay out of production archives.
+
+## Shared Minecraft 1.21.1 client layer
+
+`java/game-1.21.1/src/client/java` is compiled directly into both loader archives;
+there is one physical implementation of the screens, fenced game-join lifetime,
+read-only service observer, display/HUD settings and exact-version client Mixins.
+It imports Minecraft APIs but no Fabric, NeoForge or Forge class. Loader adapters
+bind the existing Native `AgentLifecycle` and `WorldSessions` owners once and
+supply client events, widgets and render callbacks. Account/path/room authority
+remains Native-owned; the binding delegates rather than retaining parallel state.
+
+The real-client hook assertions and local-game widget/network assertions also
+have one test-only implementation under this version directory. Loader test mods
+supply event observations; production artifacts reject all fixture classes.
+NeoForge executes the 61-assertion hook harness through:
+
+```sh
+python3 minecraft-mod/tests/neoforge_client_fixture.py --development --offline
+```
+
+The result verifies required client/server/IntegratedServer transformations,
+capability-prefixed Vanilla login bytes, ordinary unwrapped bootstrap, cancellation,
+retirement and exact helper cleanup. It runs without starting a test game server.
+The two-JVM local gameplay fixture accepts an explicit loader:
+
+```sh
+python3 minecraft-mod/tools/local_game.py --loader neoforge --accept-eula --offline-mode --offline --development
+python3 minecraft-mod/tools/local_game.py --loader fabric --accept-eula --offline-mode --offline --development
+```
+
+Both paths retain the shared 68 server / 65 client checks and real Vanilla
+login, 20 ordered C2S/S2C exchanges, at least 18 seconds of play, room stop and
+world/helper cleanup. The default loader remains Fabric. Verification currently
+uses local macOS/aarch64 and Minecraft 1.21.1 with the pinned loader versions;
+Windows and remote-machine execution remain separate verification targets.
 
 ## Isolated real-client hook verification
 

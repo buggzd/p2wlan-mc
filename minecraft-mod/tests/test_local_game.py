@@ -25,6 +25,15 @@ class LocalGameContractTests(unittest.TestCase):
                 "minecraft": "1.21.1", "helper_cleanup": True, "world_cleanup": True, "joins": 1, "rounds": ROUNDS,
                 "cases": sorted(CASES[role])}
 
+    def test_loader_selection_uses_exact_independent_adapter_and_run_paths(self):
+        job=Path('/fixture-job')
+        command=gradle_command(job,[':neoforge:runLocalGameClient'],True,True,'neoforge')
+        self.assertIn('-PneoforgeAdapter',command)
+        self.assertNotIn('-PfabricAdapter',command)
+        self.assertIn('-PlocalGameServerDirectory=/fixture-job/server',command)
+        self.assertIn('-PlocalGameClientDirectory=/fixture-job/client',command)
+        self.assertIn(':neoforge:runLocalGameClient',command)
+
     def test_both_exact_run_bound_gameplay_and_cleanup_results_required(self):
         for role in CASES:
             value = self.result(role)

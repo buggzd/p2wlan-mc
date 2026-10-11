@@ -14,6 +14,7 @@ java {
     toolchain.languageVersion = JavaLanguageVersion.of(21)
     withSourcesJar()
 }
+sourceSets.main.java.srcDir rootProject.file('game-1.21.1/src/client/java')
 tasks.withType(JavaCompile).configureEach {
     options.release = 21
     options.encoding = 'UTF-8'
@@ -89,7 +90,7 @@ tasks.register('verifyModJar', Exec) {
     }
 }
 check.dependsOn verifyModJar
-tasks.matching { it.name in ['runServer', 'runClient', 'runServerFixture'] }.configureEach {
+tasks.matching { it.name in ['runServer', 'runClient', 'runServerFixture', 'runClientFixture', 'runLocalGameServer', 'runLocalGameClient'] }.configureEach {
     dependsOn tasks.named('verifyModJar')
 }
 
@@ -116,6 +117,54 @@ if (providers.gradleProperty('serverBootFixture').isPresent()) {
         if (developmentEnabled) {
             systemProperty 'p2wlan.allowDevelopmentNative', 'true'
         }
+        disableIdeRun()
+    }
+}
+
+// Both loaders execute these exact shared Minecraft assertions. No fixture
+// source is added to production or ordinary runs.
+if (providers.gradleProperty('clientHookFixture').isPresent()) {
+    def fixture = sourceSets.create('clientFixture')
+    fixture.java.srcDir rootProject.file('game-1.21.1/src/clientFixture/java')
+    fixture.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    fixture.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    neoForge.mods.register('p2wlan_client_hook_test') { sourceSet fixture }
+    neoForge.runs.register('clientFixture') {
+        client()
+        sourceSet = fixture
+        gameDirectory = file(providers.gradleProperty('clientFixtureDirectory').get())
+        systemProperty 'p2wlan.fixture.run', providers.gradleProperty('clientFixtureRun').get()
+        systemProperty 'p2wlan.fixture.result', providers.gradleProperty('clientFixtureResult').get()
+        if (developmentEnabled) systemProperty 'p2wlan.allowDevelopmentNative', 'true'
+        disableIdeRun()
+    }
+}
+
+if (providers.gradleProperty('localGameFixture').isPresent()) {
+    def gameServer = sourceSets.create('localGameFixture')
+    gameServer.java.srcDir rootProject.file('game-1.21.1/src/localGameFixture/java')
+    gameServer.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    gameServer.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    def gameClient = sourceSets.create('localGameClientFixture')
+    gameClient.java.srcDir rootProject.file('game-1.21.1/src/localGameClientFixture/java')
+    gameClient.compileClasspath += gameServer.output + sourceSets.main.output + sourceSets.main.compileClasspath
+    gameClient.runtimeClasspath += gameServer.output + sourceSets.main.output + sourceSets.main.runtimeClasspath
+    neoForge.mods.register('p2wlan_local_game_test') { sourceSet gameServer; sourceSet gameClient }
+    neoForge.runs.register('localGameServer') {
+        server()
+        sourceSet = gameServer
+        gameDirectory = file(providers.gradleProperty('localGameServerDirectory').get())
+        systemProperty 'p2wlan.gameFixture.config', providers.gradleProperty('localGameServerConfig').get()
+        if (developmentEnabled) systemProperty 'p2wlan.allowDevelopmentNative', 'true'
+        programArgument '--nogui'
+        disableIdeRun()
+    }
+    neoForge.runs.register('localGameClient') {
+        client()
+        sourceSet = gameClient
+        gameDirectory = file(providers.gradleProperty('localGameClientDirectory').get())
+        systemProperty 'p2wlan.gameFixture.config', providers.gradleProperty('localGameClientConfig').get()
+        if (developmentEnabled) systemProperty 'p2wlan.allowDevelopmentNative', 'true'
         disableIdeRun()
     }
 }
