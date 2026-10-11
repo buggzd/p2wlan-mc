@@ -33,6 +33,7 @@ loom {
     }
 }
 sourceSets.client.java.srcDir rootProject.file('game-1.21.1/src/client/java')
+sourceSets.main.java.srcDir rootProject.file('game-1.21.1/src/server/java')
 java {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21

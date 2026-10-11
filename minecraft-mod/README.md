@@ -466,7 +466,13 @@ resource-only named-module access, ambiguity, remote refusal and the depth limit
 it runs as part of `neoforge-build` without starting Minecraft. Fixture classes
 stay out of production archives.
 
-## Shared Minecraft 1.21.1 client layer
+## Shared Minecraft 1.21.1 game layer
+
+`java/game-1.21.1/src/server/java` supplies one operator-command implementation
+for both loaders. Each loader registers it with the existing `AgentLifecycle`,
+the current `WorldSessions` lookup and its transport-hook availability check.
+Command completions retain the original process/world fences; loader glue
+does not own another room, publication or command queue.
 
 `java/game-1.21.1/src/client/java` is compiled directly into both loader archives;
 there is one physical implementation of the screens, fenced game-join lifetime,

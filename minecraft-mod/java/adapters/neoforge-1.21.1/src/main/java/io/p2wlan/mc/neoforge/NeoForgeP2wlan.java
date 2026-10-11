@@ -2,6 +2,7 @@ package io.p2wlan.mc.neoforge;
 
 import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.common.WorldSessions;
+import io.p2wlan.mc.game.server.WorldCommands;
 import io.p2wlan.mc.transport.LoopbackBind;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerConnectionListener;
@@ -49,5 +50,5 @@ public final class NeoForgeP2wlan {
         if (FMLEnvironment.dist == Dist.DEDICATED_SERVER) AGENT.close();
     }
     private void tick(ServerTickEvent.Post event) { var world = world(event.getServer()); if (world != null) world.tick(); }
-    private void commands(RegisterCommandsEvent event) { WorldCommands.register(event.getDispatcher()); }
+    private void commands(RegisterCommandsEvent event) { WorldCommands.register(event.getDispatcher(), AGENT, NeoForgeP2wlan::world, NeoForgeP2wlan::transportSupported); }
 }

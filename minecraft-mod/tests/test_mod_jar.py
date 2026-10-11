@@ -57,6 +57,7 @@ class ModJarTests(unittest.TestCase):
                     "depends": {"minecraft": "1.21.1", "java": ">=21"}, "mixins": verify.MIXINS,
                     "jars": [{"file": "META-INF/jars/common.jar"}, {"file": "META-INF/jars/native.jar"}, {"file": "META-INF/jars/jna.jar"}, {"file": "META-INF/jars/transport.jar"}]}
         top = {"fabric.mod.json": json.dumps(metadata), "p2wlan.mixins.json": json.dumps(verify.MIXIN_CONFIG),
+               verify.WORLD_COMMANDS: bytecode(65),
                verify.MIXIN_CONFIG["refmap"]: json.dumps(verify.REFMAP), verify.SERVER_MIXIN: bytecode(65), verify.MAIN: bytecode(65), verify.CLIENT: bytecode(65),
                "p2wlan.client.mixins.json": json.dumps(verify.CLIENT_MIXIN_CONFIG),
                verify.CLIENT_MIXIN_CONFIG["refmap"]: json.dumps(verify.CLIENT_REFMAP), verify.CLIENT_MIXIN: bytecode(65), verify.INTEGRATED_MIXIN: bytecode(65),
@@ -99,6 +100,21 @@ class ModJarTests(unittest.TestCase):
                 top[f'io/p2wlan/mc/game/fixture/{name}.class'] = bytecode(65)
                 with self.assertRaisesRegex(verify.VerificationError, 'mod_test_fixture_present'):
                     self.check(top)
+
+    def test_shared_server_commands_are_present_java_21_and_client_free(self):
+        top, _, _, _ = self.fixture()
+        del top[verify.WORLD_COMMANDS]
+        with self.assertRaisesRegex(verify.VerificationError, "mod_archive_member_invalid"):
+            self.check(top)
+        top, _, _, _ = self.fixture()
+        top[verify.WORLD_COMMANDS] = bytecode(61)
+        with self.assertRaises(verify.VerificationError):
+            self.check(top)
+        for prefix in (b"net/minecraft/client/Minecraft", b"io/p2wlan/mc/game/client/ClientPlatform"):
+            top, _, _, _ = self.fixture()
+            top[verify.WORLD_COMMANDS] += prefix
+            with self.assertRaisesRegex(verify.VerificationError, "mod_dedicated_client_reference"):
+                self.check(top)
 
     def test_complete_nested_artifact_and_development_policy(self):
         top, _, _, _ = self.fixture()

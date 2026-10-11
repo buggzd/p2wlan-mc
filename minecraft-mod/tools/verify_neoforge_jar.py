@@ -18,7 +18,7 @@ MAIN = 'io/p2wlan/mc/neoforge/NeoForgeP2wlan.class'
 WORLD_COMMON = tuple('io/p2wlan/mc/common/' + name + '.class' for name in
                      ('WorldSessions', 'WorldSessions$World', 'WorldHost', 'WorldHost$Target', 'WorldHost$TargetFactory'))
 SERVER_MIXIN = 'io/p2wlan/mc/neoforge/mixin/ServerConnectionMixin.class'
-DEDICATED_CLASSES = (MAIN, SERVER_MIXIN, 'io/p2wlan/mc/neoforge/WorldCommands.class',
+DEDICATED_CLASSES = (MAIN, SERVER_MIXIN, 'io/p2wlan/mc/game/server/WorldCommands.class',
                      'io/p2wlan/mc/neoforge/LocalNativeResources.class')
 CLIENT_MIXIN_CONFIG = {'required': True, 'package': 'io.p2wlan.mc.game.mixin', 'compatibilityLevel': 'JAVA_21',
                        'client': ['ClientConnectionMixin', 'IntegratedServerMixin', 'MultiplayerListMixin', 'MultiplayerListAccessor', 'MultiplayerScreenMixin'],

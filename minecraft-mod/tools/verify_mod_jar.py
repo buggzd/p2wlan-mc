@@ -15,6 +15,7 @@ CLIENT = "io/p2wlan/mc/fabric/client/FabricP2wlanClient.class"
 COMMON = "io/p2wlan/mc/common/BundledAgent.class"
 TRANSPORT = tuple(f"io/p2wlan/mc/transport/{name}.class" for name in
                   ("LoopbackBind", "LoopbackAdmission", "ProxyPrelude", "ScopedClientConnect"))
+WORLD_COMMANDS = "io/p2wlan/mc/game/server/WorldCommands.class"
 SERVER_MIXIN = "io/p2wlan/mc/fabric/mixin/ServerNetworkIoMixin.class"
 MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.fabric.mixin", "compatibilityLevel": "JAVA_21",
                 "mixins": ["ServerNetworkIoMixin"], "injectors": {"defaultRequire": 1},
@@ -65,6 +66,9 @@ def verify(path, development=False):
         classfile(archive, INTEGRATED_MIXIN, 65)
         for name in LAN_MIXINS:
             classfile(archive, name, 65)
+        commands = classfile(archive, WORLD_COMMANDS, 65)
+        if any(prefix in commands for prefix in (b"net/minecraft/client/", b"io/p2wlan/mc/game/client/")):
+            raise VerificationError("mod_dedicated_client_reference")
         server_mixin = classfile(archive, SERVER_MIXIN, 65)
         if b"net/minecraft/client/" in server_mixin or any(prefix in server_mixin for prefix in (b"io/p2wlan/mc/fabric/client/", b"io/p2wlan/mc/game/client/")):
             raise VerificationError("mod_dedicated_client_reference")

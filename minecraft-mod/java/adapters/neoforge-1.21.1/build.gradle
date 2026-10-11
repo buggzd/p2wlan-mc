@@ -10,6 +10,7 @@ if (installedFixture && !providers.gradleProperty('serverBootFixture').isPresent
 def developmentEnabled = providers.gradleProperty('developmentNative').map { value ->
     value.isEmpty() || value == 'true'
 }.getOrElse(false)
+sourceSets.main.java.srcDir rootProject.file('game-1.21.1/src/server/java')
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(21)
     withSourcesJar()

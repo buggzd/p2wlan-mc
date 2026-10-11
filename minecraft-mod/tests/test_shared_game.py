@@ -22,6 +22,20 @@ class SharedGameTests(unittest.TestCase):
         for path in common.rglob('*.java'):
             self.assertNotIn('import net.minecraft.', path.read_text())
 
+    def test_operator_commands_have_one_implementation_and_original_owners(self):
+        files = list((PROJECT / "java").rglob("WorldCommands.java"))
+        files = [path for path in files if "build" not in path.parts]
+        self.assertEqual(len(files), 1)
+        source = files[0].read_text()
+        for name in ("new WorldSessions", "new AgentLifecycle", "NeoForgeP2wlan", "FabricP2wlan", "net.minecraft.client."):
+            self.assertNotIn(name, source)
+        self.assertIn("Function<MinecraftServer, WorldSessions.World<MinecraftServer>>", source)
+        self.assertIn("agent.isCurrent(client)", source)
+        self.assertIn("world::isCurrent", source)
+        for adapter in ("fabric", "neoforge"):
+            build = (PROJECT / f"java/adapters/{adapter}-1.21.1/build.gradle").read_text()
+            self.assertIn("rootProject.file('game-1.21.1/src/server/java')", build)
+
     def test_platform_binding_delegates_world_and_native_owners(self):
         code = (PROJECT / 'java/game-1.21.1/src/client/java/io/p2wlan/mc/game/client/ClientPlatform.java').read_text()
         self.assertIn('CURRENT.compareAndSet(null, new Binding', code)
