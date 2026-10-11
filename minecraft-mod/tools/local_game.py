@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Opt-in real local Control + Minecraft UI/client + dedicated-world acceptance."""
+"""Opt-in local Control + real Minecraft clients/dedicated or integrated world."""
 import argparse
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -25,6 +26,7 @@ CASES = {
     "client": {"account_buttons", "register_login", "room_join", "runtime_peer", "discovery", "vanilla_play", "sustained_duplex", "disconnect", "room_stop", "session_retained", "vanilla_browser", "telemetry", "helper_cleanup", "display_preferences", "latency_statistics", "menu_logo", "latency_hud", "startup_diagnostics"},
 }
 CHECKS = {"server": 68, "client": 65}
+INTEGRATED_SERVER_CASES = {"integrated_world", "no_vanilla_lan", "shared_pause", "vanilla_login", "sustained_duplex", "remote_disconnect", "unhost_pause", "world_cleanup", "helper_cleanup"}
 FIELDS = {"schema", "run", "role", "status", "reason", "checks", "minecraft", "helper_cleanup", "world_cleanup", "joins", "rounds", "cases"}
 
 
@@ -34,17 +36,19 @@ def bounded_json(path):
     return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=strict_object)
 
 
-def verify_result(path, identity, role):
+def verify_result(path, identity, role, integrated=False):
     value = bounded_json(path)
+    cases = INTEGRATED_SERVER_CASES if integrated and role == "server" else CASES.get(role, set())
+    checks = 77 if integrated and role == "server" else CHECKS.get(role)
     if role not in CASES or not isinstance(value, dict) or set(value) != FIELDS \
             or type(value["schema"]) is not int or value["schema"] != 1 or value["run"] != identity or value["role"] != role \
             or value["status"] != "pass" or value["reason"] != "OK" or value["minecraft"] != "1.21.1" \
-            or type(value["checks"]) is not int or value["checks"] != CHECKS[role] \
+            or type(value["checks"]) is not int or value["checks"] != checks \
             or value["helper_cleanup"] is not True or value["world_cleanup"] is not True \
             or type(value["joins"]) is not int or value["joins"] != 1 \
             or type(value["rounds"]) is not int or value["rounds"] != ROUNDS \
             or not isinstance(value["cases"], list) or any(not isinstance(item, str) for item in value["cases"]) \
-            or len(value["cases"]) != len(CASES[role]) or set(value["cases"]) != CASES[role]:
+            or len(value["cases"]) != len(cases) or set(value["cases"]) != cases:
         raise ValueError("GAME_RESULT_CONTRACT_" + role.upper())
     return value
 
@@ -64,15 +68,17 @@ def private_json(path, value):
         json.dump(value, stream, ensure_ascii=False)
 
 
-def gradle_command(job, task, offline, development, loader="fabric"):
+def gradle_command(job, task, offline, development, loader="fabric", integrated=False):
     adapter = PROJECT / f"java/adapters/{loader}-1.21.1"
-    directory = (lambda role: os.path.relpath(job / role, adapter)) if loader=="fabric" else (lambda role: str(job / role))
+    directory = (lambda role: os.path.relpath(job / role, adapter)) if loader == "fabric" else (lambda role: str(job / role))
     command = [str(PROJECT / "java/gradlew"), "--no-daemon", "-I", str(job / "build-output.gradle"),
                "-Dp2wlan.fixture.outputRoot=" + str(job / "build"), "--project-cache-dir", str(job / "gradle-cache"), f"-P{loader}Adapter", "-PlocalGameFixture",
                "-PlocalGameServerDirectory=" + directory("server"),
                "-PlocalGameClientDirectory=" + directory("client"),
                "-PlocalGameServerConfig=" + str(job / "server.json"),
                "-PlocalGameClientConfig=" + str(job / "client.json"), *task]
+    if integrated:
+        command.append("-PintegratedGameFixture")
     if offline:
         command.append("--offline")
     if development:
@@ -104,7 +110,7 @@ def wait_ready(server, job, identity):
     verify_ready(path, identity)
 
 
-def wait_game(processes, job, identity):
+def wait_game(processes, job, identity, integrated=False):
     deadline = time.monotonic() + 240
     while any(child.process.poll() is None for child in processes):
         for role in CASES:
@@ -117,10 +123,10 @@ def wait_game(processes, job, identity):
     for child in processes:
         if child.process.returncode != 0:
             raise ValueError("GAME_PROCESS_EXIT")
-    return {role: verify_result(job / (role + "-result.json"), identity, role) for role in CASES}
+    return {role: verify_result(job / (role + "-result.json"), identity, role, integrated) for role in CASES}
 
 
-def prepare(job, env, offline, development, loader="fabric"):
+def prepare(job, env, offline, development, loader="fabric", integrated=False):
     if not shutil.which("go", path=env.get("PATH")):
         raise ValueError("GAME_GO_REQUIRED_ON_PATH")
     (job / "build-output.gradle").write_text("allprojects { layout.buildDirectory.set(new File(System.getProperty('p2wlan.fixture.outputRoot'), project.name)) }\n", encoding="utf-8")
@@ -136,7 +142,10 @@ def prepare(job, env, offline, development, loader="fabric"):
     # Build the real, unchanged local Control; never contact a user deployment.
     subprocess.run(["go", "build", "-o", str(job / "control"), "."], cwd=PROJECT.parent / "server",
                    env=env | {"CGO_ENABLED": "0"}, check=True, timeout=300)
-    build = FixtureProcess(gradle_command(job, [f":{loader}:verifyModJar", f":{loader}:localGameFixtureClasses", f":{loader}:localGameClientFixtureClasses"], offline, development, loader), PROJECT / "java", env, job / "build.log")
+    tasks = [f":{loader}:verifyModJar", f":{loader}:localGameFixtureClasses", f":{loader}:localGameClientFixtureClasses"]
+    if integrated:
+        tasks.append(f":{loader}:integratedFixtureClasses")
+    build = FixtureProcess(gradle_command(job, tasks, offline, development, loader, integrated), PROJECT / "java", env, job / "build.log")
     try:
         if build.process.wait(timeout=240):
             raise ValueError("GAME_FIXTURE_BUILD")
@@ -144,7 +153,7 @@ def prepare(job, env, offline, development, loader="fabric"):
         build.close()
 
 
-def exercise(job, env, offline, development, loader="fabric"):
+def exercise(job, env, offline, development, loader="fabric", integrated=False):
     identity = uuid.uuid4().hex
     port = available_port()
     control_url = "http://127.0.0.1:" + str(port)
@@ -163,11 +172,11 @@ def exercise(job, env, offline, development, loader="fabric"):
         common = {"schema": 1, "run": identity, "control": control_url, "room": room, "room_password": password}
         private_json(job / "server.json", common | {"role": "server", "identifier": "", "password": ""})
         private_json(job / "client.json", common | {"role": "client", "identifier": "player-" + secrets.token_hex(8) + "@example.com", "password": secrets.token_hex(16)})
-        server = FixtureProcess(gradle_command(job, [f":{loader}:runLocalGameServer"], offline, development, loader), PROJECT / "java", env, job / "server.log")
+        server = FixtureProcess(gradle_command(job, [f":{loader}:runIntegratedHost" if integrated else f":{loader}:runLocalGameServer"], offline, development, loader, integrated), PROJECT / "java", env, job / "server.log")
         children.append(server); wait_ready(server, job, identity)
-        client = FixtureProcess(gradle_command(job, [f":{loader}:runLocalGameClient"], offline, development, loader), PROJECT / "java", env, job / "client.log")
+        client = FixtureProcess(gradle_command(job, [f":{loader}:runLocalGameClient"], offline, development, loader, integrated), PROJECT / "java", env, job / "client.log")
         children.append(client)
-        return wait_game([server, client], job, identity)
+        return wait_game([server, client], job, identity, integrated)
     finally:
         errors = []
         for child in reversed(children):
@@ -195,6 +204,7 @@ def server_settings(port):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--loader", choices=("fabric", "neoforge"), default="fabric")
+    parser.add_argument("--integrated", action="store_true", help="two real client JVMs with a fresh singleplayer host world")
     parser.add_argument("--accept-eula", action="store_true", help="explicitly accept Minecraft server terms for this disposable local world")
     parser.add_argument("--offline-mode", action="store_true", help="explicitly use offline Minecraft authentication ONLY on a fresh loopback test server")
     parser.add_argument("--offline", action="store_true", help="use cached Cargo/Gradle dependencies")
@@ -220,18 +230,24 @@ def main():
     original_eula = eula.read_bytes()
     (job / "server/server.properties").write_text(server_settings(available_port()), encoding="utf-8")
     try:
-        prepare(job, env, args.offline, args.development, args.loader)
-        checked = exercise(job, env, args.offline, args.development, args.loader)
+        prepare(job, env, args.offline, args.development, args.loader, args.integrated)
+        checked = exercise(job, env, args.offline, args.development, args.loader, args.integrated)
         if eula.read_bytes() != original_eula:
             raise ValueError("GAME_EULA_CHANGED")
         print("PASS real local Minecraft (" + args.loader + "): UI register/login, room join, encrypted service discovery, Vanilla play,")
         print("20 ordered C2S commands + S2C game-state/message replies over at least 18 seconds, disconnect/room-stop and both helpers/world cleanup.")
-        print("Assertions:", checked["server"]["checks"], "server;", checked["client"]["checks"], "client. NOT Windows/public-network/multi-loader acceptance.")
+        print("Host mode:", "integrated" if args.integrated else "dedicated")
+        print("Assertions:", checked["server"]["checks"], "host;", checked["client"]["checks"], "guest. Scope: local Minecraft 1.21.1 on this host platform.")
     except KeyboardInterrupt:
         print("FAIL local Minecraft: CANCELLED", file=sys.stderr)
         return 130
     except (OSError, ValueError, FixtureError, subprocess.SubprocessError, asyncio.TimeoutError) as error:
         print("FAIL local Minecraft:", str(error) if isinstance(error, (ValueError, FixtureError)) else type(error).__name__, file=sys.stderr)
+        # A finally/cleanup failure must retain the original execution reason.
+        # Only fixed reason codes are printed, never exception text/credentials.
+        original = error.__context__
+        if isinstance(original, (ValueError, FixtureError)) and re.fullmatch(r"[A-Z][A-Z0-9_]{0,159}", str(original)):
+            print("Original execution failure:", str(original), file=sys.stderr)
         return 1
     finally:
         print("Private local diagnostics:", job)

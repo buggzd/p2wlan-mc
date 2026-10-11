@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "p2wlan_integrated_test",
+  "version": "1.0.0",
+  "name": "P2WLAN isolated integrated-world test",
+  "environment": "client",
+  "entrypoints": {"client": ["io.p2wlan.mc.fabric.fixture.IntegratedFixture"]},
+  "depends": {"p2wlan": "*", "minecraft": "1.21.1", "java": ">=21"}
+}

@@ -20,7 +20,7 @@ final class GameFixtureData {
     final String run, role, control, identifier, password, room, roomPassword;
     final Set<String> cases = new LinkedHashSet<>();
     int checks;
-    String stage = "START", reason = "NOT_COMPLETED";
+    volatile String stage = "START", reason = "NOT_COMPLETED";
     long deadline;
     GameFixtureData(String role) throws Exception {
         Path config = Path.of(System.getProperty("p2wlan.gameFixture.config")).toAbsolutePath();

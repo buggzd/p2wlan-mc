@@ -114,6 +114,7 @@ if (providers.gradleProperty('serverBootFixture').isPresent()) {
 if (providers.gradleProperty('localGameFixture').isPresent()) {
     def server = sourceSets.create('localGameFixture')
     server.java.srcDir rootProject.file('game-1.21.1/src/localGameFixture/java')
+    server.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
     server.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     server.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     def client = sourceSets.create('localGameClientFixture')
@@ -137,9 +138,34 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
     }
 }
 
+// The host and guest have disjoint runtime source sets. Shared fixture data is
+// compiled from one source into each test-only mod, not imported across mods.
+if (providers.gradleProperty('integratedGameFixture').isPresent()) {
+    if (!providers.gradleProperty('localGameFixture').isPresent()) {
+        throw new GradleException('INTEGRATED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
+    }
+    def host = sourceSets.create('integratedFixture')
+    host.java.srcDir rootProject.file('game-1.21.1/src/integratedFixture/java')
+    host.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
+    host.compileClasspath += sourceSets.client.output + sourceSets.client.compileClasspath
+    host.runtimeClasspath += sourceSets.client.output + sourceSets.client.runtimeClasspath
+    loom.mods.register('p2wlan_integrated_test') { sourceSet host }
+    loom.runs.register('integratedHost') {
+        inherit loom.runs.client
+        source host
+        runDir providers.gradleProperty('localGameServerDirectory').get()
+        property 'p2wlan.gameFixture.config', providers.gradleProperty('localGameServerConfig').get()
+        programArgs '--username', 'IntegratedHost'
+        ideConfigGenerated false
+    }
+    loom.runs.named('localGameClient') {
+        programArgs '--username', 'IntegratedGuest'
+    }
+}
+
 // Argument order is not a task dependency. Never start an ordinary/fixture JVM
 // before the source-bound production archive check has actually succeeded.
-tasks.matching { it.name in ['runServer', 'runClient', 'runClientFixture', 'runServerFixture', 'runLocalGameServer', 'runLocalGameClient'] }.configureEach {
+tasks.matching { it.name in ['runServer', 'runClient', 'runClientFixture', 'runServerFixture', 'runLocalGameServer', 'runLocalGameClient', 'runIntegratedHost'] }.configureEach {
     dependsOn tasks.named('verifyModJar')
 }
 

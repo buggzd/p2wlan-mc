@@ -93,10 +93,12 @@ class ModJarTests(unittest.TestCase):
             self.check(top)
 
     def test_shared_version_fixtures_cannot_enter_production(self):
-        top, _, _, _ = self.fixture()
-        top['io/p2wlan/mc/game/fixture/GameClientChecks.class'] = bytecode(65)
-        with self.assertRaisesRegex(verify.VerificationError, 'mod_test_fixture_present'):
-            self.check(top)
+        for name in ("GameClientChecks", "GameFixtureData", "IntegratedHostChecks"):
+            with self.subTest(name=name):
+                top, _, _, _ = self.fixture()
+                top[f'io/p2wlan/mc/game/fixture/{name}.class'] = bytecode(65)
+                with self.assertRaisesRegex(verify.VerificationError, 'mod_test_fixture_present'):
+                    self.check(top)
 
     def test_complete_nested_artifact_and_development_policy(self):
         top, _, _, _ = self.fixture()

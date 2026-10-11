@@ -90,7 +90,7 @@ tasks.register('verifyModJar', Exec) {
     }
 }
 check.dependsOn verifyModJar
-tasks.matching { it.name in ['runServer', 'runClient', 'runServerFixture', 'runClientFixture', 'runLocalGameServer', 'runLocalGameClient'] }.configureEach {
+tasks.matching { it.name in ['runServer', 'runClient', 'runServerFixture', 'runClientFixture', 'runLocalGameServer', 'runLocalGameClient', 'runIntegratedHost'] }.configureEach {
     dependsOn tasks.named('verifyModJar')
 }
 
@@ -143,6 +143,7 @@ if (providers.gradleProperty('clientHookFixture').isPresent()) {
 if (providers.gradleProperty('localGameFixture').isPresent()) {
     def gameServer = sourceSets.create('localGameFixture')
     gameServer.java.srcDir rootProject.file('game-1.21.1/src/localGameFixture/java')
+    gameServer.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
     gameServer.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     gameServer.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     def gameClient = sourceSets.create('localGameClientFixture')
@@ -166,5 +167,33 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
         systemProperty 'p2wlan.gameFixture.config', providers.gradleProperty('localGameClientConfig').get()
         if (developmentEnabled) systemProperty 'p2wlan.allowDevelopmentNative', 'true'
         disableIdeRun()
+    }
+}
+
+if (providers.gradleProperty('integratedGameFixture').isPresent()) {
+    if (!providers.gradleProperty('localGameFixture').isPresent()) {
+        throw new GradleException('INTEGRATED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
+    }
+    def hostFixture=sourceSets.create('integratedFixture')
+    hostFixture.java.srcDir rootProject.file('game-1.21.1/src/integratedFixture/java')
+    hostFixture.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
+    hostFixture.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    hostFixture.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    neoForge.mods.register('p2wlan_integrated_test') { sourceSet hostFixture }
+    neoForge.runs.register('integratedHost') {
+        client()
+        sourceSet=hostFixture
+        loadedMods=[neoForge.mods.p2wlan,neoForge.mods.p2wlan_integrated_test]
+        gameDirectory=file(providers.gradleProperty('localGameServerDirectory').get())
+        systemProperty 'p2wlan.gameFixture.config',providers.gradleProperty('localGameServerConfig').get()
+        if(developmentEnabled) systemProperty 'p2wlan.allowDevelopmentNative','true'
+        programArgument '--username'
+        programArgument 'IntegratedHost'
+        disableIdeRun()
+    }
+    neoForge.runs.named('localGameClient') {
+        loadedMods=[neoForge.mods.p2wlan,neoForge.mods.p2wlan_local_game_test]
+        programArgument '--username'
+        programArgument 'IntegratedGuest'
     }
 }

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / "tools"))
-from local_game import CASES, CHECKS, ROUNDS, bounded_json, gradle_command, main, server_settings, verify_ready, verify_result
+from local_game import CASES, CHECKS, INTEGRATED_SERVER_CASES, ROUNDS, bounded_json, gradle_command, main, server_settings, verify_ready, verify_result
 
 
 class LocalGameContractTests(unittest.TestCase):
@@ -47,6 +47,41 @@ class LocalGameContractTests(unittest.TestCase):
                     self.path.write_text(json.dumps(value | change))
                     verify_result(self.path, self.run, role)
 
+    def test_integrated_requires_exact_host_pause_and_cleanup_evidence(self):
+        host = self.result("server") | {"checks": 77, "cases": sorted(INTEGRATED_SERVER_CASES)}
+        self.path.write_text(json.dumps(host))
+        self.assertEqual(verify_result(self.path, self.run, "server", integrated=True), host)
+        with self.assertRaises(ValueError):
+            verify_result(self.path, self.run, "server")
+        for change in ({"checks": 76}, {"checks": 78}, {"checks": True}, {"cases": sorted(CASES["server"])},
+                       {"cases": sorted(INTEGRATED_SERVER_CASES - {"unhost_pause"})}, {"world_cleanup": False}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.path.write_text(json.dumps(host | change))
+                verify_result(self.path, self.run, "server", integrated=True)
+        # An integrated host must not change the guest's existing assertions.
+        guest = self.result("client")
+        self.path.write_text(json.dumps(guest))
+        self.assertEqual(verify_result(self.path, self.run, "client", integrated=True), guest)
+        self.path.write_text(json.dumps(self.result("server")))
+        with self.assertRaises(ValueError):
+            verify_result(self.path, self.run, "server", integrated=True)
+
+    def test_integrated_run_and_common_fixture_data_remain_loader_isolated(self):
+        for loader in ("fabric", "neoforge"):
+            with self.subTest(loader=loader):
+                command = gradle_command(self.root, [f":{loader}:runIntegratedHost"], True, True, loader, integrated=True)
+                self.assertIn("-PintegratedGameFixture", command)
+                self.assertIn("-PlocalGameFixture", command)
+                self.assertIn(f"-P{loader}Adapter", command)
+                ordinary = gradle_command(self.root, [f":{loader}:runLocalGameServer"], False, False, loader)
+                self.assertNotIn("-PintegratedGameFixture", ordinary)
+                build = (PROJECT / f"java/adapters/{loader}-1.21.1/build.gradle").read_text()
+                self.assertIn("INTEGRATED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE", build)
+                self.assertEqual(build.count("game-1.21.1/src/fixtureCommon/java"), 2)
+        data = list((PROJECT / "java/game-1.21.1/src").rglob("GameFixtureData.java"))
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0].relative_to(PROJECT).parts[3], "fixtureCommon")
+
     def test_missing_oversized_duplicate_and_symlink_evidence_rejected(self):
         with self.assertRaises(ValueError):
             bounded_json(self.path)
@@ -79,6 +114,20 @@ class LocalGameContractTests(unittest.TestCase):
                 main()
             self.assertEqual(failure.exception.code, 2)
             prepare.assert_not_called()
+
+    def test_cleanup_failure_preserves_only_a_fixed_original_failure_code(self):
+        for original, reported in (("GAME_PROCESS_DEADLINE", True), ("private exception payload", False)):
+            error = ValueError("GAME_PROCESS_CLEANUP")
+            error.__context__ = ValueError(original)
+            output, diagnostics = io.StringIO(), io.StringIO()
+            with self.subTest(original=original), patch("local_game.PROJECT", self.root), patch("sys.platform", "linux"), \
+                    patch("sys.argv", ["local_game.py", "--integrated", "--accept-eula", "--offline-mode"]), \
+                    patch("local_game.environment", return_value={}), patch("local_game.prepare"), \
+                    patch("local_game.exercise", side_effect=error), patch("sys.stdout", new=output), patch("sys.stderr", new=diagnostics):
+                self.assertEqual(main(), 1)
+            self.assertIn("FAIL local Minecraft: GAME_PROCESS_CLEANUP", diagnostics.getvalue())
+            self.assertEqual("Original execution failure:" in diagnostics.getvalue(), reported)
+            self.assertEqual(original in diagnostics.getvalue(), reported)
 
     def test_test_server_is_loopback_offline_and_contains_a_real_flat_world(self):
         settings = dict(line.split("=", 1) for line in server_settings(25565).splitlines())

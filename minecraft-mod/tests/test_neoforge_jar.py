@@ -87,6 +87,14 @@ config="p2wlan.neoforge.client.mixins.json"
         top = self.fixture(); top['p2wlan.neoforge.mixins.json'] = '{}'
         with self.assertRaisesRegex(verify.VerificationError, 'neoforge_mixin_contract'): self.check(top)
 
+    def test_shared_game_and_integrated_fixtures_cannot_enter_production(self):
+        for name in ("GameClientChecks", "GameFixtureData", "IntegratedHostChecks"):
+            with self.subTest(name=name):
+                top = self.fixture()
+                top[f'io/p2wlan/mc/game/fixture/{name}.class'] = bytecode(65)
+                with self.assertRaisesRegex(verify.VerificationError, 'neoforge_test_fixture_in_artifact'):
+                    self.check(top)
+
     def test_jarjar_coordinates_ranges_and_resource_module_are_fixed(self):
         import json
         for change in ({'identifier': {'group': 'other', 'artifact': 'common'}},

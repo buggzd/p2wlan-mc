@@ -390,7 +390,7 @@ The adapter uses Minecraft's existing codecs, rate limiter, handshake handler an
 
 The Minecraft-facing listener itself consumes a fresh 40-byte local capability **before** initializing Vanilla codecs/connections. The outer `WorldGuard` authenticates that target and consumes its one-byte readiness acknowledgement before acknowledging native readiness; neither local prelude/acknowledgement reaches Minecraft. Unauthenticated local users cannot bypass the outer guard by connecting directly to this listener. A single Mod-owned NIO event loop drives accept/child registration, so unauthenticated local connects cannot build an unbounded registration queue on another game event loop. At most 32 children, 40 prelude bytes per child and one two-second timer per child are retained; existing Minecraft packet/player internals remain Minecraft-owned. Target revocation fences inbound/outbound game bytes and closes owned channels. Target cleanup waits at most two seconds each for children/listener closure and three seconds for the sole event loop to terminate; failed cleanup does not release the publication slot. Same-user code and other Mods remain inside the trusted local environment.
 
-The required, exact-version server Mixin is checked during bootstrap; absence fails before an unguarded bind. Its explicitly scoped bind reuses Vanilla's bind/stop ordering under the existing channel-list monitor, with a two-second wait limit. The Mod owns and closes its extra listener rather than accumulating closed entries in Vanilla's listener list. Ordinary Vanilla binds retain their original behavior. Concurrent full-game bind/stop competition and integrated-world behavior remain unverified; the isolated local gameplay fixture below checks the dedicated-world path. A required client-only IntegratedServer Mixin derives remote/pause semantics from the exact current `HOSTED` publication and its world/runtime fence. It does not maintain another hosting flag, change cheats/default game mode, announce a LAN port, or alter ordinary Vanilla LAN publication. Integrated pause/remote behavior still requires real-world acceptance.
+The required, exact-version server Mixin is checked during bootstrap; absence fails before an unguarded bind. Its explicitly scoped bind reuses Vanilla's bind/stop ordering under the existing channel-list monitor, with a two-second wait limit. The Mod owns and closes its extra listener rather than accumulating closed entries in Vanilla's listener list. Ordinary Vanilla binds retain their original behavior. Concurrent full-game bind/stop competition remains unverified; the isolated local gameplay fixture below checks dedicated and integrated worlds. A required client-only IntegratedServer Mixin derives remote/pause semantics from the exact current `HOSTED` publication and its world/runtime fence. It does not maintain another hosting flag, change cheats/default game mode, announce a LAN port, or alter ordinary Vanilla LAN publication. The integrated fixture below checks unshared pause, hosted menu tick progress, unhost/pause restoration and world/helper cleanup on both pinned loaders.
 
 In an integrated world, the runtime screen exposes explicit host/unhost intents without requiring cheats. One server-thread task is retained per world, with a three-second deadline. An expired result keeps its capacity until the queued runnable actually drains; the late runnable cannot mutate a replacement world/runtime or begin a host intent after its view expires. Closing a view after the effect has already begun does not undo that world-owned intent. Host receives the originally selected runtime rather than reacquiring a newer one. `Stop room` revokes local publication before requesting native stop, including a runtime still `starting`. A stop acknowledgement waits for a matching native status transition before returning to account controls; late presentation rejects another active runtime. None of these actions silently accept terms or automatically publish a world.
 
@@ -403,7 +403,7 @@ Operator/console commands (permission level 4):
 - `/p2wlan disconnect`: revoke the local world before requesting native runtime stop, retaining account/membership. A failed stop reports that local revocation already occurred; it is not silently undone.
 - `/p2wlan unhost`: immediately revoke the local world capability and perform bounded cleanup off the game thread. This does not change room membership or claim to roll back an already delivered native mutation.
 
-The subprocess/world tests check capacity, native-owner/runtime fencing, cancellation during setup, cleanup of late host replies and malformed registration failure. Protected-target socket tests check that both local capability handshakes disappear before game bytes. Fabric transport tests use actual Netty pipelines with fragmented/coalesced input, virtual-time expiry, capacity, revocation and delayed Vanilla initialization, plus a real 128,000-byte TCP exchange between the Java guard and a protected Netty echo target. The socket tests use a protected Netty echo target. Dedicated-server accounts can be initialized with the independent console above while the server is stopped. Cross-machine Minecraft authentication/login, long-running gameplay, integrated hosting/pause, cancellation during actual configuration and world-replacement acceptance remain incomplete. Ordinary builds and the hook/server-boot fixtures do not accept EULA/account terms; the separate local gameplay fixture below requires explicit consent.
+The subprocess/world tests check capacity, native-owner/runtime fencing, cancellation during setup, cleanup of late host replies and malformed registration failure. Protected-target socket tests check that both local capability handshakes disappear before game bytes. Fabric transport tests use actual Netty pipelines with fragmented/coalesced input, virtual-time expiry, capacity, revocation and delayed Vanilla initialization, plus a real 128,000-byte TCP exchange between the Java guard and a protected Netty echo target. The socket tests use a protected Netty echo target. Dedicated-server accounts can be initialized with the independent console above while the server is stopped. Local Vanilla login and at least 18 seconds of gameplay are checked below. Cross-machine gameplay, cancellation during actual configuration and world-replacement acceptance remain separate verification targets. Ordinary builds and the hook/server-boot fixtures do not accept EULA/account terms; the separate local gameplay fixture below requires explicit consent.
 
 
 ## NeoForge adapter
@@ -414,8 +414,8 @@ Mojang-named API. It supplies loader events, operator/client commands and the
 required server-connection Mixin. `WorldSessions`, Native IPC, account/runtime
 ownership and the protected Netty transport are shared with Fabric. The same `java/game-1.21.1/` client implementation supplies account/room screens,
 Multiplayer joins, display settings, diagnostics and integrated-world controls to
-both loaders. Dedicated client/server gameplay is verified locally below;
-integrated-world gameplay acceptance remains pending.
+both loaders. Dedicated and integrated client/server gameplay is verified locally
+on macOS/aarch64 with the pinned Minecraft 1.21.1 loaders below.
 
 From a clean checkout with the fixed dependencies cached:
 
@@ -501,6 +501,39 @@ world/helper cleanup. The default loader remains Fabric. Verification currently
 uses local macOS/aarch64 and Minecraft 1.21.1 with the pinned loader versions;
 Windows and remote-machine execution remain separate verification targets.
 
+## Isolated integrated-world gameplay verification
+
+The same test-only `IntegratedHostChecks` source runs on both loaders. Loader
+fixtures supply client ticks, command and player/world lifecycle events only.
+`fixtureCommon` data is compiled into each independent host/guest test mod from
+one source; the host runtime does not load the dedicated/guest fixture mod.
+None of these sources are in ordinary runs or production archives.
+
+```sh
+python3 minecraft-mod/tools/local_game.py --loader neoforge --integrated --accept-eula --offline-mode --offline --development
+python3 minecraft-mod/tools/local_game.py --loader fabric --integrated --accept-eula --offline-mode --offline --development
+```
+
+The host creates a disposable creative/peaceful flat world with cheats disabled.
+It checks local pause before publication, then uses the actual P2WLAN account
+screen's explicit share action. The exact current `HOSTED` publication keeps
+server ticks progressing while the host stays in the pause menu, without a
+Vanilla LAN listener or announced port. A second real client discovers and joins
+through the original Multiplayer controls and completes the same 20 ordered
+C2S commands / S2C game-state and message replies over at least 18 seconds.
+After guest disconnect, the host uses the actual unhost action, verifies local
+pause restoration, stops the room and follows Vanilla's level-disconnect/world
+shutdown sequence. Success requires all **77 host / 65 guest** checks, the exact
+nine host cases, world retirement and both native helpers exiting.
+
+The execution scope is local macOS/aarch64, Java 21 and Minecraft 1.21.1 with the
+pinned Fabric and NeoForge versions. The test server's authentication setting is
+changed only inside the new disposable world after explicit `--offline-mode`.
+EULA consent, bounded process/result checks, isolated build outputs and private
+state cleanup are the same as the dedicated gameplay mode below. Failed runs
+are retained as failures; a cleanup failure preserves a fixed original execution
+reason when available.
+
 ## Isolated real-client hook verification
 
 The test-only `clientFixture` source set, Mod and Loom run are enabled only by the dedicated fixture tool. They are excluded from ordinary builds/runs; the production archive checker rejects fixture classes. From the repository root:
@@ -559,8 +592,8 @@ labelled, source-bound development native resources; omit it only for a clean
 release-mode checkout. Neither option bypasses archive/source verification.
 
 The wrapper builds the unchanged local Go Control and current native agent,
-creates fresh private P2WLAN accounts and one room, and starts separate dedicated
-server and client JVMs. It completes fresh-install Vanilla accessibility setup,
+creates fresh private P2WLAN accounts and one room, and starts a dedicated server
+plus client JVM, or two client JVMs with `--integrated`. It completes fresh-install Vanilla accessibility setup,
 checks empty/filled/saved-account button eligibility and the HTTP warning, then
 uses the actual register, login, join-room, connect, original Multiplayer
 selection/Join Server and room-stop controls. It checks retained ordinary saved
@@ -586,10 +619,12 @@ and results remain under the ignored adapter `build/local-game-fixture/` tree;
 uncertain process cleanup retains private test state and fails closed. Do not
 publish these diagnostics as product documentation or release evidence.
 
-This fixture is verified on macOS/aarch64 with Fabric/Minecraft 1.21.1 only.
-Linux graphical execution, Windows/HMCL, other loaders/versions, forced Relay,
-public NAT, cross-machine play, online Minecraft authentication, integrated
-hosting/pause and long-duration/network-change behavior remain unverified.
+Both dedicated and integrated modes are verified on macOS/aarch64 with
+Minecraft 1.21.1, Fabric Loader 0.16.14 / API 0.116.7+1.21.1 and NeoForge 21.1.256.
+These local development runs use offline Minecraft authentication. Linux graphical
+execution, Windows/HMCL, Forge/other game versions, forced Relay, public NAT,
+cross-machine play and long-duration/network-change behavior are separate
+verification targets.
 
 
 ## HMCL ZIP packaging
