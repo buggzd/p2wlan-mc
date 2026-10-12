@@ -51,6 +51,14 @@ class AccountDistributionTests(unittest.TestCase):
         with self.assertRaisesRegex(verify.VerificationError, "mod_development_native_disabled"):
             verify.verify(self.directory)
 
+    def test_console_runtime_dependencies_match_its_independent_distribution_contract(self):
+        source = (PROJECT / 'java/account-cli/build.gradle').read_text()
+        self.assertIn("implementation project(':common')", source)
+        for coordinate, filename in (('com.google.code.gson:gson:2.10.1', 'gson-2.10.1.jar'),
+                                     ('net.java.dev.jna:jna:5.14.0', 'jna-5.14.0.jar')):
+            self.assertIn("runtimeOnly '" + coordinate + "'", source)
+            self.assertIn(filename, verify.LIBRARIES)
+
     def test_jna_payload_and_standalone_dependency_are_required(self):
         self.write("jna-5.14.0.jar", {"META-INF/MANIFEST.MF": b"empty dependency"})
         with self.assertRaisesRegex(verify.VerificationError, "mod_jna_payload"):

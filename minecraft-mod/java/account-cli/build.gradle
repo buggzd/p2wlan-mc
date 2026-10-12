@@ -6,6 +6,8 @@ application {
 }
 dependencies {
     implementation project(':common')
+    runtimeOnly 'com.google.code.gson:gson:2.10.1'
+    runtimeOnly 'net.java.dev.jna:jna:5.14.0'
     runtimeOnly project(':native-bundle')
 }
 tasks.withType(JavaCompile).configureEach {
