@@ -81,7 +81,7 @@ public final class IntegratedHostChecks {
                     if(server==null||client.level==null||client.player==null) return;world=ClientPlatform.world(server);
                     data.check(world!=null&&world.isCurrent(),"INTEGRATED_WORLD_OWNER");
                     data.check(!server.isPublished()&&server.getPort()<0,"NO_VANILLA_LAN");
-                    server.execute(()->server.setUsesAuthentication(false));
+                    data.check(server.usesAuthentication(),"INTEGRATED_VANILLA_AUTHENTICATION");
                     client.setScreen(new PauseScreen(true));data.advance("LOCAL_PAUSE",15);
                 }
                 case "LOCAL_PAUSE" -> {
@@ -95,6 +95,7 @@ public final class IntegratedHostChecks {
                     if(!world.hosted()||uiBusy()) return;
                     data.check(runtime.isCurrent(helper)&&world.isCurrent(),"HOSTED_OWNER");
                     data.check(server.isPublished()&&server.getPort()<0,"SHARED_WITHOUT_LAN_PORT");
+                    data.check(server.usesAuthentication(),"SHARED_VANILLA_AUTHENTICATION");
                     client.setScreen(new PauseScreen(true));startTick=server.getTickCount();data.advance("REMOTE_PAUSE",15);
                 }
                 case "REMOTE_PAUSE" -> {
@@ -115,6 +116,7 @@ public final class IntegratedHostChecks {
                 case "REVOKED" -> {
                     var status=world.status();if(status==null||status.phase()!=WorldHost.Phase.CLOSED||uiBusy()) return;
                     data.check(!world.hosted()&&!server.isPublished()&&server.getPort()<0,"UNHOST_RESTORES_LOCAL_PAUSE");
+                    data.check(server.usesAuthentication(),"UNHOST_VANILLA_AUTHENTICATION");
                     client.setScreen(new PauseScreen(true));data.advance("PAUSED_AGAIN",15);
                 }
                 case "PAUSED_AGAIN" -> { if(!GameFixtureApi.serverPaused(server)) return;data.check(world.isCurrent(),"PAUSE_RESTORED_OWNER");data.cases.add("unhost_pause");pending=helper.request("stop",runtime.arguments());data.advance("STOP_ROOM",20); }

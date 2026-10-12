@@ -45,7 +45,7 @@ def verify_result(path, identity, role, integrated=False, minecraft="1.21.1"):
         raise ValueError("GAME_PROFILE_UNSUPPORTED")
     value = bounded_json(path)
     cases = INTEGRATED_SERVER_CASES if integrated and role == "server" else CASES.get(role, set())
-    checks = 77 if integrated and role == "server" else CHECKS.get(role)
+    checks = 80 if integrated and role == "server" else CHECKS.get(role)
     if role not in CASES or not isinstance(value, dict) or set(value) != FIELDS \
             or type(value["schema"]) is not int or value["schema"] != 1 or value["run"] != identity or value["role"] != role \
             or value["status"] != "pass" or value["reason"] != "OK" or value["minecraft"] != minecraft \

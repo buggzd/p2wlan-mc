@@ -10,6 +10,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.group.DefaultChannelGroup;
+import io.netty.util.AttributeKey;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import io.p2wlan.mc.common.LocalEndpoint;
@@ -30,6 +31,7 @@ import java.util.function.BooleanSupplier;
  * event loops own their two-second timers; there is no worker/queue/retry here. */
 public final class LoopbackAdmission implements AutoCloseable {
     public enum Failure { CAPACITY, WORLD_CHANGED, CAPABILITY_REJECTED, ADMISSION_TIMEOUT, IO }
+    private static final AttributeKey<LoopbackAdmission> ADMISSION_OWNER = AttributeKey.valueOf(LoopbackAdmission.class, "owner");
     private final BooleanSupplier parent;
     private final AtomicBoolean live = new AtomicBoolean(true);
     private final AtomicReference<Failure> failure = new AtomicReference<>();
@@ -49,6 +51,16 @@ public final class LoopbackAdmission implements AutoCloseable {
     public Failure failure() { return failure.get(); }
     public int connections() { return children.size(); }
     public boolean isCurrent() { return live.get() && parent.getAsBoolean(); }
+    /** Retains the exact authenticated owner until this channel is collected. */
+    public static boolean isProtected(Channel channel) {
+        return channel != null && channel.hasAttr(ADMISSION_OWNER) && channel.attr(ADMISSION_OWNER).get() != null;
+    }
+    /** Call again at the final side effect; a marker does not preserve admission. */
+    public static boolean isAdmitted(Channel channel) {
+        if (channel == null || !channel.hasAttr(ADMISSION_OWNER)) return false;
+        LoopbackAdmission owner = channel.attr(ADMISSION_OWNER).get();
+        return owner != null && owner.isCurrent() && channel.isActive();
+    }
     public ChannelHandler wrap(ChannelHandler vanilla) {
         return new ChannelInitializer<Channel>() {
             @Override protected void initChannel(Channel channel) {
@@ -93,6 +105,9 @@ public final class LoopbackAdmission implements AutoCloseable {
                 if (deadline != null) deadline.cancel(false);
                 if (!isCurrent()) { reject(context, bytes, Failure.WORLD_CHANGED); return; }
                 try {
+                    if (!context.channel().attr(ADMISSION_OWNER).compareAndSet(null, LoopbackAdmission.this)) {
+                        reject(context, bytes, Failure.WORLD_CHANGED); return;
+                    }
                     context.pipeline().addLast(vanilla);
                     if (!isCurrent()) { reject(context, bytes, Failure.WORLD_CHANGED); return; }
                     context.fireChannelActive();

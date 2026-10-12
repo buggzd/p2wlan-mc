@@ -25,10 +25,12 @@ tasks.withType(JavaCompile).configureEach { options.release = 17; options.encodi
 def game = rootProject.file('../game-1.21.1')
 def modernEntry = rootProject.file('../adapters/forge-1.21.1/src/main/java/io/p2wlan/mc/forge')
 def legacyMixin = 'io/p2wlan/mc/game/mixin/MultiplayerListMixin.java'
+def legacyLoginMixin = 'io/p2wlan/mc/game/server/mixin/ServerLoginMixin.java'
 def generatedGame = layout.buildDirectory.dir('generated/sources/legacyGame')
 def gameClient = sourceSets.create('gameClient')
 sourceSets.main.java.srcDir new File(game, 'src/server/java')
 sourceSets.main.java.exclude 'io/p2wlan/mc/forge/legacy/ForgeClientEvents.java'
+sourceSets.main.java.exclude legacyLoginMixin
 gameClient.java.srcDirs new File(game, 'src/client/java'), layout.projectDirectory.dir('src/main/java'),
         rootProject.file('../game-api-1.20.1/src/client/java')
 gameClient.java.include 'io/p2wlan/mc/game/**/*.java', 'io/p2wlan/mc/forge/legacy/ForgeClientEvents.java'
@@ -39,11 +41,15 @@ gameClient.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeC
 
 tasks.register('prepareLegacyGameSources', Exec) {
     inputs.file new File(game, 'src/client/java/' + legacyMixin)
+    inputs.file new File(game, 'src/server/java/' + legacyLoginMixin)
     inputs.files rootProject.file('../../tools/game_sources.py'), rootProject.file('../../tools/source_contract.py')
     outputs.file generatedGame.map { it.file(legacyMixin) }
+    outputs.file generatedGame.map { it.file(legacyLoginMixin) }
     commandLine 'python3', rootProject.file('../../tools/game_sources.py'), '--output', generatedGame.get().asFile
 }
 tasks.named('compileJava', JavaCompile) {
+    dependsOn tasks.named('prepareLegacyGameSources')
+    source generatedGame.map { it.file(legacyLoginMixin) }
     // Only the version-neutral entry/interface cross the modern adapter boundary.
     source new File(modernEntry, 'ForgeP2wlan.java'), new File(modernEntry, 'ForgeRuntime.java')
 }

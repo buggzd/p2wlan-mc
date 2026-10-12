@@ -30,6 +30,7 @@ GAME_TYPES = (
     "client/screen/RoomsScreen", "client/screen/RuntimeScreen", "mixin/ClientConnectionMixin", "mixin/IntegratedServerMixin",
     "mixin/MultiplayerListAccessor", "mixin/MultiplayerListMixin", "mixin/MultiplayerScreenMixin",
     "server/WorldCommands", "server/mixin/ServerConnectionMixin",
+    "server/mixin/ServerLoginConnectionMixin", "server/mixin/ServerLoginMixin",
 )
 
 
@@ -64,7 +65,7 @@ class UniversalJarTests(unittest.TestCase):
         for name in tuple(top):
             if name.endswith(".class"):
                 top[name] = bytecode(name, marker="fabric" if loader == "fabric" else "named")
-        top.update({universal.GAME + name + ".class": bytecode(universal.GAME + name + ".class", marker="fabric" if loader == "fabric" else "named") for name in GAME_TYPES})
+        top.update({universal.GAME + name + ".class": bytecode(universal.GAME + name + ".class", marker="fabric" if loader == "fabric" else "named") for name in GAME_TYPES + ("server/mixin/ServerConfigurationMixin",)})
         top.update({name: bytecode(name, marker=loader, neutral=name in universal.FABRIC_NEUTRAL | universal.FORGE_NEUTRAL)
                     for name in universal.LOADER_CLASSES[loader]})
         if loader == "fabric":
@@ -85,6 +86,7 @@ class UniversalJarTests(unittest.TestCase):
 
     def legacy_source(self, loader, release=False):
         top = universal.members(self.source(loader, release))
+        top.pop(universal.GAME + "server/mixin/ServerConfigurationMixin.class")
         for name in universal.LOADER_CLASSES[loader]:
             top.pop(name)
         top.update({name: bytecode(name, marker=loader, neutral=name in universal.FABRIC_NEUTRAL | universal.FORGE_NEUTRAL)
@@ -95,7 +97,7 @@ class UniversalJarTests(unittest.TestCase):
             for name in ['p2wlan.forge.mixins.json', 'p2wlan.forge.client.mixins.json']:
                 top.pop(name)
             for name, package, key, types, refmap in [
-                    (contract.SERVER_CONFIG, 'io.p2wlan.mc.game.server.mixin', 'mixins', ['ServerConnectionMixin'], contract.SERVER_REFMAP),
+                    (contract.SERVER_CONFIG, 'io.p2wlan.mc.game.server.mixin', 'mixins', ['ServerConnectionMixin', 'ServerLoginConnectionMixin', 'ServerLoginMixin'], contract.SERVER_REFMAP),
                     (contract.CLIENT_CONFIG, 'io.p2wlan.mc.game.mixin', 'client', [name.rsplit('/', 1)[-1] for name in contract.CLIENT_TARGETS], contract.CLIENT_REFMAP)]:
                 top[name] = universal.encoded({'required': True, 'minVersion': '0.8.5', 'package': package, 'compatibilityLevel': 'JAVA_17',
                                                'refmap': refmap, key: types, 'injectors': {'defaultRequire': 1}})
@@ -103,8 +105,9 @@ class UniversalJarTests(unittest.TestCase):
                 top[name] = universal.encoded({'mappings': targets, 'data': {'searge': targets}})
             top['META-INF/MANIFEST.MF'] = ('Manifest-Version: 1.0\r\nMixinConfigs: ' + contract.SERVER_CONFIG + ',' + contract.CLIENT_CONFIG + '\r\n\r\n').encode()
             top['pack.mcmeta'] = universal.encoded({'pack': {'description': 'P2WLAN', 'pack_format': 15}})
-            for owner, field in [('MultiplayerListMixin', 'f_99766_'), ('MultiplayerScreenMixin', 'f_99673_')]:
-                name = universal.GAME + 'mixin/' + owner + '.class'
+            for owner, field in [('mixin/MultiplayerListMixin', 'f_99766_'), ('mixin/MultiplayerScreenMixin', 'f_99673_'),
+                                 ('server/mixin/ServerLoginMixin', 'f_10013_')]:
+                name = universal.GAME + owner + '.class'
                 top[name] = bytecode(name, fields=(field,))
         else:
             import verify_fabric_legacy_jar as contract
@@ -153,8 +156,8 @@ class UniversalJarTests(unittest.TestCase):
         self.assertEqual(info["artifact_sha256"], universal.digest(value))
         self.assertEqual(info["loaders"], universal.PINS)
         files = universal.members(value)
-        self.assertEqual(len(universal.classes(files, universal.GAME)), 45)
-        self.assertEqual(len(universal.classes(files, universal.FABRIC_GAME)), 45)
+        self.assertEqual(len(universal.classes(files, universal.GAME)), 48)
+        self.assertEqual(len(universal.classes(files, universal.FABRIC_GAME)), 48)
         self.assertEqual({name for name in files if name.endswith(".jar")}, set(universal.CORE_PATHS.values()) | {universal.JNA})
         fabric = json.loads(files["fabric.mod.json"])
         self.assertEqual({item["file"] for item in fabric["jars"]}, set(universal.CORE_PATHS.values()) | {universal.JNA})
@@ -182,11 +185,12 @@ class UniversalJarTests(unittest.TestCase):
         inputs = self.inputs(); files = universal.members(self.assemble(inputs))
         self.assertEqual(self.check(universal.archive_bytes(files))['minecraft'], ['1.20.1', '1.21.1'])
         for destination in (universal.GAME, universal.FABRIC_GAME, universal.LEGACY, universal.FABRIC_LEGACY):
-            catalog = universal.GAME_CLASSES | universal.LEGACY_FABRIC_GAME_EXTRAS if destination == universal.FABRIC_LEGACY else universal.GAME_CLASSES
+            catalog = universal.GAME_CLASSES | (universal.LEGACY_FABRIC_GAME_EXTRAS if destination == universal.FABRIC_LEGACY
+                                                 else universal.MODERN_GAME_EXTRAS if destination in (universal.GAME, universal.FABRIC_GAME) else frozenset())
             expected = catalog if destination == universal.GAME else {universal.relocate_name(name, destination) for name in catalog}
             self.assertEqual(set(universal.classes(files, destination)), set(expected))
         self.assertEqual(sum(len(universal.classes(files, destination)) for destination in
-                             (universal.GAME, universal.FABRIC_GAME, universal.LEGACY, universal.FABRIC_LEGACY)), 181)
+                             (universal.GAME, universal.FABRIC_GAME, universal.LEGACY, universal.FABRIC_LEGACY)), 191)
         old_forge = universal.members(inputs[5])
         for name in universal.FORGE_NEUTRAL:
             self.assertEqual(files[name], old_forge[name])

@@ -72,9 +72,12 @@ GAME_TYPES = ('client/ClientDisplaySettings',
  'mixin/MultiplayerListMixin',
  'mixin/MultiplayerScreenMixin',
  'server/WorldCommands',
- 'server/mixin/ServerConnectionMixin')
+ 'server/mixin/ServerConnectionMixin',
+ 'server/mixin/ServerLoginConnectionMixin',
+ 'server/mixin/ServerLoginMixin')
 GAME_CLASSES = frozenset(GAME + name + ".class" for name in GAME_TYPES)
 GAME_COUNT = len(GAME_CLASSES)
+MODERN_GAME_EXTRAS = frozenset({GAME + 'server/mixin/ServerConfigurationMixin.class'})
 from verify_fabric_legacy_jar import LOGIN_MIXIN as LEGACY_FABRIC_LOGIN_MIXIN
 LEGACY_FABRIC_GAME_EXTRAS = frozenset({LEGACY_FABRIC_LOGIN_MIXIN})
 INDEX = "META-INF/p2wlan/universal.json"
@@ -509,7 +512,8 @@ def build_bytes(fabric, neoforge, forge, relocated_fabric, bootstrap, developmen
         native_sets.append(natives)
         source[key] = members(inputs[key])
         loader_classes(source[key], loader, legacy)
-        expected_game = GAME_CLASSES | LEGACY_FABRIC_GAME_EXTRAS if key == 'legacy_fabric' else GAME_CLASSES
+        expected_game = GAME_CLASSES | (LEGACY_FABRIC_GAME_EXTRAS if key == 'legacy_fabric'
+                                        else frozenset() if legacy else MODERN_GAME_EXTRAS)
         if set(classes(source[key], GAME)) != expected_game:
             raise VerificationError("universal_game_changed")
     if any(value != native_sets[0] for value in native_sets[1:]):
@@ -617,7 +621,8 @@ def verify(source, development=False):
         if encoded(info["files"]) != encoded(records(files)):
             raise VerificationError("universal_payload_changed")
         for name in names: reject_test(name)
-        game_catalog = GAME_CLASSES | frozenset(relocate_name(name, FABRIC_GAME) for name in GAME_CLASSES) \
+        game_catalog = GAME_CLASSES | MODERN_GAME_EXTRAS \
+            | frozenset(relocate_name(name, FABRIC_GAME) for name in GAME_CLASSES | MODERN_GAME_EXTRAS) \
             | frozenset(relocate_name(name, LEGACY) for name in GAME_CLASSES) \
             | frozenset(relocate_name(name, FABRIC_LEGACY) for name in GAME_CLASSES | LEGACY_FABRIC_GAME_EXTRAS)
         actual_game = {name for name in names if name.endswith('.class') and name.startswith((GAME, FABRIC_GAME))}

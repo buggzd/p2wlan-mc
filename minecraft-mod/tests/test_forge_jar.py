@@ -86,6 +86,13 @@ class ForgeJarTests(unittest.TestCase):
                 top = self.fixture(); top[member] += prefix
                 with self.assertRaisesRegex(verify.VerificationError, 'mod_dedicated_client_reference'): self.check(top)
 
+    def test_server_login_mixin_inventory_is_exact(self):
+        for classes in [['ServerConnectionMixin'], verify.MIXIN_CONFIG['mixins'] + ['UnknownMixin']]:
+            top = self.fixture()
+            top['p2wlan.forge.mixins.json'] = json.dumps(verify.MIXIN_CONFIG | {'mixins': classes})
+            with self.assertRaisesRegex(verify.VerificationError, 'forge_mixin_contract'):
+                self.check(top)
+
     def test_jarjar_identity_component_count_and_unlisted_jar_fail(self):
         top = self.fixture(); top['META-INF/jarjar/rogue.jar'] = jar({'anything': b'x'})
         with self.assertRaisesRegex(verify.VerificationError, 'forge_unlisted_nested_resource'): self.check(top)

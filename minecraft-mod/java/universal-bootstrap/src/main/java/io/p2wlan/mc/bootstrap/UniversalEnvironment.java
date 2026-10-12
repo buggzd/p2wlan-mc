@@ -34,6 +34,9 @@ public final class UniversalEnvironment {
     public static final String LEGACY_FML_SERVER_REFMAP = "p2wlan-universal-forge-1.20.1-server-refmap.json";
     public static final String LEGACY_FML_CLIENT_REFMAP = "p2wlan-universal-forge-1.20.1-client-refmap.json";
     private static final int MAX_METADATA_BYTES = 8192;
+    private static final List<String> SERVER_MIXINS = List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin");
+    private static final List<String> MODERN_SERVER_MIXINS = java.util.stream.Stream.concat(
+            SERVER_MIXINS.stream(), java.util.stream.Stream.of("ServerConfigurationMixin")).toList();
     private static final List<String> CLIENT_MIXINS = List.of("ClientConnectionMixin", "IntegratedServerMixin",
             "MultiplayerListMixin", "MultiplayerListAccessor", "MultiplayerScreenMixin");
     private static final List<String> FABRIC_LEGACY_CLIENT_MIXINS = java.util.stream.Stream.concat(
@@ -179,7 +182,7 @@ public final class UniversalEnvironment {
         throw new BootstrapFailure(Code.MIXIN_PACKAGE_INVALID);
     }
     public static List<String> serverMixins(Selection selection, Binding binding) {
-        return binding.active(selection) ? List.of("ServerConnectionMixin") : List.of();
+        return !binding.active(selection) ? List.of() : selection.minecraftVersion().equals("1.20.1") ? SERVER_MIXINS : MODERN_SERVER_MIXINS;
     }
     public static List<String> clientMixins(Selection selection, Binding binding, Side side) {
         return binding.active(selection) ? clientMixins(selection, binding.family(), side) : List.of();
@@ -195,7 +198,7 @@ public final class UniversalEnvironment {
                 : client ? CLIENT_REFMAP : SERVER_REFMAP;
     }
     public static List<String> serverMixins(Selection selection, Family family) {
-        return selection.family() == family ? List.of("ServerConnectionMixin") : List.of();
+        return selection.family() != family ? List.of() : selection.minecraftVersion().equals("1.20.1") ? SERVER_MIXINS : MODERN_SERVER_MIXINS;
     }
     public static List<String> clientMixins(Selection selection, Family family, Side side) {
         if (selection.family() != family) return List.of();

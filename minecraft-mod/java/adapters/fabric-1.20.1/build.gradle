@@ -44,6 +44,7 @@ sourceSets.main.java {
     include 'io/p2wlan/mc/fabric/world/FabricWorlds.java'
     include 'io/p2wlan/mc/fabric/legacy/**'
     include 'io/p2wlan/mc/game/server/**'
+    exclude 'io/p2wlan/mc/game/server/mixin/ServerLoginMixin.java'
 }
 sourceSets.client.java {
     srcDir rootProject.file('adapters/fabric-1.21.1/src/client/java')
@@ -56,10 +57,13 @@ sourceSets.client.java {
 }
 def generatedGame = layout.buildDirectory.dir('generated/sources/game1201')
 def listMixin = 'io/p2wlan/mc/game/mixin/MultiplayerListMixin.java'
+def loginMixin = 'io/p2wlan/mc/game/server/mixin/ServerLoginMixin.java'
 def prepareGame = tasks.register('prepareLegacyGameSources', Exec) {
     inputs.files(rootProject.file('../tools/game_sources.py'), rootProject.file('../tools/source_contract.py'))
     inputs.file(rootProject.file('game-1.21.1/src/client/java/' + listMixin))
+    inputs.file(rootProject.file('game-1.21.1/src/server/java/' + loginMixin))
     outputs.file(generatedGame.map { it.file(listMixin) })
+    outputs.file(generatedGame.map { it.file(loginMixin) })
     commandLine 'python3', rootProject.file('../tools/game_sources.py'), '--output', generatedGame.get().asFile
 }
 java {
@@ -72,6 +76,10 @@ tasks.withType(JavaCompile).configureEach { options.release = 17; options.encodi
 tasks.named('compileClientJava', JavaCompile) {
     dependsOn prepareGame
     source generatedGame.map { it.file(listMixin) }
+}
+tasks.named('compileJava', JavaCompile) {
+    dependsOn prepareGame
+    source generatedGame.map { it.file(loginMixin) }
 }
 processResources {
     inputs.property 'version', project.version

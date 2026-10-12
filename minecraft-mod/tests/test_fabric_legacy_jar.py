@@ -23,6 +23,7 @@ class LegacyFabricJarTests(unittest.TestCase):
 
     def fixture(self):
         top, info, common, native = modern_tests.ModJarTests().fixture()
+        top.pop(legacy.MODERN_SERVER_MIXIN)
         for name in (modern_tests.verify.MIXIN_CONFIG['refmap'], modern_tests.verify.CLIENT_MIXIN_CONFIG['refmap']):
             del top[name]
         info['depends'] = deepcopy(legacy.DEPENDS)
@@ -74,6 +75,41 @@ class LegacyFabricJarTests(unittest.TestCase):
                 with self.subTest(path=path), self.assertRaisesRegex(VerificationError, 'legacy_fabric_mixin_refmap'):
                     self.check(top)
 
+    def test_legacy_login_bindings_do_not_admit_modern_or_unmapped_targets(self):
+        for owner, targets in legacy.SERVER_MAPPING.items():
+            for key in targets:
+                for change in (None, 'Lnet/minecraft/Unrelated;wrong()V'):
+                    mapped = deepcopy(legacy.SERVER_MAPPING)
+                    if change is None:
+                        del mapped[owner][key]
+                    else:
+                        mapped[owner][key] = change
+                    top, _, _, _ = self.fixture()
+                    top[legacy.SERVER_REFMAP] = json.dumps({'mappings': mapped, 'data': {'named:intermediary': mapped}})
+                    with self.subTest(owner=owner, key=key, change=change), self.assertRaisesRegex(VerificationError, 'legacy_fabric_mixin_refmap'):
+                        self.check(top)
+        top, _, _, _ = self.fixture()
+        top[legacy.SERVER_REFMAP] = json.dumps(modern_tests.verify.REFMAP)
+        with self.assertRaisesRegex(VerificationError, 'legacy_fabric_mixin_refmap'):
+            self.check(top)
+
+    def test_server_login_mixins_are_required_java17_dedicated_classes(self):
+        for member in legacy.SERVER_MIXINS:
+            for change, reason in [(None, 'mod_archive_member_invalid'), (modern_tests.bytecode(65), 'mod_class_version'),
+                                   (modern_tests.bytecode(61) + b'io/p2wlan/mc/game/client/', 'mod_dedicated_client_reference')]:
+                top, _, _, _ = self.fixture()
+                if change is None:
+                    del top[member]
+                else:
+                    top[member] = change
+                with self.subTest(member=member, reason=reason), self.assertRaisesRegex(VerificationError, reason):
+                    self.check(top)
+        for classes in [['ServerConnectionMixin'], legacy.MIXIN_CONFIG['mixins'] + ['UnknownMixin']]:
+            top, _, _, _ = self.fixture()
+            top['p2wlan.mixins.json'] = json.dumps(legacy.MIXIN_CONFIG | {'mixins': classes})
+            with self.assertRaisesRegex(VerificationError, 'legacy_fabric_mixin_contract'):
+                self.check(top)
+
     def test_constructor_and_java17_cannot_be_replaced_by_modern_outputs(self):
         top, _, _, _ = self.fixture()
         top['io/p2wlan/mc/game/mixin/MultiplayerListMixin.class'] = modern_tests.bytecode(61) + b'(Lnet/minecraft/class_310;IIII)V'
@@ -87,7 +123,8 @@ class LegacyFabricJarTests(unittest.TestCase):
 
     def test_unselected_delegates_and_extra_resource_owners_are_rejected(self):
         for name in ['io/p2wlan/mc/fabric/current/FabricServerEvents.class', 'com/sun/jna/Native.class',
-                     'io/p2wlan/mc/common/WorldSessions.class', 'io/p2wlan/mc/game/fixture/GameClientChecks.class']:
+                     'io/p2wlan/mc/common/WorldSessions.class', 'io/p2wlan/mc/game/fixture/GameClientChecks.class',
+                     legacy.MODERN_SERVER_MIXIN]:
             top, _, _, _ = self.fixture()
             top[name] = modern_tests.bytecode(61)
             with self.subTest(name=name), self.assertRaises(VerificationError):

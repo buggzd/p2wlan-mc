@@ -166,7 +166,7 @@ async def lifecycle(agent_binary, server, root, children, traffic=False):
             raise FixtureError("ACCOUNT_PROJECTION")
         await agent.request("start", {"config": {}}, error="INVALID_ARGUMENTS")
     room = (await agents[0].request("create_room", {"name": "Minecraft fixture", "password": "fixture-room-password"}))["room"]
-    await agents[1].request("join_room", {"code": room["code"], "password": "wrong"}, error="FORBIDDEN")
+    await agents[1].request("join_room", {"code": room["code"], "password": "wrong-room-password"}, error="FORBIDDEN")
     joined = (await agents[1].request("join_room", {"code": room["code"], "password": "fixture-room-password"}))["room"]
     if joined["id"] != room["id"]:
         raise FixtureError("ROOM_ID")

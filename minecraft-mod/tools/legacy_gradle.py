@@ -20,8 +20,22 @@ SERVER_REFMAP = 'p2wlan-forge-1.20.1-server-refmap.json'
 CLIENT_REFMAP = 'p2wlan-forge-1.20.1-client-refmap.json'
 SERVER_CONFIG = 'p2wlan.forge.1.20.1.mixins.json'
 CLIENT_CONFIG = 'p2wlan.forge.1.20.1.client.mixins.json'
-SERVER_TARGETS = {'io/p2wlan/mc/game/server/mixin/ServerConnectionMixin': {
-    'startTcpServerListener': 'Lnet/minecraft/server/network/ServerConnectionListener;m_9711_(Ljava/net/InetAddress;I)V'}}
+MODERN_SERVER_MIXIN = 'io/p2wlan/mc/game/server/mixin/ServerConfigurationMixin.class'
+SERVER_TARGETS = {
+    'io/p2wlan/mc/game/server/mixin/ServerConnectionMixin': {
+        'startTcpServerListener': 'Lnet/minecraft/server/network/ServerConnectionListener;m_9711_(Ljava/net/InetAddress;I)V'},
+    'io/p2wlan/mc/game/server/mixin/ServerLoginConnectionMixin': {'channel': 'f_129468_:Lio/netty/channel/Channel;'},
+    'io/p2wlan/mc/game/server/mixin/ServerLoginMixin': {
+        'handleHello': 'Lnet/minecraft/server/network/ServerLoginPacketListenerImpl;m_5990_(Lnet/minecraft/network/protocol/login/ServerboundHelloPacket;)V',
+        'handleAcceptedLogin': 'Lnet/minecraft/server/network/ServerLoginPacketListenerImpl;m_10055_()V',
+        'placeNewPlayer': 'Lnet/minecraft/server/network/ServerLoginPacketListenerImpl;m_143699_(Lnet/minecraft/server/level/ServerPlayer;)V',
+        'Lnet/minecraft/server/MinecraftServer;usesAuthentication()Z': 'Lnet/minecraft/server/MinecraftServer;m_129797_()Z'},
+}
+SHADOW_FIELDS = (
+    ('mixin/MultiplayerListMixin', b'f_99766_', b'screen'),
+    ('mixin/MultiplayerScreenMixin', b'f_99673_', b'serverSelectionList'),
+    ('server/mixin/ServerLoginMixin', b'f_10013_', b'connection'),
+)
 CLIENT_TARGETS = {
     'io/p2wlan/mc/game/mixin/ClientConnectionMixin': {
         'connect(Ljava/net/InetSocketAddress;ZLnet/minecraft/network/Connection;)Lio/netty/channel/ChannelFuture;':
@@ -154,7 +168,7 @@ def verify(path, development=False):
         if manifest.splitlines().count(('MixinConfigs: ' + SERVER_CONFIG + ',' + CLIENT_CONFIG).encode()) != 1:
             raise VerificationError('legacy_forge_mixin_manifest')
         for name, package, key, classes, mapping in [
-                (SERVER_CONFIG, 'io.p2wlan.mc.game.server.mixin', 'mixins', ['ServerConnectionMixin'], SERVER_REFMAP),
+                (SERVER_CONFIG, 'io.p2wlan.mc.game.server.mixin', 'mixins', [name.rsplit('/', 1)[-1] for name in SERVER_TARGETS], SERVER_REFMAP),
                 (CLIENT_CONFIG, 'io.p2wlan.mc.game.mixin', 'client', [name.rsplit('/', 1)[-1] for name in CLIENT_TARGETS], CLIENT_REFMAP)]:
             if metadata(archive, name) != {'required': True, 'minVersion': '0.8.5', 'package': package,
                                           'compatibilityLevel': 'JAVA_17', 'refmap': mapping, key: classes,
@@ -176,12 +190,12 @@ def verify(path, development=False):
             if name.endswith('.class'):
                 classfile(archive, name, 61)
             if name.startswith(('com/sun/jna/', 'io/p2wlan/mc/forge/client/')) \
+                    or name == MODERN_SERVER_MIXIN \
                     or name in {'io/p2wlan/mc/forge/ForgeServerEvents.class', 'io/p2wlan/mc/forge/LocalNativeResources.class'} \
                     or '/fixture/' in name or name.endswith('Tests.class'):
                 raise VerificationError('legacy_forge_class_owner')
-        for owner, field, original in [('MultiplayerListMixin', b'f_99766_', b'screen'),
-                                       ('MultiplayerScreenMixin', b'f_99673_', b'serverSelectionList')]:
-            declared = field_names(classfile(archive, 'io/p2wlan/mc/game/mixin/' + owner + '.class', 61))
+        for owner, field, original in SHADOW_FIELDS:
+            declared = field_names(classfile(archive, 'io/p2wlan/mc/game/' + owner + '.class', 61))
             if field not in declared or original in declared:
                 raise VerificationError('legacy_forge_shadow_srg')
         return portable(archive, '0.1.0', development, 'legacy_forge')

@@ -14,10 +14,12 @@ from jarjar_artifact import portable
 MAIN = 'io/p2wlan/mc/forge/ForgeP2wlan.class'
 CLIENT = 'io/p2wlan/mc/forge/client/ForgeClient.class'
 SERVER_MIXIN = 'io/p2wlan/mc/game/server/mixin/ServerConnectionMixin.class'
-DEDICATED_CLASSES = (MAIN, SERVER_MIXIN, 'io/p2wlan/mc/game/server/WorldCommands.class',
+SERVER_MIXINS = tuple('io/p2wlan/mc/game/server/mixin/' + name + '.class' for name in
+                      ('ServerConnectionMixin', 'ServerLoginConnectionMixin', 'ServerLoginMixin', 'ServerConfigurationMixin'))
+DEDICATED_CLASSES = (MAIN, *SERVER_MIXINS, 'io/p2wlan/mc/game/server/WorldCommands.class',
                      'io/p2wlan/mc/forge/LocalNativeResources.class')
 MIXIN_CONFIG = {'required': True, 'minVersion': '0.8.5', 'package': 'io.p2wlan.mc.game.server.mixin',
-                'compatibilityLevel': 'JAVA_17', 'mixins': ['ServerConnectionMixin'], 'injectors': {'defaultRequire': 1}}
+                'compatibilityLevel': 'JAVA_17', 'mixins': ['ServerConnectionMixin', 'ServerLoginConnectionMixin', 'ServerLoginMixin', 'ServerConfigurationMixin'], 'injectors': {'defaultRequire': 1}}
 CLIENT_MIXIN_CONFIG = {'required': True, 'minVersion': '0.8.5', 'package': 'io.p2wlan.mc.game.mixin', 'compatibilityLevel': 'JAVA_17',
                        'client': ['ClientConnectionMixin', 'IntegratedServerMixin', 'MultiplayerListMixin', 'MultiplayerListAccessor', 'MultiplayerScreenMixin'],
                        'injectors': {'defaultRequire': 1}}

@@ -119,6 +119,25 @@ The common Java `RoomPeers` and `ServiceCatalog` parsers retain the native reply
 
 `ready()` yields the validated, redacted capability for the local loopback proxy. The caller must revalidate `isCurrent()` before opening a connection or releasing game bytes, and revoke the owner on cancellation/disconnect. Actual subprocess fixtures test capacity, late registration after cancellation, parent/process exit, malformed replies, cleanup failure and runtime replacement.
 
+## Shared-world Minecraft login
+
+A published singleplayer world accepts offline Minecraft game names through its
+P2WLAN listener. `ServerLoginConnectionMixin` reads the actual Netty channel;
+`ServerLoginMixin` skips the session-server challenge only for a singleplayer
+server and an admitted, currently live `LoopbackAdmission` owner. Before login and
+final profile admission it rechecks that exact channel owner, including retirement
+while Vanilla waited for its server tick. Legacy delayed player placement and
+modern login acknowledgement/configuration completion recheck the same owner at
+their actual protocol or player-commit boundary. The channel retains the original owner
+identity after revocation; a retired private connection cannot become an ordinary
+connection or acquire a replacement world. The integrated server's global
+authentication setting and other listeners keep their Vanilla policy. Dedicated
+servers continue to follow `online-mode`.
+
+Vanilla generates offline player UUIDs from game names; participants use distinct
+names. P2WLAN room, peer and world authorization remain with the original Native
+and world owners. Minecraft profile admission does not replace those permissions.
+
 ## Shared join-preface transport component
 
 The portable `ProxyPrelude` component wraps one Netty initializer/socket. It validates the exact loopback proxy target, writes the 40-byte local capability before installing any Vanilla initializer/codecs or emitting their channel-active event, and then forwards every received byte as game data. Native join proxies send no local readiness acknowledgement; this component must not consume an imagined acknowledgement from the Minecraft stream. A two-second total deadline starts at handler installation and covers connect/prelude, including sockets that never become active. One 100 ms lifecycle timer closes an idle retired attempt. Both timers are cancelled on close/removal. No game-byte buffer, work queue, reconnect or capability replay is added.
@@ -549,7 +568,7 @@ then exercises the installed resource resolver. The fixed Slime development
 launcher supplies the game/Forge runtime for both source and installed modes.
 
 Both source and final-JarJar modes complete the dedicated **68 host / 65 guest**
-and integrated **77 host / 65 guest** contracts on macOS/aarch64. Windows/HMCL
+and integrated **80 host / 65 guest** contracts on macOS/aarch64. Windows/HMCL
 and other game versions require platform/version-specific execution.
 
 ## Shared Minecraft game layer
@@ -617,12 +636,13 @@ through the original Multiplayer controls and completes the same 20 ordered
 C2S commands / S2C game-state and message replies over at least 18 seconds.
 After guest disconnect, the host uses the actual unhost action, verifies local
 pause restoration, stops the room and follows Vanilla's level-disconnect/world
-shutdown sequence. Success requires all **77 host / 65 guest** checks, the exact
+shutdown sequence. Success requires all **80 host / 65 guest** checks, the exact
 nine host cases, world retirement and both native helpers exiting.
 
 The execution scope is local macOS/aarch64, Java 21 and Minecraft 1.21.1 with the
-pinned Fabric, NeoForge and Forge versions. The test server's authentication setting is
-changed only inside the new disposable world after explicit `--offline-mode`.
+pinned Fabric, NeoForge and Forge versions. The integrated server retains its Vanilla
+authentication setting before, during and after sharing. The guest uses an offline
+game name through the production P2WLAN capability-admitted login path.
 EULA consent, bounded process/result checks, isolated build outputs and private
 state cleanup are the same as the dedicated gameplay mode below. Failed runs
 are retained as failures; a cleanup failure preserves a fixed original execution
@@ -717,9 +737,9 @@ The local Minecraft 1.21.1 compatibility matrix uses Java 21 on macOS/aarch64:
 
 | Loader | Dedicated host / real client | Integrated host / real guest | Gameplay Mod input |
 | --- | --- | --- | --- |
-| Fabric 0.16.14 / API 0.116.7+1.21.1 | 68 / 65 checks | 77 / 65 checks | Source outputs |
-| NeoForge 21.1.256 | 68 / 65 checks | 77 / 65 checks | Source outputs; separate installed dedicated/status checks above |
-| Forge 52.1.16 | 68 / 65 checks | 77 / 65 checks | Source outputs and checked final JarJar archive |
+| Fabric 0.16.14 / API 0.116.7+1.21.1 | 68 / 65 checks | 80 / 65 checks | Source outputs |
+| NeoForge 21.1.256 | 68 / 65 checks | 80 / 65 checks | Source outputs; separate installed dedicated/status checks above |
+| Forge 52.1.16 | 68 / 65 checks | 80 / 65 checks | Source outputs and checked final JarJar archive |
 
 These local runs use offline Minecraft authentication. Linux graphical
 execution, Windows/HMCL, other game versions, forced Relay, public NAT,
@@ -743,10 +763,9 @@ The player installs the same archive for every supported profile.
 All P2WLAN Java classes use classfile major 61. Modern SDK dependency selection
 requires Java 21; this reader requirement is distinct from the emitted class
 version. `java/game-api-1.20.1` and `java/game-api-1.21.1` adapt background,
-tooltip and login APIs. One exact generated list-constructor adaptation handles
-the old list Mixin. The authoritative game sources remain in `java/game-1.21.1`.
-The assembler assigns the 45 shared game classes to four fixed loader/version
-namespaces. Fabric 1.20.1 adds one narrow login-discovery Mixin, giving 181 game
+tooltip and login APIs. Exact generated adaptations handle the old list constructor and login profile-admission method. The authoritative game sources remain in `java/game-1.21.1`.
+The assembler assigns the 47 shared game classes to four fixed loader/version
+namespaces. Modern inputs add a thin configuration-stage Mixin at player commit. Fabric 1.20.1 adds one narrow login-discovery Mixin, giving 191 game
 classes in total; no gameplay or networking source fork is maintained. That
 Mixin exposes the existing join owner's current LOGIN connection to Fabric's
 networking API when its Vanilla lookup has no connection. The original nonempty
@@ -795,7 +814,7 @@ python3 minecraft-mod/tools/local_game.py --minecraft 1.20.1 --loader forge --in
 ```
 
 Select `fabric` or `neoforge` and the game version in the profile table for other
-cases. Dedicated and integrated checks retain the exact 68/65 and 77/65 host/guest
+cases. Dedicated and integrated checks retain the exact 68/65 and 80/65 host/guest
 contracts, Vanilla login, 20 ordered exchanges, sustained play and world/helper
 cleanup. Archive hash and module/class backing are checked before the assertions.
 Source outputs and portable/native/bootstrap project fallbacks are excluded.

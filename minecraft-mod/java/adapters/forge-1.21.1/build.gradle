@@ -15,6 +15,7 @@ def developmentEnabled = providers.gradleProperty('developmentNative').map { val
     value.isEmpty() || value == 'true'
 }.getOrElse(false)
 sourceSets.main.java.srcDir new File(game, 'src/server/java')
+sourceSets.main.java.srcDir rootProject.file('../game-api-1.21.1/src/server/java')
 sourceSets.main.java.srcDir new File(game, 'src/client/java')
 sourceSets.main.java.srcDir rootProject.file('../game-api-1.21.1/src/client/java')
 java { toolchain.languageVersion = JavaLanguageVersion.of(21); withSourcesJar() }

@@ -65,6 +65,7 @@ class ModJarTests(unittest.TestCase):
                "META-INF/jars/jna.jar": jar(JNA_FIXTURE),
                "META-INF/jars/transport.jar": jar({name: bytecode(61) for name in verify.TRANSPORT})}
         top.update({name: bytecode(61) for name in verify.LAN_MIXINS})
+        top.update({name: bytecode(61) for name in verify.SERVER_MIXINS})
         return top, metadata, common, native
 
     def check(self, top, development=True):
@@ -210,15 +211,22 @@ class ModJarTests(unittest.TestCase):
             self.check(top)
 
     def test_required_mixin_is_packaged_exactly_and_dedicated_safe(self):
-        top, _, _, _ = self.fixture()
-        del top[verify.SERVER_MIXIN]
-        with self.assertRaisesRegex(verify.VerificationError, "mod_archive_member_invalid"):
-            self.check(top)
-        top, _, _, _ = self.fixture()
-        top[verify.SERVER_MIXIN] += b"net/minecraft/client/"
-        with self.assertRaisesRegex(verify.VerificationError, "mod_dedicated_client_reference"):
-            self.check(top)
-        for change in ({"required": False}, {"mixins": []}, {"injectors": {"defaultRequire": 0}}):
+        for member in verify.SERVER_MIXINS:
+            top, _, _, _ = self.fixture()
+            del top[member]
+            with self.subTest(member=member), self.assertRaisesRegex(verify.VerificationError, "mod_archive_member_invalid"):
+                self.check(top)
+            top, _, _, _ = self.fixture()
+            top[member] = bytecode(65)
+            with self.assertRaisesRegex(verify.VerificationError, "mod_class_version"):
+                self.check(top)
+            for prefix in (b"net/minecraft/client/", b"io/p2wlan/mc/game/client/"):
+                top, _, _, _ = self.fixture()
+                top[member] += prefix
+                with self.assertRaisesRegex(verify.VerificationError, "mod_dedicated_client_reference"):
+                    self.check(top)
+        for change in ({"required": False}, {"mixins": []}, {"mixins": ["ServerConnectionMixin"]},
+                       {"mixins": verify.MIXIN_CONFIG["mixins"] + ["UnknownMixin"]}, {"injectors": {"defaultRequire": 0}}):
             top, _, _, _ = self.fixture()
             top["p2wlan.mixins.json"] = json.dumps(verify.MIXIN_CONFIG | change)
             with self.assertRaisesRegex(verify.VerificationError, "mod_mixin_contract"):
@@ -230,6 +238,21 @@ class ModJarTests(unittest.TestCase):
             top[verify.MIXIN_CONFIG["refmap"]] = json.dumps(mapping)
             with self.assertRaisesRegex(verify.VerificationError, "mod_mixin_refmap"):
                 self.check(top)
+
+    def test_server_login_refmap_requires_each_exact_field_method_and_auth_target(self):
+        import copy
+        for owner, targets in verify.BIND_MAPPING.items():
+            for key in targets:
+                for change in (None, "Lnet/minecraft/Unrelated;wrong()V"):
+                    maps = copy.deepcopy(verify.BIND_MAPPING)
+                    if change is None:
+                        del maps[owner][key]
+                    else:
+                        maps[owner][key] = change
+                    top, _, _, _ = self.fixture()
+                    top[verify.MIXIN_CONFIG["refmap"]] = json.dumps({"mappings": maps, "data": {"named:intermediary": maps}})
+                    with self.subTest(owner=owner, key=key, change=change), self.assertRaisesRegex(verify.VerificationError, "mod_mixin_refmap"):
+                        self.check(top)
 
     def test_isolated_client_fixture_cannot_leak_into_production_archive(self):
         top, _, _, _ = self.fixture()

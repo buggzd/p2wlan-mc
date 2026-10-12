@@ -1,6 +1,8 @@
 """Legacy build identity, Java-runtime and SRG Mixin mapping failure policies."""
 from copy import deepcopy
 import hashlib
+import io
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -11,9 +13,61 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import legacy_gradle as legacy
 from artifact_checks import VerificationError
+from test_mod_jar import bytecode, jar
 
 
 class LegacyGradleTests(unittest.TestCase):
+    @staticmethod
+    def field_fixture(field, original, name_indices=(1,)):
+        def utf8(value):
+            return b'\x01' + len(value).to_bytes(2, 'big') + value
+        pool = utf8(field) + utf8(original) + utf8(b'Ljava/lang/Object;')
+        declarations = b''.join(b'\x00\x02' + index.to_bytes(2, 'big') + b'\x00\x03\x00\x00' for index in name_indices)
+        return b'\xca\xfe\xba\xbe\x00\x00\x00\x3d\x00\x04' + pool + b'\x00' * 8 \
+            + len(name_indices).to_bytes(2, 'big') + declarations + b'\x00' * 4
+
+    def archive_fixture(self):
+        dedicated = ('io/p2wlan/mc/forge/ForgeP2wlan', 'io/p2wlan/mc/forge/ForgeRuntime',
+                     'io/p2wlan/mc/forge/legacy/ForgeServerEvents', 'io/p2wlan/mc/forge/legacy/LocalNativeResources',
+                     'io/p2wlan/mc/game/server/WorldCommands', *legacy.SERVER_TARGETS)
+        top = {name + '.class': bytecode(61) for name in (*dedicated, 'io/p2wlan/mc/forge/legacy/ForgeClientEvents', *legacy.CLIENT_TARGETS)}
+        top['META-INF/mods.toml'] = '''modLoader="javafml"
+loaderVersion="[47,)"
+[[mods]]
+modId="p2wlan"
+version="0.1.0"
+[[dependencies.p2wlan]]
+modId="forge"
+mandatory=true
+versionRange="[47.3.2]"
+ordering="NONE"
+side="BOTH"
+[[dependencies.p2wlan]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1]"
+ordering="NONE"
+side="BOTH"
+'''
+        top['META-INF/MANIFEST.MF'] = 'Manifest-Version: 1.0\r\nMixinConfigs: ' + legacy.SERVER_CONFIG + ',' + legacy.CLIENT_CONFIG + '\r\n\r\n'
+        top['pack.mcmeta'] = json.dumps({'pack': {'description': 'P2WLAN', 'pack_format': 15}})
+        for path, package, key, targets, mapping in [
+                (legacy.SERVER_CONFIG, 'io.p2wlan.mc.game.server.mixin', 'mixins', legacy.SERVER_TARGETS, legacy.SERVER_REFMAP),
+                (legacy.CLIENT_CONFIG, 'io.p2wlan.mc.game.mixin', 'client', legacy.CLIENT_TARGETS, legacy.CLIENT_REFMAP)]:
+            top[path] = json.dumps({'required': True, 'minVersion': '0.8.5', 'package': package,
+                                   'compatibilityLevel': 'JAVA_17', 'refmap': mapping,
+                                   key: [name.rsplit('/', 1)[-1] for name in targets], 'injectors': {'defaultRequire': 1}})
+            top[mapping] = json.dumps({'mappings': targets, 'data': {'searge': targets}})
+        for owner, field, original in legacy.SHADOW_FIELDS:
+            top['io/p2wlan/mc/game/' + owner + '.class'] = self.field_fixture(field, original)
+        return top
+
+    def check_archive(self, top):
+        # Only the class/refmap leaf policy is under test here; no native or
+        # gameplay claim follows from these synthetic class declarations.
+        with patch('jarjar_artifact.portable', return_value=['synthetic portable owner']):
+            return legacy.verify(io.BytesIO(jar(top)), True)
+
     def prepare(self, root, checksum=None):
         jar = root / 'java/gradle/wrapper/gradle-wrapper.jar'
         jar.parent.mkdir(parents=True)
@@ -104,17 +158,45 @@ class LegacyGradleTests(unittest.TestCase):
             with self.assertRaises(VerificationError):
                 legacy.refmap(changed, legacy.CLIENT_TARGETS)
 
+    def test_server_login_srg_refmaps_classes_and_connection_shadow_are_exact(self):
+        self.assertEqual(self.check_archive(self.archive_fixture()), ['synthetic portable owner'])
+        top = self.archive_fixture(); top[legacy.MODERN_SERVER_MIXIN] = bytecode(61)
+        with self.assertRaisesRegex(VerificationError, 'legacy_forge_class_owner'):
+            self.check_archive(top)
+        for owner, targets in legacy.SERVER_TARGETS.items():
+            for key in targets:
+                for change in (None, 'Lnet/minecraft/Unrelated;wrong()V'):
+                    maps = deepcopy(legacy.SERVER_TARGETS)
+                    if change is None:
+                        del maps[owner][key]
+                    else:
+                        maps[owner][key] = change
+                    top = self.archive_fixture()
+                    top[legacy.SERVER_REFMAP] = json.dumps({'mappings': maps, 'data': {'searge': maps}})
+                    with self.subTest(owner=owner, key=key, change=change), self.assertRaisesRegex(VerificationError, 'legacy_forge_refmap_contract'):
+                        self.check_archive(top)
+        for owner in legacy.SERVER_TARGETS:
+            top = self.archive_fixture(); del top[owner + '.class']
+            with self.subTest(owner=owner), self.assertRaisesRegex(VerificationError, 'mod_archive_member_invalid'):
+                self.check_archive(top)
+        for indices in [(2,), (1, 2)]:
+            top = self.archive_fixture()
+            top['io/p2wlan/mc/game/server/mixin/ServerLoginMixin.class'] = self.field_fixture(b'f_10013_', b'connection', indices)
+            with self.subTest(indices=indices), self.assertRaisesRegex(VerificationError, 'legacy_forge_shadow_srg'):
+                self.check_archive(top)
+        for classes in [['ServerConnectionMixin'], [name.rsplit('/', 1)[-1] for name in legacy.SERVER_TARGETS] + ['UnknownMixin']]:
+            top = self.archive_fixture()
+            config = json.loads(top[legacy.SERVER_CONFIG]); config['mixins'] = classes
+            top[legacy.SERVER_CONFIG] = json.dumps(config)
+            with self.assertRaisesRegex(VerificationError, 'legacy_forge_mixin_contract'):
+                self.check_archive(top)
+
     def test_shadow_field_reads_declaration_not_unused_constant(self):
-        def utf8(value):
-            return b'\x01' + len(value).to_bytes(2, 'big') + value
         def fixture(name_index):
-            pool = utf8(b'f_99766_') + utf8(b'screen') + utf8(b'Ljava/lang/Object;')
-            # Three UTF8s, no interfaces, one field and no field attributes.
-            return b'\xca\xfe\xba\xbe\x00\x00\x00\x3d\x00\x04' + pool + b'\x00' * 8 + b'\x00\x01' \
-                + b'\x00\x02' + name_index.to_bytes(2, 'big') + b'\x00\x03\x00\x00'
+            return self.field_fixture(b'f_99766_', b'screen', (name_index,))
         self.assertEqual(legacy.field_names(fixture(1)), {b'f_99766_'})
         self.assertEqual(legacy.field_names(fixture(2)), {b'screen'})
-        for value in [fixture(1)[:-1], b'bad', fixture(9)]:
+        for value in [fixture(1)[:-5], b'bad', fixture(9)]:
             with self.assertRaises(VerificationError):
                 legacy.field_names(value)
 

@@ -60,7 +60,9 @@ public final class WorldCommands {
         root.then(Commands.literal("host").executes(context -> {
             var source = context.getSource(); var world = worlds.apply(source.getServer());
             if (world == null) { source.sendFailure(Component.literal("WORLD_CHANGED")); return 0; }
-            try { world.host(); source.sendSuccess(() -> Component.literal("P2WLAN world publication starting; use /p2wlan world"), false); return 1; }
+            try { world.host(); source.sendSuccess(() -> Component.literal("正在共享世界"
+                    + (source.getServer().isSingleplayer() && !source.getServer().isDedicatedServer() ? "（支持离线账号）" : "")
+                    + "；使用 /p2wlan world 查看状态。"), false); return 1; }
             catch (WorldHostException error) { source.sendFailure(Component.literal(error.code().name())); return 0; }
         }));
         root.then(Commands.literal("unhost").executes(context -> {

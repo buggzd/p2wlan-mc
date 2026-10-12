@@ -15,10 +15,25 @@ CLIENT = "io/p2wlan/mc/fabric/client/FabricP2wlanClient.class"
 from fabric_artifact import COMMON, TRANSPORT, portable
 WORLD_COMMANDS = "io/p2wlan/mc/game/server/WorldCommands.class"
 SERVER_MIXIN = "io/p2wlan/mc/game/server/mixin/ServerConnectionMixin.class"
+SERVER_CONFIGURATION_MIXIN = "io/p2wlan/mc/game/server/mixin/ServerConfigurationMixin.class"
+SERVER_MIXINS = tuple("io/p2wlan/mc/game/server/mixin/" + name + ".class" for name in
+                      ("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin", "ServerConfigurationMixin"))
 MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.game.server.mixin", "compatibilityLevel": "JAVA_17",
-                "mixins": ["ServerConnectionMixin"], "injectors": {"defaultRequire": 1},
+                "mixins": ["ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin", "ServerConfigurationMixin"], "injectors": {"defaultRequire": 1},
                 "refmap": "p2wlan-fabric-1.21.1-refmap.json"}
-BIND_MAPPING = {"io/p2wlan/mc/game/server/mixin/ServerConnectionMixin": {"startTcpServerListener": "Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V"}}
+BIND_MAPPING = {
+    "io/p2wlan/mc/game/server/mixin/ServerConnectionMixin": {"startTcpServerListener": "Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V"},
+    "io/p2wlan/mc/game/server/mixin/ServerLoginConnectionMixin": {"channel": "field_11651:Lio/netty/channel/Channel;"},
+    "io/p2wlan/mc/game/server/mixin/ServerLoginMixin": {
+        "handleHello": "Lnet/minecraft/class_3248;method_12641(Lnet/minecraft/class_2915;)V",
+        "verifyLoginAndFinishConnectionSetup": "Lnet/minecraft/class_3248;method_52419(Lcom/mojang/authlib/GameProfile;)V",
+        "handleLoginAcknowledgement": "Lnet/minecraft/class_3248;method_52289(Lnet/minecraft/class_8593;)V",
+        "Lnet/minecraft/server/MinecraftServer;usesAuthentication()Z": "Lnet/minecraft/server/MinecraftServer;method_3828()Z"},
+    "io/p2wlan/mc/game/server/mixin/ServerConfigurationMixin": {
+        "handleConfigurationFinished": "Lnet/minecraft/class_8610;method_52408(Lnet/minecraft/class_8736;)V",
+        "Lnet/minecraft/server/players/PlayerList;placeNewPlayer(Lnet/minecraft/network/Connection;Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/server/network/CommonListenerCookie;)V":
+            "Lnet/minecraft/class_3324;method_14570(Lnet/minecraft/class_2535;Lnet/minecraft/class_3222;Lnet/minecraft/class_8792;)V"},
+}
 REFMAP = {"mappings": BIND_MAPPING, "data": {"named:intermediary": BIND_MAPPING}}
 CLIENT_MIXIN = "io/p2wlan/mc/game/mixin/ClientConnectionMixin.class"
 INTEGRATED_MIXIN = "io/p2wlan/mc/game/mixin/IntegratedServerMixin.class"
@@ -70,9 +85,10 @@ def verify(path, development=False):
         commands = classfile(archive, WORLD_COMMANDS, 61)
         if any(prefix in commands for prefix in (b"net/minecraft/client/", b"io/p2wlan/mc/game/client/")):
             raise VerificationError("mod_dedicated_client_reference")
-        server_mixin = classfile(archive, SERVER_MIXIN, 61)
-        if b"net/minecraft/client/" in server_mixin or any(prefix in server_mixin for prefix in (b"io/p2wlan/mc/fabric/client/", b"io/p2wlan/mc/game/client/")):
-            raise VerificationError("mod_dedicated_client_reference")
+        for name in SERVER_MIXINS:
+            server_mixin = classfile(archive, name, 61)
+            if any(prefix in server_mixin for prefix in (b"net/minecraft/client/", b"io/p2wlan/mc/fabric/client/", b"io/p2wlan/mc/game/client/")):
+                raise VerificationError("mod_dedicated_client_reference")
         main = classfile(archive, MAIN, 61)
         classfile(archive, CLIENT, 61)
         if any(value in main for value in (b"net/minecraft/client/", b"net/fabricmc/fabric/api/client/", b"io/p2wlan/mc/fabric/client/", b"io/p2wlan/mc/game/client/")):

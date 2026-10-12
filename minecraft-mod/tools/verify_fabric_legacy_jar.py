@@ -21,6 +21,9 @@ CLIENT_EVENTS = "io/p2wlan/mc/fabric/legacy/FabricClientEvents.class"
 LOGIN_MIXIN = "io/p2wlan/mc/game/mixin/FabricLoginNetworkingMixin.class"
 WORLD_COMMANDS = "io/p2wlan/mc/game/server/WorldCommands.class"
 SERVER_MIXIN = "io/p2wlan/mc/game/server/mixin/ServerConnectionMixin.class"
+MODERN_SERVER_MIXIN = "io/p2wlan/mc/game/server/mixin/ServerConfigurationMixin.class"
+SERVER_MIXINS = tuple("io/p2wlan/mc/game/server/mixin/" + name + ".class" for name in
+                      ("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin"))
 SERVER_REFMAP = "p2wlan-fabric-1.20.1-refmap.json"
 CLIENT_REFMAP = "client-p2wlan-fabric-1.20.1-refmap.json"
 MIXINS = ["p2wlan.mixins.json", {"config": "p2wlan.client.mixins.json", "environment": "client"}]
@@ -29,7 +32,7 @@ DEPENDS = {"fabricloader": "=0.16.14", "minecraft": "1.20.1", "java": ">=17", "f
 # Exact bindings produced by the pinned Minecraft 1.20.1 Loom annotation processor.
 MIXIN_CONFIG = {'compatibilityLevel': 'JAVA_17',
  'injectors': {'defaultRequire': 1},
- 'mixins': ['ServerConnectionMixin'],
+ 'mixins': ['ServerConnectionMixin', 'ServerLoginConnectionMixin', 'ServerLoginMixin'],
  'package': 'io.p2wlan.mc.game.server.mixin',
  'refmap': 'p2wlan-fabric-1.20.1-refmap.json',
  'required': True}
@@ -44,8 +47,16 @@ CLIENT_MIXIN_CONFIG = {'client': ['ClientConnectionMixin',
  'package': 'io.p2wlan.mc.game.mixin',
  'refmap': 'client-p2wlan-fabric-1.20.1-refmap.json',
  'required': True}
-REFMAP = {'data': {'named:intermediary': {'io/p2wlan/mc/game/server/mixin/ServerConnectionMixin': {'startTcpServerListener': 'Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V'}}},
- 'mappings': {'io/p2wlan/mc/game/server/mixin/ServerConnectionMixin': {'startTcpServerListener': 'Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V'}}}
+SERVER_MAPPING = {
+    'io/p2wlan/mc/game/server/mixin/ServerConnectionMixin': {'startTcpServerListener': 'Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V'},
+    'io/p2wlan/mc/game/server/mixin/ServerLoginConnectionMixin': {'channel': 'field_11651:Lio/netty/channel/Channel;'},
+    'io/p2wlan/mc/game/server/mixin/ServerLoginMixin': {
+        'handleHello': 'Lnet/minecraft/class_3248;method_12641(Lnet/minecraft/class_2915;)V',
+        'handleAcceptedLogin': 'Lnet/minecraft/class_3248;method_14384()V',
+        'placeNewPlayer': 'Lnet/minecraft/class_3248;method_33800(Lnet/minecraft/class_3222;)V',
+        'Lnet/minecraft/server/MinecraftServer;usesAuthentication()Z': 'Lnet/minecraft/server/MinecraftServer;method_3828()Z'},
+}
+REFMAP = {'mappings': SERVER_MAPPING, 'data': {'named:intermediary': SERVER_MAPPING}}
 CLIENT_MAPPING = {'io/p2wlan/mc/game/mixin/ClientConnectionMixin': {'connect(Ljava/net/InetSocketAddress;ZLnet/minecraft/network/Connection;)Lio/netty/channel/ChannelFuture;': 'Lnet/minecraft/class_2535;method_52271(Ljava/net/InetSocketAddress;ZLnet/minecraft/class_2535;)Lio/netty/channel/ChannelFuture;'},
  'io/p2wlan/mc/game/mixin/IntegratedServerMixin': {'isPublished': 'Lnet/minecraft/class_1132;method_3860()Z'},
  'io/p2wlan/mc/game/mixin/MultiplayerListAccessor': {'refreshEntries': 'method_20131()V'},
@@ -87,7 +98,7 @@ def verify(path, development=False):
                 raise VerificationError("legacy_fabric_mixin_contract")
             if not same_json(metadata(archive, mapping), bindings):
                 raise VerificationError("legacy_fabric_mixin_refmap")
-        dedicated = (MAIN, WORLD, SERVER, WORLD_COMMANDS, SERVER_MIXIN,
+        dedicated = (MAIN, WORLD, SERVER, WORLD_COMMANDS, *SERVER_MIXINS,
                      MAIN[:-6] + "$ServerEvents.class", MAIN[:-6] + "$Binding.class")
         required = (*dedicated, CLIENT, CLIENT_EVENTS, LOGIN_MIXIN, WORLD[:-6] + "$IntegratedHooks.class",
                     "io/p2wlan/mc/bootstrap/UniversalEnvironment.class", "io/p2wlan/mc/bootstrap/BootstrapFailure.class",
@@ -99,6 +110,8 @@ def verify(path, development=False):
                                                                         b"io/p2wlan/mc/fabric/client/", b"io/p2wlan/mc/game/client/")):
                 raise VerificationError("mod_dedicated_client_reference")
         for name in names:
+            if name == MODERN_SERVER_MIXIN:
+                raise VerificationError("legacy_fabric_class_owner")
             if "/fixture/" in name or name.endswith("Tests.class"):
                 raise VerificationError("mod_test_fixture_present")
             if name.startswith(("META-INF/versions/", "com/sun/jna/", "io/p2wlan/mc/common/", "io/p2wlan/mc/transport/", "p2wlan/native/",

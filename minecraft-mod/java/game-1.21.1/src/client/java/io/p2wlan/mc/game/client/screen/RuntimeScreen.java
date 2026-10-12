@@ -73,7 +73,7 @@ final class RuntimeScreen extends AgentScreen {
         if (stopAcknowledged && !runtime.isActive(agent()) && !REQUESTS.busy()) minecraft.setScreen(AccountScreen.entry(parent));
         else if (!runtime.isActive(agent())) message="RUNTIME_CHANGED";
     }
-    @Override protected String hint() { return minecraft.level==null?"连接房间后，在多人游戏中选择服务器。":"退出世界后房间仍连接；结束联机请点击“断开房间”。"; }
+    @Override protected String hint() { return minecraft.level==null?"连接房间后，在多人游戏中选择服务器。":"共享世界支持离线账号，请使用不同游戏名；结束联机时断开房间。"; }
     @Override protected String liveSummary() {
         if (!runtime.isActive(agent())) return "连接已结束";
         String name=ClientNetworkView.roomName();

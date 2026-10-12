@@ -17,7 +17,9 @@ MAIN = 'io/p2wlan/mc/neoforge/NeoForgeP2wlan.class'
 from jarjar_artifact import WORLD_COMMON, portable
 
 SERVER_MIXIN = 'io/p2wlan/mc/game/server/mixin/ServerConnectionMixin.class'
-DEDICATED_CLASSES = (MAIN, SERVER_MIXIN, 'io/p2wlan/mc/game/server/WorldCommands.class',
+SERVER_MIXINS = tuple('io/p2wlan/mc/game/server/mixin/' + name + '.class' for name in
+                      ('ServerConnectionMixin', 'ServerLoginConnectionMixin', 'ServerLoginMixin', 'ServerConfigurationMixin'))
+DEDICATED_CLASSES = (MAIN, *SERVER_MIXINS, 'io/p2wlan/mc/game/server/WorldCommands.class',
                      'io/p2wlan/mc/neoforge/LocalNativeResources.class')
 CLIENT_MIXIN_CONFIG = {'required': True, 'package': 'io.p2wlan.mc.game.mixin', 'compatibilityLevel': 'JAVA_17',
                        'client': ['ClientConnectionMixin', 'IntegratedServerMixin', 'MultiplayerListMixin', 'MultiplayerListAccessor', 'MultiplayerScreenMixin'],
@@ -25,7 +27,7 @@ CLIENT_MIXIN_CONFIG = {'required': True, 'package': 'io.p2wlan.mc.game.mixin', '
 CLIENT = 'io/p2wlan/mc/neoforge/client/NeoForgeClient.class'
 CLIENT_MIXINS = tuple('io/p2wlan/mc/game/mixin/' + name + '.class' for name in CLIENT_MIXIN_CONFIG['client'])
 MIXIN_CONFIG = {'required': True, 'package': 'io.p2wlan.mc.game.server.mixin',
-                'compatibilityLevel': 'JAVA_17', 'mixins': ['ServerConnectionMixin'],
+                'compatibilityLevel': 'JAVA_17', 'mixins': ['ServerConnectionMixin', 'ServerLoginConnectionMixin', 'ServerLoginMixin', 'ServerConfigurationMixin'],
                 'injectors': {'defaultRequire': 1}}
 
 

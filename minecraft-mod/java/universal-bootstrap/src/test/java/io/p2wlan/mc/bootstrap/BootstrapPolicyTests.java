@@ -99,7 +99,7 @@ public final class BootstrapPolicyTests {
             String active = loader == Loader.FABRIC ? "io.p2wlan.mc.fabric.game" : "io.p2wlan.mc.game";
             String inactive = loader == Loader.FABRIC ? "io.p2wlan.mc.game" : "io.p2wlan.mc.fabric.game";
             var server = new ServerMixinPlugin(selected); server.onLoad(active + ".server.mixin");
-            check(server.getMixins().equals(List.of("ServerConnectionMixin")));
+            check(server.getMixins().equals(List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin", "ServerConfigurationMixin")));
             check(java.util.Objects.equals(server.getRefMapperConfig(), loader == Loader.FABRIC ? SERVER_REFMAP : null));
             var otherServer = new ServerMixinPlugin(selected); otherServer.onLoad(inactive + ".server.mixin");
             check(otherServer.getMixins().isEmpty()); check(otherServer.getRefMapperConfig() == null);
@@ -125,7 +125,7 @@ public final class BootstrapPolicyTests {
         fails(Code.DISPATCH_CHANGED, () -> server.onLoad("io.p2wlan.mc.game.server.mixin"));
         var client = new ClientMixinPlugin(fabric, () -> Side.CLIENT); client.onLoad("io.p2wlan.mc.fabric.game.mixin");
         fails(Code.DISPATCH_CHANGED, () -> client.onLoad("io.p2wlan.mc.game.mixin"));
-        server.onLoad("io.p2wlan.mc.fabric.game.server.mixin."); check(server.getMixins().size() == 1);
+        server.onLoad("io.p2wlan.mc.fabric.game.server.mixin."); check(server.getMixins().size() == 4);
         client.onLoad("io.p2wlan.mc.fabric.game.mixin."); check(client.getMixins().size() == 5);
     }
     private static void versionDispatches() {
@@ -140,7 +140,8 @@ public final class BootstrapPolicyTests {
                 String inactive = base + (legacy ? "" : ".v1_20_1");
                 other += legacy ? ".v1_20_1" : "";
                 var server = new ServerMixinPlugin(selected); server.onLoad(active + ".server.mixin");
-                check(server.getMixins().equals(List.of("ServerConnectionMixin")));
+                check(server.getMixins().equals(legacy ? List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin")
+                        : List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin", "ServerConfigurationMixin")));
                 check(java.util.Objects.equals(server.getRefMapperConfig(), loader == Loader.FABRIC
                         ? legacy ? LEGACY_SERVER_REFMAP : SERVER_REFMAP : legacy ? LEGACY_FML_SERVER_REFMAP : null));
                 var client = new ClientMixinPlugin(selected, () -> Side.CLIENT); client.onLoad(active + ".mixin");

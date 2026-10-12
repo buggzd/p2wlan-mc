@@ -275,7 +275,7 @@ class LocalGameContractTests(unittest.TestCase):
             for integrated in (False, True):
                 value = self.result(role) | {'minecraft': '1.20.1'}
                 if integrated and role == 'server':
-                    value |= {'checks': 77, 'cases': sorted(INTEGRATED_SERVER_CASES)}
+                    value |= {'checks': 80, 'cases': sorted(INTEGRATED_SERVER_CASES)}
                 self.path.write_text(json.dumps(value))
                 self.assertEqual(verify_result(self.path, self.run, role, integrated, '1.20.1'), value)
                 with self.assertRaises(ValueError):
@@ -430,7 +430,7 @@ class LocalGameContractTests(unittest.TestCase):
                     verify_result(self.path, self.run, role)
 
     def test_integrated_requires_exact_host_pause_and_cleanup_evidence(self):
-        host = self.result("server") | {"checks": 77, "cases": sorted(INTEGRATED_SERVER_CASES)}
+        host = self.result("server") | {"checks": 80, "cases": sorted(INTEGRATED_SERVER_CASES)}
         self.path.write_text(json.dumps(host))
         self.assertEqual(verify_result(self.path, self.run, "server", integrated=True), host)
         with self.assertRaises(ValueError):

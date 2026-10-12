@@ -88,6 +88,8 @@ config="p2wlan.neoforge.client.mixins.json"
             top['META-INF/neoforge.mods.toml'] = top['META-INF/neoforge.mods.toml'].replace(before, after)
             with self.assertRaises(verify.VerificationError): self.check(top)
         for name in verify.DEDICATED_CLASSES:
+            top = self.fixture(); del top[name]
+            with self.assertRaisesRegex(verify.VerificationError, 'mod_archive_member_invalid'): self.check(top)
             top = self.fixture(); top[name] = bytecode(65)
             with self.assertRaises(verify.VerificationError): self.check(top)
             for prefix in (b'net/minecraft/client/', b'net/neoforged/neoforge/client/', b'io/p2wlan/mc/neoforge/client/'):
@@ -95,6 +97,14 @@ config="p2wlan.neoforge.client.mixins.json"
                 with self.assertRaisesRegex(verify.VerificationError, 'mod_dedicated_client_reference'): self.check(top)
         top = self.fixture(); top['p2wlan.neoforge.mixins.json'] = '{}'
         with self.assertRaisesRegex(verify.VerificationError, 'neoforge_mixin_contract'): self.check(top)
+
+    def test_server_login_mixin_inventory_is_exact(self):
+        import json
+        for classes in [['ServerConnectionMixin'], verify.MIXIN_CONFIG['mixins'] + ['UnknownMixin']]:
+            top = self.fixture()
+            top['p2wlan.neoforge.mixins.json'] = json.dumps(verify.MIXIN_CONFIG | {'mixins': classes})
+            with self.assertRaisesRegex(verify.VerificationError, 'neoforge_mixin_contract'):
+                self.check(top)
 
     def test_shared_game_and_integrated_fixtures_cannot_enter_production(self):
         for name in ("GameClientChecks", "GameFixtureData", "IntegratedHostChecks"):

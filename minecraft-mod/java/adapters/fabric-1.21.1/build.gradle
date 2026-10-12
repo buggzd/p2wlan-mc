@@ -41,6 +41,7 @@ loom {
 sourceSets.client.java.srcDir rootProject.file('game-1.21.1/src/client/java')
 sourceSets.client.java.srcDir rootProject.file('game-api-1.21.1/src/client/java')
 sourceSets.main.java.srcDir rootProject.file('game-1.21.1/src/server/java')
+sourceSets.main.java.srcDir rootProject.file('game-api-1.21.1/src/server/java')
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(21)
     sourceCompatibility = JavaVersion.VERSION_21
