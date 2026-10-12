@@ -1,8 +1,12 @@
 {
   "required": true,
-  "minVersion": "0.8.7",
+  "minVersion": "0.8.5",
   "package": "io.p2wlan.mc.game.server.mixin",
-  "compatibilityLevel": "JAVA_21",
-  "mixins": ["ServerConnectionMixin"],
-  "injectors": {"defaultRequire": 1}
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "ServerConnectionMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
 }

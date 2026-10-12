@@ -19,13 +19,13 @@ from jarjar_artifact import WORLD_COMMON, portable
 SERVER_MIXIN = 'io/p2wlan/mc/game/server/mixin/ServerConnectionMixin.class'
 DEDICATED_CLASSES = (MAIN, SERVER_MIXIN, 'io/p2wlan/mc/game/server/WorldCommands.class',
                      'io/p2wlan/mc/neoforge/LocalNativeResources.class')
-CLIENT_MIXIN_CONFIG = {'required': True, 'package': 'io.p2wlan.mc.game.mixin', 'compatibilityLevel': 'JAVA_21',
+CLIENT_MIXIN_CONFIG = {'required': True, 'package': 'io.p2wlan.mc.game.mixin', 'compatibilityLevel': 'JAVA_17',
                        'client': ['ClientConnectionMixin', 'IntegratedServerMixin', 'MultiplayerListMixin', 'MultiplayerListAccessor', 'MultiplayerScreenMixin'],
                        'injectors': {'defaultRequire': 1}}
 CLIENT = 'io/p2wlan/mc/neoforge/client/NeoForgeClient.class'
 CLIENT_MIXINS = tuple('io/p2wlan/mc/game/mixin/' + name + '.class' for name in CLIENT_MIXIN_CONFIG['client'])
 MIXIN_CONFIG = {'required': True, 'package': 'io.p2wlan.mc.game.server.mixin',
-                'compatibilityLevel': 'JAVA_21', 'mixins': ['ServerConnectionMixin'],
+                'compatibilityLevel': 'JAVA_17', 'mixins': ['ServerConnectionMixin'],
                 'injectors': {'defaultRequire': 1}}
 
 
@@ -55,9 +55,9 @@ def verify(path, development=False):
         if metadata(archive, 'p2wlan.neoforge.client.mixins.json') != CLIENT_MIXIN_CONFIG:
             raise VerificationError('neoforge_client_mixin_contract')
         for name in (CLIENT, *CLIENT_MIXINS):
-            classfile(archive, name, 65)
+            classfile(archive, name, 61)
         for name in DEDICATED_CLASSES:
-            value = classfile(archive, name, 65)
+            value = classfile(archive, name, 61)
             if any(prefix in value for prefix in (b'net/minecraft/client/', b'net/neoforged/neoforge/client/', b'io/p2wlan/mc/neoforge/client/', b'io/p2wlan/mc/game/client/')):
                 raise VerificationError('mod_dedicated_client_reference')
         return portable(archive, version, development)

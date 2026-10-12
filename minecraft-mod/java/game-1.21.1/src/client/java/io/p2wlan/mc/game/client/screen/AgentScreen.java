@@ -10,6 +10,7 @@ import io.p2wlan.mc.common.ScreenLayout;
 import io.p2wlan.mc.common.UiCompletionGate;
 import io.p2wlan.mc.common.UiFeedback;
 import io.p2wlan.mc.game.client.ClientPlatform;
+import io.p2wlan.mc.game.client.GameUi;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -151,7 +152,7 @@ abstract class AgentScreen extends Screen {
         context.drawCenteredString(font, Component.literal(font.plainSubstrByWidth(value, formWidth)), width / 2, y, color);
     }
     @Override public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        renderBackground(context, mouseX, mouseY, delta);
+        GameUi.background(this, context, mouseX, mouseY, delta);
         int header = top - 56, bottom = layout.messageY() + 33;
         context.fill(left - 9, header - 5, left + formWidth + 11, bottom + 2, 0x70000000);
         context.fill(left - 10, header - 6, left + formWidth + 10, bottom, 0xf2131a25);
@@ -183,7 +184,7 @@ abstract class AgentScreen extends Screen {
                     : mouseY >= header + 16 && mouseY < header + 26 && mouseX < left + formWidth - 165 ? "登录会话保存在本机私有目录，输入的密码只用于本次请求。退出世界和断开房间后会话仍保留；Control 在房间操作时检查授权。"
                     : insecureControl() && mouseY >= header + 40 && mouseY < header + 49 ? ControlTransport.BANNER
                     : mouseY >= layout.messageY() && (reserved != 0 || lines.size() > 3) ? (reserved == 0 ? feedback : live + "\n" + feedback) : null;
-            if (tooltip != null) setTooltipForNextRenderPass(Component.literal(tooltip));
+            if (tooltip != null) GameUi.tooltip(this, Component.literal(tooltip));
         }
     }
     static void shutdown() { REQUESTS.close(); }

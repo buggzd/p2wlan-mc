@@ -42,7 +42,7 @@ config="p2wlan.neoforge.mixins.json"
 config="p2wlan.neoforge.client.mixins.json"
 '''
         import json
-        top = {'META-INF/neoforge.mods.toml': descriptor, **{name: bytecode(65) for name in (*verify.DEDICATED_CLASSES, verify.CLIENT, *verify.CLIENT_MIXINS)},
+        top = {'META-INF/neoforge.mods.toml': descriptor, **{name: bytecode(61) for name in (*verify.DEDICATED_CLASSES, verify.CLIENT, *verify.CLIENT_MIXINS)},
                'p2wlan.neoforge.mixins.json': json.dumps(verify.MIXIN_CONFIG),
                'p2wlan.neoforge.client.mixins.json': json.dumps(verify.CLIENT_MIXIN_CONFIG)}
         children = []
@@ -88,10 +88,10 @@ config="p2wlan.neoforge.client.mixins.json"
             top['META-INF/neoforge.mods.toml'] = top['META-INF/neoforge.mods.toml'].replace(before, after)
             with self.assertRaises(verify.VerificationError): self.check(top)
         for name in verify.DEDICATED_CLASSES:
-            top = self.fixture(); top[name] = bytecode(61)
+            top = self.fixture(); top[name] = bytecode(65)
             with self.assertRaises(verify.VerificationError): self.check(top)
             for prefix in (b'net/minecraft/client/', b'net/neoforged/neoforge/client/', b'io/p2wlan/mc/neoforge/client/'):
-                top = self.fixture(); top[name] = bytecode(65) + prefix
+                top = self.fixture(); top[name] = bytecode(61) + prefix
                 with self.assertRaisesRegex(verify.VerificationError, 'mod_dedicated_client_reference'): self.check(top)
         top = self.fixture(); top['p2wlan.neoforge.mixins.json'] = '{}'
         with self.assertRaisesRegex(verify.VerificationError, 'neoforge_mixin_contract'): self.check(top)
@@ -100,7 +100,7 @@ config="p2wlan.neoforge.client.mixins.json"
         for name in ("GameClientChecks", "GameFixtureData", "IntegratedHostChecks"):
             with self.subTest(name=name):
                 top = self.fixture()
-                top[f'io/p2wlan/mc/game/fixture/{name}.class'] = bytecode(65)
+                top[f'io/p2wlan/mc/game/fixture/{name}.class'] = bytecode(61)
                 with self.assertRaisesRegex(verify.VerificationError, 'neoforge_test_fixture_in_artifact'):
                     self.check(top)
 
@@ -141,7 +141,7 @@ config="p2wlan.neoforge.client.mixins.json"
             with self.assertRaises(verify.VerificationError): self.check(top)
         top = self.fixture(); top['META-INF/jarjar/common.jar'] = jar({verify.COMMON: bytecode(61)} | fixtures.JNA_FIXTURE)
         with self.assertRaisesRegex(verify.VerificationError, 'neoforge_duplicate_bootstrap_jna'): self.check(top)
-        top = self.fixture(); top['io/p2wlan/mc/neoforge/fixture/ServerBootFixture.class'] = bytecode(65)
+        top = self.fixture(); top['io/p2wlan/mc/neoforge/fixture/ServerBootFixture.class'] = bytecode(61)
         with self.assertRaisesRegex(verify.VerificationError, 'neoforge_test_fixture_in_artifact'): self.check(top)
 
     def test_portable_classes_have_one_component_owner_for_both_loaders(self):

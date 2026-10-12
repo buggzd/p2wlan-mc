@@ -22,6 +22,17 @@ class JavaToolTests(unittest.TestCase):
                 patch.object(java.subprocess, "call", return_value=0) as run:
             self.assertEqual(java.main(), 0)
             self.assertEqual(run.call_args.args[0], [java.sys.executable, str(PROJECT / "tools/universal_build.py"), "--development", "--offline"])
+            self.assertNotIn('cwd', run.call_args.kwargs)
+
+    def test_universal_pack_route_binds_the_archive_version_loader_and_target(self):
+        options = ['--mod', '/fixture/p2wlan-universal.jar', '--minecraft', '1.20.1', '--loader', 'forge',
+                   '--platform', 'windows-x86_64', '--output', '/fixture/forge20.zip']
+        with patch('sys.argv', ['java.py', 'universal-hmcl-pack', *options]), \
+                patch.object(java.subprocess, 'check_output') as home, patch.object(java.subprocess, 'call', return_value=0) as run:
+            self.assertEqual(java.main(), 0)
+        home.assert_not_called()
+        self.assertEqual(run.call_args.args[0], [java.sys.executable, str(PROJECT / 'tools/hmcl_pack.py'), 'build', '--universal', *options])
+        self.assertNotIn('cwd', run.call_args.kwargs)
 
     def test_actual_cargo_artifacts_are_required_not_guessed_target_paths(self):
         messages = [artifact("frame_probe"), artifact("agent_probe"), artifact("world_guard_probe")]

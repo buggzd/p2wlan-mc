@@ -1,0 +1,13 @@
+modLoader="javafml"
+loaderVersion="[47,48)"
+license="MIT"
+[[mods]]
+modId="p2wlan_integrated_test"
+version="1.0.0"
+displayName="P2WLAN isolated integrated-world test"
+[[dependencies.p2wlan_integrated_test]]
+modId="p2wlan"
+mandatory=true
+versionRange="[0.1.0]"
+ordering="AFTER"
+side="CLIENT"

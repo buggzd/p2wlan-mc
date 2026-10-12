@@ -22,6 +22,11 @@ if (providers.gradleProperty('fabricAdapter').isPresent()) {
     project(':fabric').projectDir = file('adapters/fabric-1.21.1')
 }
 
+if (providers.gradleProperty('fabricLegacyAdapter').isPresent()) {
+    include 'fabric-legacy'
+    project(':fabric-legacy').projectDir = file('adapters/fabric-1.20.1')
+}
+
 if (providers.gradleProperty('neoforgeAdapter').isPresent()) {
     include 'neoforge'
     project(':neoforge').projectDir = file('adapters/neoforge-1.21.1')

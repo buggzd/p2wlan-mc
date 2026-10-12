@@ -16,9 +16,9 @@ CLIENT = 'io/p2wlan/mc/forge/client/ForgeClient.class'
 SERVER_MIXIN = 'io/p2wlan/mc/game/server/mixin/ServerConnectionMixin.class'
 DEDICATED_CLASSES = (MAIN, SERVER_MIXIN, 'io/p2wlan/mc/game/server/WorldCommands.class',
                      'io/p2wlan/mc/forge/LocalNativeResources.class')
-MIXIN_CONFIG = {'required': True, 'minVersion': '0.8.7', 'package': 'io.p2wlan.mc.game.server.mixin',
-                'compatibilityLevel': 'JAVA_21', 'mixins': ['ServerConnectionMixin'], 'injectors': {'defaultRequire': 1}}
-CLIENT_MIXIN_CONFIG = {'required': True, 'minVersion': '0.8.7', 'package': 'io.p2wlan.mc.game.mixin', 'compatibilityLevel': 'JAVA_21',
+MIXIN_CONFIG = {'required': True, 'minVersion': '0.8.5', 'package': 'io.p2wlan.mc.game.server.mixin',
+                'compatibilityLevel': 'JAVA_17', 'mixins': ['ServerConnectionMixin'], 'injectors': {'defaultRequire': 1}}
+CLIENT_MIXIN_CONFIG = {'required': True, 'minVersion': '0.8.5', 'package': 'io.p2wlan.mc.game.mixin', 'compatibilityLevel': 'JAVA_17',
                        'client': ['ClientConnectionMixin', 'IntegratedServerMixin', 'MultiplayerListMixin', 'MultiplayerListAccessor', 'MultiplayerScreenMixin'],
                        'injectors': {'defaultRequire': 1}}
 CLIENT_MIXINS = tuple('io/p2wlan/mc/game/mixin/' + name + '.class' for name in CLIENT_MIXIN_CONFIG['client'])
@@ -60,9 +60,9 @@ def verify(path, development=False):
             if json.dumps(metadata(archive, name), sort_keys=True) != json.dumps(expected, sort_keys=True):
                 raise VerificationError('forge_mixin_contract')
         for name in (CLIENT, *CLIENT_MIXINS):
-            classfile(archive, name, 65)
+            classfile(archive, name, 61)
         for name in DEDICATED_CLASSES:
-            value = classfile(archive, name, 65)
+            value = classfile(archive, name, 61)
             if any(prefix in value for prefix in (b'net/minecraft/client/', b'net/minecraftforge/client/', b'io/p2wlan/mc/forge/client/', b'io/p2wlan/mc/game/client/')):
                 raise VerificationError('mod_dedicated_client_reference')
         return portable(archive, version, development, 'forge')

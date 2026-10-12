@@ -39,10 +39,15 @@ class UniversalBuildTests(unittest.TestCase):
                     builder.prepare_inputs(another)
 
     def test_checked_inputs_run_in_separate_gradle_graphs_with_explicit_options(self):
-        with patch.dict(sys.modules, {"forge_gradle": SimpleNamespace(command=lambda env: ["java21", "-jar", "forge-wrapper.jar"]) }):
+        with patch.dict(sys.modules, {"forge_gradle": SimpleNamespace(command=lambda env: ["java21", "-jar", "forge-wrapper.jar"]),
+                                     "legacy_gradle": SimpleNamespace(command=lambda env: ["java17", "-jar", "legacy-wrapper.jar"])}):
             selected = builder.commands({}, offline=True, development=True, build_root=Path('/generated/inputs'))
-        self.assertEqual(len(selected), 4)
-        self.assertEqual(selected[-1][0], builder.PROJECT / "java/forge")
+        self.assertEqual(len(selected), 6)
+        self.assertEqual(selected[3][0], builder.PROJECT / "java/forge")
+        self.assertEqual(selected[4][0], builder.PROJECT / "java/forge-legacy")
+        self.assertEqual(selected[4][1][:3], ['java17', '-jar', 'legacy-wrapper.jar'])
+        self.assertIn('-PfabricLegacyAdapter', selected[5][1])
+        self.assertIn(':fabric-legacy:verifyModJar', selected[5][1])
         for _, command in selected:
             self.assertIn("--offline", command)
             self.assertIn("-PdevelopmentNative", command)
@@ -51,7 +56,7 @@ class UniversalBuildTests(unittest.TestCase):
             self.assertFalse(any("runClient" in item or "runServer" in item for item in command))
             self.assertFalse(any(item.endswith(":clean") for item in command))
         self.assertIn(":universal-bootstrap:check", selected[0][1])
-        for (_, command), loader in zip(selected[1:], ("fabric", "neoforge", "forge")):
+        for (_, command), loader in zip(selected[1:4], ("fabric", "neoforge", "forge")):
             self.assertIn(":" + loader + ":verifyModJar", command)
             for other in {"fabric", "neoforge", "forge"} - {loader}:
                 self.assertNotIn("-P" + other + "Adapter", command)
@@ -66,7 +71,7 @@ class UniversalBuildTests(unittest.TestCase):
                     raise ValueError("output_exists")
                 if not path.exists():
                     path.write_bytes(value)
-            assembled = SimpleNamespace(build_bytes=lambda *args: b"verified archive", regular_bytes=lambda *args: b"input archive",
+            assembled = SimpleNamespace(build_bytes=lambda *args, **kwargs: b"verified archive", regular_bytes=lambda *args: b"input archive",
                                         verify=lambda *args: {"artifact_sha256": "fixture"}, publish=publish)
             with patch.object(builder, "PROJECT", project), patch.object(builder, "commands", return_value=[]), \
                     patch.object(builder, "prepare_inputs"), \
@@ -75,7 +80,7 @@ class UniversalBuildTests(unittest.TestCase):
                 self.assertEqual(builder.build(output, {}), {"artifact_sha256": "fixture"})
                 self.assertEqual(output.read_bytes(), b"verified archive")
                 builder.build(output, {})
-                assembled.build_bytes = lambda *args: b"different archive"
+                assembled.build_bytes = lambda *args, **kwargs: b"different archive"
                 with self.assertRaisesRegex(ValueError, "output_exists"):
                     builder.build(output, {})
                 self.assertEqual(output.read_bytes(), b"verified archive")

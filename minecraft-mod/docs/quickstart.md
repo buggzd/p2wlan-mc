@@ -2,38 +2,41 @@
 
 [仓库介绍](../../README.md) · [技术参考](../README.md) · [文档导航](../../docs/README.md)
 
-本页按玩家、房主和专用服务器三种角色，介绍从安装到进入游戏的完整操作。项目处于实验阶段，已验证和未完成的范围见[项目状态](../../README.md#项目状态)。
+本页按玩家、房主和专用服务器三种角色，介绍从安装到进入游戏的完整操作。项目处于实验阶段，固定配置与验证范围见本页和[技术参考](../README.md#installed-universal-gameplay-verification)。
 
 ## 安装前准备
 
-- Minecraft **Java Edition 1.21.1**。
-- 选择 **Fabric Loader 0.16.14**、**NeoForge 21.1.256** 或 **Forge 52.1.16**，并使用该加载器对应的 Mod JAR。
-- **Java 21**，JVM 架构须与包内原生程序匹配。Fabric 另需 **Fabric API 0.116.7+1.21.1**。
-- 包含目标操作系统／架构原生 Agent 的 Mod JAR，或对应目标的 HMCL ZIP。
-- 管理员提供的可信 Control 根地址，以及参与者在同一 Control 下的房间。需要自托管时参考[底层服务部署指南](../../docs/guides/self-hosting.md)。
+客户端、专用服务器和单人世界使用同一份 **`p2wlan-universal.jar`**。选择下表中的 Minecraft／加载器配置；房主与朋友使用相同的 Minecraft 版本。
 
-Mod 自带联机所需的原生程序，无需安装上游 P2WLAN 桌面或移动客户端。Minecraft 本体、Java、游戏账号和 Control 服务需要自行准备。
+| Minecraft | 加载器 | Java | 额外 Mod |
+| --- | --- | --- | --- |
+| 1.20.1 | Fabric Loader 0.16.14 | 17 | Fabric API 0.92.12+1.20.1 |
+| 1.20.1 | Forge 47.3.2 | 17 | 无 |
+| 1.20.1 | NeoForge 47.1.106 | 17 | 无 |
+| 1.21.1 | Fabric Loader 0.16.14 | 21 | Fabric API 0.116.7+1.21.1 |
+| 1.21.1 | Forge 52.1.16 | 21 | 无 |
+| 1.21.1 | NeoForge 21.1.256 | 21 | 无 |
+
+使用 64 位 Java，架构与包内原生 Agent 匹配。还需要管理员提供的可信 Control 根地址，以及参与者在同一 Control 下的房间。自托管参见[底层服务部署指南](../../docs/guides/self-hosting.md)。
+
+Mod 自带联机所需的原生程序。Minecraft 本体、Java、游戏账号和 Control 服务由使用者准备。
 
 ### 手动安装 JAR
 
-1. 为客户端创建独立的 Minecraft 1.21.1 实例，安装选定的加载器；专用服务器使用相同的 Minecraft／加载器组合。
-2. 在实例的 `mods/` 目录放入下表对应文件。
-3. 确认 Mod 包含本机的原生目标。默认源码构建只包含构建主机的资源；跨系统复制 JAR 可能因缺少资源而拒绝启动。
-4. 正常启动 Minecraft。原生 Agent 随 Mod 包提取和启动，不从网络下载可执行程序。
+1. 创建独立游戏实例，安装表中的 Minecraft 和加载器；专用服务器选择相同配置。
+2. 将 `p2wlan-universal.jar` 放入 `mods/`。更新时移走旧 P2WLAN JAR，保留实例的 `config/`。
+3. Fabric 实例另放入表中对应的 Fabric API；Forge／NeoForge 实例直接使用 Universal JAR。
+4. 确认包内有本机的原生目标，再正常启动。Agent 从包内提取并启动。
 
-| 加载器 | Mod JAR | 额外依赖 |
-| --- | --- | --- |
-| Fabric 0.16.14 | `p2wlan-fabric-1.21.1-0.1.0.jar` | Fabric API 0.116.7+1.21.1 |
-| NeoForge 21.1.256 | `p2wlan-neoforge-1.21.1-0.1.0.jar` | 无额外 Mod |
-| Forge 52.1.16 | `p2wlan-forge-1.21.1-0.1.0.jar` | 无额外 Mod；使用完整 JAR |
+原生目标为 `macos-aarch64`、`macos-x86_64`、`linux-aarch64`、`linux-x86_64`、`windows-x86_64`。源码构建默认生成主机目标，其他目标须单独构建。Windows 游戏实例、私有配置和提取位置使用本地 NTFS，Mod 会核验用户 ACL。
 
-原生资源目标名为 `macos-aarch64`、`macos-x86_64`、`linux-aarch64`、`linux-x86_64`、`windows-x86_64`。三个加载器的客户端、专用服和内置服已在 macOS/aarch64 本机验证；具体运行方式见[技术参考](../README.md)。Windows 的游戏实例、私有配置与原生提取位置须满足本地 NTFS 和用户 ACL 检查，真实 Windows/HMCL 验收待完成。
+上表两个 Minecraft 版本、三个加载器的专用服与内置服，共 12 个场景，已使用同一份 Universal JAR 在 macOS/aarch64 本机完成真实联机验证。每个场景完成原版登录、20 轮有序游戏数据往返、至少 18 秒持续游戏和退出清理。Windows/HMCL 与跨机器联机待验证。兼容矩阵和执行入口见[技术参考](../README.md)。
 
 ### 导入 HMCL ZIP
 
 在 HMCL 的**整合包安装入口**选择对应目标的 ZIP。不要把 ZIP 放进 `mods/`，也不要把它当作 EXE 安装器。
 
-选择与加载器、原生目标对应的 ZIP。包内固定 Minecraft／加载器版本，并附带对应 Mod、中文安装说明和 `P2WLAN-PACK.json`；Fabric 包另含 Fabric API。游戏与 Loader 由启动器获取，Java 和游戏账号由玩家自行准备。打包校验核对 ZIP 内容、文件摘要和原生构建身份。
+选择与加载器、原生目标对应的 ZIP。包内固定 Minecraft／加载器版本，并附带同一份 Universal JAR、中文安装说明和 `P2WLAN-PACK.json`；Fabric 包另含对应版本的 Fabric API。游戏与 Loader 由启动器获取，Java 和游戏账号由玩家自行准备。打包校验核对 ZIP 内容、文件摘要和原生构建身份。
 
 ## 玩家：登录并连接房间
 
@@ -74,7 +77,7 @@ Mod 自带联机所需的原生程序，无需安装上游 P2WLAN 桌面或移�
 
 ## 房主：共享单人世界
 
-三个加载器的共享、停止共享、暂停恢复及朋友加入流程已在 macOS/aarch64 本机验证；跨机器验收待完成。
+Minecraft 1.20.1 和 1.21.1 的三个加载器已在 macOS/aarch64 本机验证共享、停止共享、暂停恢复和朋友加入。其他平台与跨机器验收待完成。
 
 1. 登录并连接房间，等待房间运行时就绪。
 2. 进入想共享的单人世界，打开暂停菜单中的 P2WLAN 面板。
@@ -159,42 +162,42 @@ P2WLAN 面板提供「显示设置」和「延迟统计」。显示设置可在 
 
 ## 从源码获得安装包
 
-使用完整仓库，而不是只复制 `minecraft-mod/`：原生适配会读取本 checkout 中的上游网络实现。需要 Python 3.11+、Rust 及原生编译依赖、JDK 21；第一次构建需要联网解析固定依赖。
+使用完整仓库：原生适配读取本 checkout 中的上游实现。需要 Python 3.11+、Rust 及原生编译依赖、JDK 17 和 21。Forge 的固定 Gradle 与辅助 JDK 准备见[技术参考](../README.md#forge-adapter-and-build-inputs)。第一次构建需要联网解析固定依赖。
 
 在干净、已提交的仓库根目录运行：
 
 ```sh
 python3 minecraft-mod/tools/native_bundle.py
-python3 minecraft-mod/tools/java.py fabric-build
-python3 minecraft-mod/tools/java.py neoforge-build
-python3 minecraft-mod/tools/java.py forge-build
+python3 minecraft-mod/tools/java.py universal-build
+python3 minecraft-mod/tools/universal_jar.py verify minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-universal.jar
 ```
 
-按所需加载器执行相应的 Java 构建命令。JAR 位于 `minecraft-mod/java/adapters/<加载器>-1.21.1/build/libs/`，文件名见上表。Forge 构建另需固定 Gradle／辅助 JDK，准备方法见[技术参考](../README.md#forge-adapter-and-build-inputs)。账号工具另外构建：
+输出只有一个玩家安装入口：`minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-universal.jar`。组装器核对各 SDK 输入、共享类、映射、原生摘要与源码身份。各适配器的 JAR 是组装输入。
+
+已有包含 `windows-x86_64` 正式资源的 Universal JAR 时，可生成 Forge 1.20.1 的 HMCL 包：
+
+```sh
+python3 minecraft-mod/tools/java.py universal-hmcl-pack --minecraft 1.20.1 --loader forge --platform windows-x86_64 --mod minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-universal.jar --output minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-hmcl-forge-1.20.1-windows-x86_64-0.1.0.zip
+python3 minecraft-mod/tools/hmcl_pack.py verify minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-hmcl-forge-1.20.1-windows-x86_64-0.1.0.zip --universal --minecraft 1.20.1 --loader forge --platform windows-x86_64
+```
+
+用表中的版本和加载器选择其他配置。Fabric 追加 `--fabric-api /absolute/path/to/fabric-api-0.92.12+1.20.1.jar`；1.21.1 使用 `fabric-api-0.116.7+1.21.1.jar`。参数指向原始 Fabric Maven 文件，打包器核对固定 SHA-256。各 ZIP 安装的 P2WLAN JAR 字节相同。
+
+缺失原生目标、开发资源或过期源码身份会使正式打包失败。开发构建使用 `native_bundle.py --development` 与 `universal-build --development`，校验加 `--development`；HMCL 包要求正式资源。`--offline` 只在依赖全部缓存后使用。
+
+账号工具独立构建：
 
 ```sh
 python3 minecraft-mod/tools/java.py account-build
 ```
 
-对应分发包为 `minecraft-mod/java/account-cli/build/distributions/p2wlan-account-0.1.0.zip`。
-
-生成当前原生目标的 HMCL 包时显式指定该目标。例如已有 `macos-aarch64` 正式原生资源：
-
-```sh
-python3 minecraft-mod/tools/java.py hmcl-pack -PhmclPlatform=macos-aarch64
-python3 minecraft-mod/tools/java.py neoforge-hmcl-pack -PhmclPlatform=macos-aarch64
-python3 minecraft-mod/tools/java.py forge-hmcl-pack -PhmclPlatform=macos-aarch64
-```
-
-按所需加载器执行对应的打包命令。输出位于相应适配器的 `build/distributions/`，例如 `p2wlan-hmcl-forge-1.21.1-macos-aarch64-0.1.0.zip`。换用其他目标前必须先生成其对应资源；不存在的目标、开发原生包和过期源码身份会让打包失败。
-
-`--offline` 只在依赖已缓存时使用，不是首次构建的前提。开发资源需要显式开发标记，普通安装默认拒绝，不能把开发 JAR 当作正式安装包。具体开发与 Windows 交叉构建入口见[技术参考](../README.md)。
+输出为 `minecraft-mod/java/account-cli/build/distributions/p2wlan-account-0.1.0.zip`。
 
 ## 常见问题与反馈边界
 
 | 现象 | 先检查 |
 | --- | --- |
-| 登录按钮禁用／helper 启动失败 | 当前平台是否在 JAR 原生资源中、64 位 Java 21、私有目录锁／权限，以及 `/p2wlan-client status` 的稳定错误码。 |
+| 登录按钮禁用／helper 启动失败 | 当前平台是否在 JAR 原生资源中、与 Minecraft 版本匹配的 64 位 Java、私有目录锁／权限，以及 `/p2wlan-client status` 的稳定错误码。 |
 | 已加入房间但没有网络 | 是否点击了房间行；加入成员关系不自动启动运行时。 |
 | 房间已连但找不到服务器 | 房主是否连接同一房间并显式共享世界；专服是否已 `host`；是否打开多人游戏触发发现。 |
 | 发现条目存在但加入失败 | 是否为当前已发布世界、当前账号授权是否有效，以及游戏版本、Mod 和原版认证设置是否匹配。 |

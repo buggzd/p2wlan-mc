@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.multiplayer.ClientHandshakePacketListenerImpl;
 import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.PacketFlow;
@@ -162,6 +163,22 @@ public final class GameJoins {
         return play != null && play != owned || screen instanceof net.minecraft.client.gui.screens.ConnectScreen;
     }
     public static void tick(Minecraft client) { Attempt value = CURRENT.get(); if (value != null) value.tick(client); }
+    /** Read-only login admission for loaders whose discovery only sees Vanilla
+     * connecting screens. This owner remains responsible for connection ticks. */
+    public static Connection currentLoginConnection() {
+        Attempt value = CURRENT.get();
+        // Read the volatile phase before the connection it publishes.
+        if (value == null || value.phase != Phase.LOGIN || !value.isCurrent()) return null;
+        Connection connection = value.minecraft;
+        if (connection == null || !connection.isConnected()) return null;
+        var listener = connection.getPacketListener();
+        if (!(listener instanceof ClientHandshakePacketListenerImpl)) return null;
+        Minecraft client = Minecraft.getInstance();
+        var play = client.getConnection();
+        if (otherClientIntent(connection, play == null ? null : play.getConnection(), client.screen)) return null;
+        return value.phase == Phase.LOGIN && value.isCurrent() && value.minecraft == connection
+                && connection.isConnected() && connection.getPacketListener() == listener ? connection : null;
+    }
     public static GameService playingService(Minecraft client) {
         Attempt value=CURRENT.get(); var handler=client.getConnection();
         return value!=null && value.isCurrent() && value.phase==Phase.PLAY && handler!=null && handler.getConnection()==value.minecraft ? value.service : null;

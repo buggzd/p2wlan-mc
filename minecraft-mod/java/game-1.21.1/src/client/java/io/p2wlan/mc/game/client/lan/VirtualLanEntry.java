@@ -2,6 +2,7 @@ package io.p2wlan.mc.game.client.lan;
 
 import io.p2wlan.mc.common.GameService;
 import io.p2wlan.mc.common.PeerTelemetry;
+import io.p2wlan.mc.game.client.GameUi;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.client.gui.screens.multiplayer.ServerSelectionList;
@@ -38,7 +39,7 @@ public final class VirtualLanEntry extends ServerSelectionList.NetworkServerEntr
         String address = peer == null || peer.virtualIp().isEmpty() ? "正在同步" : peer.virtualIp() + ":" + service.port();
         draw.drawString(minecraft.font, minecraft.font.plainSubstrByWidth(address, Math.max(20, width - 44 - minecraft.font.width(metric) - 8)), left, y + 26, 0xff7f8ba0);
         draw.drawString(minecraft.font, metric, right - minecraft.font.width(metric), y + 26, color);
-        if (hovered && mouseX >= left && mouseY >= y + 24 && peer != null) screen.setTooltipForNextRenderPass(Component.literal(peer.tooltip(now)));
+        if (hovered && mouseX >= left && mouseY >= y + 24 && peer != null) GameUi.tooltip(screen, Component.literal(peer.tooltip(now)));
     }
     @Override public Component getNarration() { var peer = ClientNetworkView.peer(service.peer()); return Component.literal("P2WLAN " + (peer == null || peer.label().equals("Minecraft Mod") ? "Minecraft 服务器" : peer.name()) + "，" + ClientNetworkView.roomName()); }
     @Override public Component getServerNarration() { return getNarration(); }

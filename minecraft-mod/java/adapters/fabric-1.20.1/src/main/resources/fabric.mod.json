@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "p2wlan",
+  "version": "${version}",
+  "name": "P2WLAN Minecraft",
+  "description": "P2WLAN native process integration for Minecraft.",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["io.p2wlan.mc.fabric.FabricP2wlan"],
+    "client": ["io.p2wlan.mc.fabric.client.FabricP2wlanClient"]
+  },
+  "license": "MIT",
+  "depends": {
+    "fabricloader": "=0.16.14",
+    "minecraft": "1.20.1",
+    "java": ">=17",
+    "fabric-api": "=0.92.12+1.20.1"
+  },
+  "mixins": [
+    "p2wlan.mixins.json",
+    {"config": "p2wlan.client.mixins.json", "environment": "client"}
+  ]
+}

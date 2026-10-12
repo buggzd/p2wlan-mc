@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / "tools"))
-from local_game import wait_game, game_environment, java_directory, CASES, CHECKS, INTEGRATED_SERVER_CASES, ROUNDS, archive_sha256, bounded_json, external_archive, gradle_command, install_archive, main, prepare, prepare_seed_binary, server_settings, verify_ready, verify_result
+from local_game import wait_game, adapter_project, game_environment, java_directory, CASES, CHECKS, INTEGRATED_SERVER_CASES, ROUNDS, archive_sha256, bounded_json, external_archive, gradle_command, install_archive, launch_game, main, prepare, prepare_seed_binary, server_settings, verify_ready, verify_result
 
 
 class LocalGameContractTests(unittest.TestCase):
@@ -208,10 +208,11 @@ class LocalGameContractTests(unittest.TestCase):
     def test_external_verifier_receives_the_exact_bounded_snapshot(self):
         self.path.write_bytes(b'wrapper contract snapshot')
         expected = hashlib.sha256(self.path.read_bytes()).hexdigest()
-        with patch('universal_jar.verify', return_value={'artifact_sha256': expected}) as verify:
+        with patch('universal_jar.verify', return_value={'artifact_sha256': expected, 'minecraft': ['1.20.1', '1.21.1']}) as verify:
             self.assertEqual(external_archive(self.path, True), self.path.read_bytes())
             self.assertEqual(verify.call_args.args[0].getvalue(), self.path.read_bytes())
             self.assertTrue(verify.call_args.args[1])
+            self.assertEqual(external_archive(self.path, True, '1.20.1'), self.path.read_bytes())
         with self.assertRaisesRegex(ValueError, 'GAME_INSTALLED_ARCHIVE_INVALID'):
             external_archive(Path('relative.jar'), True)
         with patch('universal_jar.verify', side_effect=ValueError('private exception payload')), \
@@ -220,6 +221,67 @@ class LocalGameContractTests(unittest.TestCase):
         with patch('universal_jar.verify', return_value={'artifact_sha256': '0' * 64}), \
                 self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_CHANGED$'):
             external_archive(self.path, True)
+
+    def test_external_archive_must_include_the_selected_game_version(self):
+        self.path.write_bytes(b'version-bound archive snapshot')
+        expected = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        for versions in (['1.21.1'], '1.20.1', None):
+            with self.subTest(versions=versions), \
+                    patch('universal_jar.verify', return_value={'artifact_sha256': expected, 'minecraft': versions}), \
+                    self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_VERSION$'):
+                external_archive(self.path, True, '1.20.1')
+
+    def test_old_profiles_use_installed_archive_java17_and_their_exact_role_copy(self):
+        archive = self.installed_source()
+        captured = install_archive(self.root, archive, archive.read_bytes())
+        for loader in ('fabric', 'forge', 'neoforge'):
+            project = 'fabric-legacy' if loader == 'fabric' else 'forge'
+            self.assertEqual(adapter_project(loader, '1.20.1'), project)
+            self.assertEqual(java_directory(loader, '1.20.1'), PROJECT / ('java' if loader == 'fabric' else 'java/forge-legacy'))
+            for role, task in (('server', 'runLocalGameServer'), ('client', 'runLocalGameClient'), ('server', 'runIntegratedHost')):
+                with self.subTest(loader=loader, task=task), patch('legacy_gradle.command', return_value=['java17', 'gradle88']), \
+                        patch('local_game.game_environment', return_value={}):
+                    args = gradle_command(self.root, [f':{loader}:{task}'], True, True, loader,
+                                          integrated=task == 'runIntegratedHost', installed_mod=archive, archive_sha=captured, minecraft='1.20.1')
+                self.assertIn('-PinstalledModArchive=' + str(self.root / role / 'mods/p2wlan.jar'), args)
+                self.assertIn('-PlocalGameInstalledSha256=' + captured, args)
+                self.assertNotIn('-PlegacyNeoForge', args)
+                self.assertEqual('-PfabricLegacyAdapter' in args, loader == 'fabric')
+                self.assertFalse(any(value.startswith(f':{loader}:') for value in args) if project != loader else False)
+            with patch.dict('os.environ', {'P2WLAN_LEGACY_JAVA_HOME': '/fixture/jdk17', 'P2WLAN_TOKEN': 'excluded'}, clear=True), \
+                    patch('local_game.sys.platform', 'darwin'), patch('local_game.subprocess.check_output', return_value='/fixture/jdk') as home:
+                env = game_environment(loader, '1.20.1')
+            self.assertEqual(home.call_args.args[0][-1], '21' if loader == 'fabric' else '17')
+            self.assertEqual(env['P2WLAN_LEGACY_JAVA_HOME'], '/fixture/jdk17')
+            self.assertNotIn('P2WLAN_TOKEN', env)
+        (self.root / 'client/mods/p2wlan.jar').write_bytes(b'changed role copy')
+        with patch('legacy_gradle.command', return_value=['java17']), patch('local_game.game_environment', return_value={}), \
+                self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_CHANGED$'):
+            gradle_command(self.root, [':forge:runLocalGameClient'], True, True, 'forge', installed_mod=archive, archive_sha=captured, minecraft='1.20.1')
+
+    def test_old_source_mode_is_rejected_before_building_or_creating_a_job(self):
+        for loader in ('fabric', 'forge', 'neoforge'):
+            with self.subTest(loader=loader), patch('local_game.subprocess.run') as run, \
+                    self.assertRaisesRegex(ValueError, '^GAME_LEGACY_REQUIRES_UNIVERSAL_ARCHIVE$'):
+                prepare(self.root, {}, True, True, loader, minecraft='1.20.1')
+            run.assert_not_called()
+        with patch('sys.argv', ['local_game.py', '--minecraft', '1.20.1', '--accept-eula', '--offline-mode']), \
+                patch('sys.stderr', new=io.StringIO()), patch('local_game.game_environment') as env, self.assertRaises(SystemExit):
+            main()
+        env.assert_not_called()
+
+    def test_game_evidence_version_and_integrated_counts_remain_exact(self):
+        for role in CASES:
+            for integrated in (False, True):
+                value = self.result(role) | {'minecraft': '1.20.1'}
+                if integrated and role == 'server':
+                    value |= {'checks': 77, 'cases': sorted(INTEGRATED_SERVER_CASES)}
+                self.path.write_text(json.dumps(value))
+                self.assertEqual(verify_result(self.path, self.run, role, integrated, '1.20.1'), value)
+                with self.assertRaises(ValueError):
+                    verify_result(self.path, self.run, role, integrated)
+        with self.assertRaisesRegex(ValueError, '^GAME_PROFILE_UNSUPPORTED$'):
+            verify_result(self.path, self.run, 'server', minecraft='1.20.2')
 
     def test_external_prepare_uses_installed_native_and_never_builds_local_bundle(self):
         from types import SimpleNamespace
@@ -236,6 +298,63 @@ class LocalGameContractTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][0], 'go')
         self.assertIn(':fabric:relocateLocalGameClient', build.call_args.args[0])
         self.assertIn(':fabric:relocateIntegratedHost', build.call_args.args[0])
+
+    def test_old_fabric_prepare_builds_only_old_fixture_tasks_and_binds_selected_version(self):
+        from types import SimpleNamespace
+        archive = self.installed_source()
+        child = SimpleNamespace(process=SimpleNamespace(wait=lambda timeout: 0), close=lambda: None)
+        with patch('local_game.shutil.which', return_value='/fixture/go'), \
+                patch('local_game.external_archive', return_value=archive.read_bytes()) as verify, \
+                patch('local_game.prepare_seed_binary'), patch('local_game.subprocess.run') as run, \
+                patch('local_game.FixtureProcess', return_value=child) as build:
+            prepare(self.root, {}, True, True, 'fabric', True, installed_mod=archive, minecraft='1.20.1')
+        verify.assert_called_once_with(archive, True, '1.20.1')
+        self.assertEqual(run.call_count, 1)
+        tasks = {value for value in build.call_args.args[0] if value.startswith(':')}
+        self.assertEqual(tasks, {':fabric-legacy:verifyModJar', ':fabric-legacy:localGameFixtureClasses',
+                                 ':fabric-legacy:localGameClientFixtureClasses', ':fabric-legacy:integratedFixtureClasses',
+                                 ':fabric-legacy:relocateLocalGameServer', ':fabric-legacy:relocateLocalGameClient', ':fabric-legacy:relocateIntegratedHost'})
+        self.assertEqual(build.call_args.args[1], PROJECT / 'java')
+
+    def test_old_fml_prepare_builds_srg_fixtures_then_prepares_the_selected_production_sdk(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        for loader in ('forge', 'neoforge'):
+            with tempfile.TemporaryDirectory() as directory:
+                job = Path(directory)
+                archive = job / 'universal.jar'; archive.write_bytes(b'bound archive snapshot')
+                for role in CASES: (job / role).mkdir()
+                stages = []
+                child = SimpleNamespace(process=SimpleNamespace(wait=lambda timeout: 0), close=lambda: stages.append('build_closed'))
+                sdk_prepare = Mock(side_effect=lambda *args: stages.append('sdk'))
+                with patch('local_game.shutil.which', return_value='/fixture/go'), \
+                        patch('local_game.external_archive', return_value=archive.read_bytes()), \
+                        patch('local_game.prepare_seed_binary'), patch('local_game.subprocess.run'), \
+                        patch('legacy_gradle.command', return_value=['java17', 'gradle88']), \
+                        patch('local_game.game_environment', return_value={}), \
+                        patch('local_game.FixtureProcess', return_value=child) as build, \
+                        patch.dict('sys.modules', {'legacy_installation': SimpleNamespace(prepare=sdk_prepare)}):
+                    prepare(job, {}, True, True, loader, True, installed_mod=archive, minecraft='1.20.1')
+                tasks = {value for value in build.call_args.args[0] if value.startswith(':')}
+                self.assertEqual(tasks, {':forge:verifyModJar', ':forge:reobfInstalledLocalGameFixture', ':forge:reobfInstalledIntegratedFixture'})
+                self.assertEqual(build.call_args.args[1], PROJECT / 'java/forge-legacy')
+                sdk_prepare.assert_called_once_with(job, loader, {}, True)
+                self.assertEqual(stages, ['build_closed', 'sdk'])
+
+    def test_old_fml_games_launch_only_the_production_java_command_in_the_exact_role(self):
+        from unittest.mock import Mock
+        sdk_command = Mock(return_value=['checked-java17', 'production-bootstrap'])
+        from types import SimpleNamespace
+        for loader in ('forge', 'neoforge'):
+            for role in CASES:
+                for integrated in (False, True):
+                    with self.subTest(loader=loader, role=role, integrated=integrated), \
+                            patch.dict('sys.modules', {'legacy_installation': SimpleNamespace(command=sdk_command)}), \
+                            patch('local_game.gradle_command') as gradle, patch('local_game.FixtureProcess') as launch:
+                        launch_game(self.root, role, {}, True, True, loader, integrated, False, 'a' * 64, self.path, '1.20.1')
+                    gradle.assert_not_called()
+                    sdk_command.assert_called_with(self.root, loader, role, integrated, True, 'a' * 64, {})
+                    self.assertEqual(launch.call_args.args, (['checked-java17', 'production-bootstrap'], self.root / role, {}, self.root / (role + '.log')))
 
     def test_seed_image_comes_only_from_verified_native_child_bytes(self):
         def packaged(binary, checksum=None):

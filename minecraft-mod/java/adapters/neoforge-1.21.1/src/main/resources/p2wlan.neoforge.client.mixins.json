@@ -1,7 +1,15 @@
 {
   "required": true,
   "package": "io.p2wlan.mc.game.mixin",
-  "compatibilityLevel": "JAVA_21",
-  "client": ["ClientConnectionMixin", "IntegratedServerMixin", "MultiplayerListMixin", "MultiplayerListAccessor", "MultiplayerScreenMixin"],
-  "injectors": {"defaultRequire": 1}
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "ClientConnectionMixin",
+    "IntegratedServerMixin",
+    "MultiplayerListMixin",
+    "MultiplayerListAccessor",
+    "MultiplayerScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
 }

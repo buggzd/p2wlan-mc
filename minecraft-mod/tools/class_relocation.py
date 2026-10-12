@@ -11,6 +11,8 @@ from native_bundle import strict_object
 
 OLD = "io/p2wlan/mc/game/"
 NEW = "io/p2wlan/mc/fabric/game/"
+LEGACY = "io/p2wlan/mc/game/v1_20_1/"
+FABRIC_LEGACY = "io/p2wlan/mc/fabric/game/v1_20_1/"
 REFMAPS = {
     "p2wlan-fabric-1.21.1-refmap.json": "p2wlan-universal-fabric-server-refmap.json",
     "client-p2wlan-fabric-1.21.1-refmap.json": "p2wlan-universal-fabric-client-refmap.json",
@@ -19,14 +21,28 @@ CONFIGS = {"p2wlan.mixins.json", "p2wlan.client.mixins.json"}
 MAX_CLASS = 1024 * 1024
 
 
-def relocate_name(value):
-    return value.replace(OLD, NEW).replace(OLD.replace("/", "."), NEW.replace("/", "."))
+def _target(destination):
+    if destination not in {NEW, LEGACY, FABRIC_LEGACY}:
+        raise VerificationError("relocation_namespace")
+    return destination
 
 
-def relocate_class(value: bytes) -> bytes:
+def _replace(value, before, after):
+    # The version namespace is inside the original owned package. Preserve an
+    # already relocated segment rather than adding the version a second time.
+    return after.join(part.replace(before, after) for part in value.split(after))
+
+
+def relocate_name(value, destination=NEW):
+    destination = _target(destination)
+    return _replace(_replace(value, OLD, destination), OLD.replace("/", "."), destination.replace("/", "."))
+
+
+def relocate_class(value: bytes, destination=NEW) -> bytes:
     # Descriptors, signatures, annotations and reflection names all refer to
     # CONSTANT_Utf8 entries. Keep constant indices and the class body intact;
     # never byte-replace instructions, lengths or arbitrary archive members.
+    destination = _target(destination)
     if not isinstance(value, bytes) or not 10 <= len(value) <= MAX_CLASS \
             or value[:4] != b"\xca\xfe\xba\xbe":
         raise VerificationError("relocation_class_header")
@@ -54,8 +70,8 @@ def relocate_class(value: bytes) -> bytes:
             # Preserve modified UTF-8 bytes, including NUL/surrogate encoding.
             constant = value[position:position + length]
             position += length
-            for old, new in ((OLD, NEW), (OLD.replace("/", "."), NEW.replace("/", "."))):
-                constant = constant.replace(old.encode("ascii"), new.encode("ascii"))
+            for old, new in ((OLD, destination), (OLD.replace("/", "."), destination.replace("/", "."))):
+                constant = _replace(constant, old.encode("ascii"), new.encode("ascii"))
             if len(constant) > 65535:
                 raise VerificationError("relocation_constant_size")
             result.extend(len(constant).to_bytes(2, "big"))
@@ -93,6 +109,10 @@ def relocate_keys(value):
 
 
 def relocate_member(name, value):
+    # The neutral bootstrap selects both families/versions. Its package strings
+    # describe the dispatch table and are not Fabric game references.
+    if name.startswith("io/p2wlan/mc/bootstrap/") and name.endswith(".class"):
+        return name, value
     if name.endswith(".class"):
         return relocate_name(name), relocate_class(value)
     if name in CONFIGS or name in REFMAPS:

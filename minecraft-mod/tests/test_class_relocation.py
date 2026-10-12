@@ -23,6 +23,38 @@ def class_bytes(constants, count=None, body=b"\x00" * 14):
 
 
 class ClassRelocationTests(unittest.TestCase):
+    def test_embedded_neutral_dispatcher_is_never_relocated_as_a_fabric_game_class(self):
+        name = "io/p2wlan/mc/bootstrap/UniversalEnvironment.class"
+        value = class_bytes([utf8(b"io.p2wlan.mc.game.server.mixin"), utf8(b"io/p2wlan/mc/game/World")])
+        self.assertEqual(relocation.relocate_member(name, value), (name, value))
+        self.assertNotEqual(relocation.relocate_class(value), value)
+
+    def test_version_namespaces_are_fixed_and_relocation_is_idempotent(self):
+        for destination in (relocation.NEW, relocation.LEGACY, relocation.FABRIC_LEGACY):
+            original = class_bytes([utf8((relocation.OLD + "Example;" + destination + "Already").encode())])
+            moved = relocation.relocate_class(original, destination)
+            self.assertEqual(moved, relocation.relocate_class(moved, destination))
+            name = relocation.relocate_name(relocation.OLD + "Example.class", destination)
+            self.assertEqual(name, destination + "Example.class")
+            self.assertEqual(name, relocation.relocate_name(name, destination))
+        with self.assertRaisesRegex(VerificationError, "namespace"):
+            relocation.relocate_class(class_bytes([utf8(b"value")]), "arbitrary/owner/")
+
+    def test_fabric20_login_mixin_relocates_owned_references_without_changing_api_target(self):
+        from verify_fabric_legacy_jar import LOGIN_MIXIN
+        constants = [LOGIN_MIXIN.removesuffix('.class').encode(),
+                     b'Lio/p2wlan/mc/game/client/connect/GameJoins;',
+                     b'net/fabricmc/fabric/impl/networking/client/ClientNetworkingImpl',
+                     b'getLoginConnection']
+        original = class_bytes([utf8(value) for value in constants])
+        expected = class_bytes([utf8(value.replace(relocation.OLD.encode(), relocation.FABRIC_LEGACY.encode()))
+                                for value in constants])
+        moved = relocation.relocate_class(original, relocation.FABRIC_LEGACY)
+        self.assertEqual(moved, expected)
+        self.assertEqual(relocation.relocate_name(LOGIN_MIXIN, relocation.FABRIC_LEGACY),
+                         'io/p2wlan/mc/fabric/game/v1_20_1/mixin/FabricLoginNetworkingMixin.class')
+        self.assertIn(constants[2], moved); self.assertIn(constants[3], moved)
+
     def test_only_utf8_payloads_change_and_modified_utf8_is_preserved(self):
         old = relocation.OLD.encode()
         new = relocation.NEW.encode()
@@ -85,20 +117,22 @@ public class Main {
         if (value.count() != 1234567890123456789L || value.number() != 1.25) throw new AssertionError();
         if (Main.class.getAnnotation(Type.class).value() != Inner.class) throw new AssertionError();
         if (Class.forName("io.p2wlan.mc.game.Main") != Main.class) throw new AssertionError();
-        if (!Main.class.getDeclaredField("items").getGenericType().getTypeName().contains("io.p2wlan.mc.fabric.game.Main$Inner")) throw new AssertionError();
+        if (!Main.class.getDeclaredField("items").getGenericType().getTypeName().contains(Main.class.getName() + "$Inner")) throw new AssertionError();
         if (!"你好🌍".equals("你好🌍")) throw new AssertionError();
         System.out.print(Main.class.getName());
     }
 }''', encoding="utf-8")
             classes = root / "classes"
             subprocess.run([shutil.which("javac"), "--release", "17", "-d", str(classes), str(source)], check=True, capture_output=True, timeout=30)
-            result = root / "relocated.jar"
-            with zipfile.ZipFile(result, "w") as archive:
-                for path in sorted(classes.rglob("*.class")):
-                    name, value = relocation.relocate_member(path.relative_to(classes).as_posix(), path.read_bytes())
-                    archive.writestr(name, value)
-            run = subprocess.run([shutil.which("java"), "-Xverify:all", "-cp", str(result), "io.p2wlan.mc.fabric.game.Main"], check=True, capture_output=True, text=True, timeout=30)
-            self.assertEqual(run.stdout, "io.p2wlan.mc.fabric.game.Main")
+            for index, destination in enumerate((relocation.NEW, relocation.LEGACY, relocation.FABRIC_LEGACY)):
+                result = root / f"relocated-{index}.jar"
+                with zipfile.ZipFile(result, "w") as archive:
+                    for path in sorted(classes.rglob("*.class")):
+                        name = relocation.relocate_name(path.relative_to(classes).as_posix(), destination)
+                        archive.writestr(name, relocation.relocate_class(path.read_bytes(), destination))
+                entrypoint = destination.replace("/", ".") + "Main"
+                run = subprocess.run([shutil.which("java"), "-Xverify:all", "-cp", str(result), entrypoint], check=True, capture_output=True, text=True, timeout=30)
+                self.assertEqual(run.stdout, entrypoint)
 
 
 if __name__ == "__main__":

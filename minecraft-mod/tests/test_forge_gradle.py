@@ -1,6 +1,7 @@
 """Pinned bootstrap publication/input checks; real Gradle/game runs are separate."""
 import hashlib
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -13,6 +14,27 @@ import java
 
 
 class ForgeGradleTests(unittest.TestCase):
+    def test_modern_sdk_classpaths_include_main_runtime_and_late_fixture_sets(self):
+        for loader in ('fabric', 'forge', 'neoforge'):
+            with self.subTest(loader=loader):
+                source = (java.PROJECT / f'java/adapters/{loader}-1.21.1/build.gradle').read_text()
+                selector = re.search(r'configurations\.matching \{([^{}]+)\}\.configureEach \{\s*'
+                                     r'attributes\.attribute\(org\.gradle\.api\.attributes\.java\.'
+                                     r'TargetJvmVersion\.TARGET_JVM_VERSION_ATTRIBUTE, (\d+)\)', source)
+                self.assertIsNotNone(selector)
+                self.assertEqual(selector.group(2), '21')
+                exact = set(re.findall(r"'([^']+)'", re.search(r'it\.name in \[([^]]+)\]', selector.group(1)).group(1)))
+                suffixes = re.findall(r"it\.name\.endsWith\('([^']+)'\)", selector.group(1))
+                for name in ('compileClasspath', 'runtimeClasspath', 'clientRuntimeClasspath',
+                             'localGameFixtureRuntimeClasspath', 'integratedFixtureRuntimeClasspath',
+                             'serverFixtureCompileClasspath'):
+                    self.assertTrue(name in exact or any(name.endswith(suffix) for suffix in suffixes), name)
+                self.assertIn("tasks.named('compileJava', JavaCompile) { options.release = 17 }", source)
+                if loader == 'fabric':
+                    self.assertIn("tasks.named('compileClientJava', JavaCompile) { options.release = 17 }", source)
+        common = (java.PROJECT / 'java/common/build.gradle').read_text()
+        self.assertIn('JavaLanguageVersion.of(17)', common)
+
     def prepare(self, root, checksum=None):
         jar = root / 'java/gradle/wrapper/gradle-wrapper.jar'
         properties = root / 'java/forge/gradle/wrapper/gradle-wrapper.properties'
@@ -76,15 +98,17 @@ class ForgeGradleTests(unittest.TestCase):
     def test_helper_jdks_are_build_only_explicit_absolute_directories(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); self.prepare(root)
-            homes = [root / name for name in ('jdk21', 'jdk25', 'jdk8')]
+            homes = [root / name for name in ('jdk21', 'jdk25', 'jdk8', 'jdk17')]
             for home in homes: home.mkdir()
-            env = {'JAVA_HOME': str(homes[0]), 'P2WLAN_FORGE_JAVA25_HOME': str(homes[1]), 'P2WLAN_FORGE_JAVA8_HOME': str(homes[2])}
+            env = {'JAVA_HOME': str(homes[0]), 'P2WLAN_FORGE_JAVA25_HOME': str(homes[1]), 'P2WLAN_FORGE_JAVA8_HOME': str(homes[2]),
+                   'P2WLAN_LEGACY_JAVA_HOME': str(homes[3])}
             with patch.object(forge, 'PROJECT', root):
                 selected = forge.command(env)
                 self.assertIn('-Dorg.gradle.java.installations.paths=' + ','.join(map(str, homes)), selected)
                 for value in ('relative', str(root / 'missing')):
-                    with self.assertRaisesRegex(ValueError, 'FORGE_JAVA_TOOLCHAIN_CONFIG'):
-                        forge.command(env | {'P2WLAN_FORGE_JAVA8_HOME': value})
+                    for name in ('P2WLAN_FORGE_JAVA8_HOME', 'P2WLAN_LEGACY_JAVA_HOME'):
+                        with self.assertRaisesRegex(ValueError, 'FORGE_JAVA_TOOLCHAIN_CONFIG'):
+                            forge.command(env | {name: value})
 
     def test_publish_concurrent_identical_bytes_and_link_refusal(self):
         with tempfile.TemporaryDirectory() as temporary:

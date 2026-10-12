@@ -19,7 +19,7 @@ class ForgeJarTests(unittest.TestCase):
     def fixture(self):
         original = fixtures.NeoForgeJarTests.fixture(self)
         top = {name: value for name, value in original.items() if name.startswith('META-INF/jarjar/')}
-        top |= {name: bytecode(65) for name in (*verify.DEDICATED_CLASSES, verify.CLIENT, *verify.CLIENT_MIXINS)}
+        top |= {name: bytecode(61) for name in (*verify.DEDICATED_CLASSES, verify.CLIENT, *verify.CLIENT_MIXINS)}
         top['META-INF/mods.toml'] = original['META-INF/neoforge.mods.toml'].split('[[mixins]]')[0] \
                 .replace('[4,)', '[52,)').replace('neoforge', 'forge').replace('type="required"', 'mandatory=true').replace('[21.1.256]', '[52.1.16]')
         top['META-INF/MANIFEST.MF'] = 'Manifest-Version: 1.0\r\nMixinConfigs: p2wlan.forge.mixins.json,p2wlan.forge.client.mixins.json\r\n\r\n'
@@ -74,12 +74,12 @@ class ForgeJarTests(unittest.TestCase):
         top['pack.mcmeta'] = json.dumps({'pack': pack})
         with self.assertRaisesRegex(verify.VerificationError, 'forge_pack_metadata'): self.check(top)
 
-    def test_all_required_game_classes_are_java_21_and_dedicated_is_client_free(self):
+    def test_all_required_game_classes_are_java_17_and_dedicated_is_client_free(self):
         for member in (*verify.DEDICATED_CLASSES, verify.CLIENT, *verify.CLIENT_MIXINS):
-            for mutation in ('missing', 'old_bytecode'):
+            for mutation in ('missing', 'wrong_bytecode'):
                 top = self.fixture()
                 if mutation == 'missing': del top[member]
-                else: top[member] = bytecode(61)
+                else: top[member] = bytecode(65)
                 with self.assertRaises(verify.VerificationError): self.check(top)
         for member in verify.DEDICATED_CLASSES:
             for prefix in (b'net/minecraft/client/Minecraft', b'net/minecraftforge/client/event/ScreenEvent', b'io/p2wlan/mc/game/client/ClientPlatform'):
@@ -104,13 +104,13 @@ class ForgeJarTests(unittest.TestCase):
                        'io/p2wlan/mc/forge/LocalNativeResourcesTests$1.class',
                        'io/p2wlan/mc/forge/LauncherPolicyTests.class',
                        'io/p2wlan/mc/forge/LauncherPolicyTests$1.class'):
-            top = self.fixture(); top[member] = bytecode(65)
+            top = self.fixture(); top[member] = bytecode(61)
             with self.assertRaisesRegex(verify.VerificationError, 'forge_test_fixture_in_artifact'): self.check(top)
 
     def test_bootstrap_jna_payloads_cannot_enter_top_level_archive(self):
         for member in ('com/sun/jna/Native.class', 'com/sun/jna/Memory.class',
                        'com/sun/jna/win32-x86-64/jnidispatch.dll'):
-            top = self.fixture(); top[member] = bytecode(65)
+            top = self.fixture(); top[member] = bytecode(61)
             with self.subTest(member=member), self.assertRaisesRegex(verify.VerificationError, 'forge_duplicate_bootstrap_jna'):
                 self.check(top)
 

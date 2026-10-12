@@ -34,11 +34,13 @@ def probe_artifacts(messages):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client", "neoforge-build", "neoforge-server", "neoforge-client", "neoforge-hmcl-pack", "forge-build", "forge-server", "forge-client", "forge-hmcl-pack", "universal-build", "account-test", "account-build", "hmcl-pack", "windows-native-test"))
+    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client", "neoforge-build", "neoforge-server", "neoforge-client", "neoforge-hmcl-pack", "forge-build", "forge-server", "forge-client", "forge-hmcl-pack", "universal-build", "universal-hmcl-pack", "account-test", "account-build", "hmcl-pack", "windows-native-test"))
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.command == "universal-build":
-        return subprocess.call([sys.executable, str(PROJECT / "tools/universal_build.py"), *args.args], cwd=PROJECT)
+        return subprocess.call([sys.executable, str(PROJECT / "tools/universal_build.py"), *args.args])
+    if args.command == "universal-hmcl-pack":
+        return subprocess.call([sys.executable, str(PROJECT / "tools/hmcl_pack.py"), "build", "--universal", *args.args])
     wrapper = PROJECT / "java" / ("gradlew.bat" if sys.platform == "win32" else "gradlew")
     gradle = str(wrapper) if wrapper.is_file() else shutil.which("gradle")
     if not gradle:

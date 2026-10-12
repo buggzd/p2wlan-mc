@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Create an immutable Fabric fixture JAR in the installed game namespace."""
+"""Create an immutable fixture JAR in the selected installed game namespace."""
 import argparse
 import io
 import json
 import os
 from pathlib import Path
 import stat
+import tomllib
 import zipfile
 
 from artifact_checks import VerificationError
-from class_relocation import MAX_CLASS, relocate_class, relocate_name
+from class_relocation import MAX_CLASS, NEW, LEGACY, FABRIC_LEGACY, relocate_class, relocate_name
 from hmcl_pack import publish
 from native_bundle import strict_object
 
@@ -33,7 +34,7 @@ def regular_bytes(path, maximum):
         return value
 
 
-def relocated_metadata(value):
+def relocated_metadata(value, destination=NEW):
     try:
         metadata = json.loads(value, object_pairs_hook=strict_object)
     except (ValueError, UnicodeError) as failure:
@@ -46,14 +47,50 @@ def relocated_metadata(value):
     for entries in entrypoints.values():
         if not isinstance(entries, list) or not entries or any(not isinstance(entry, str) for entry in entries):
             raise VerificationError("fixture_relocation_metadata")
-    metadata["entrypoints"] = {kind: [relocate_name(entry) for entry in entries] for kind, entries in entrypoints.items()}
+    metadata["entrypoints"] = {kind: [relocate_name(entry, destination) for entry in entries] for kind, entries in entrypoints.items()}
     return (json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-def build(classes, metadata):
-    members = {"fabric.mod.json": relocated_metadata(regular_bytes(metadata, 65536))}
+def forge_metadata(value):
+    try:
+        item = tomllib.loads(value.decode('utf-8'))
+    except (ValueError, UnicodeError) as failure:
+        raise VerificationError('fixture_relocation_metadata') from failure
+    mods = item.get('mods')
+    if item.get('modLoader') != 'javafml' or item.get('loaderVersion') != '[47,48)' \
+            or not isinstance(mods, list) or len(mods) != 1 \
+            or not isinstance(mods[0], dict) \
+            or mods[0].get('modId') not in {'p2wlan_local_game_test', 'p2wlan_integrated_test'}:
+        raise VerificationError('fixture_relocation_metadata')
+    return value
+
+
+def forge_pack_metadata(value):
+    try:
+        item = json.loads(value.decode('utf-8'), object_pairs_hook=strict_object)
+    except (ValueError, UnicodeError) as failure:
+        raise VerificationError('fixture_relocation_pack_metadata') from failure
+    expected = {'pack': {'description': 'P2WLAN isolated gameplay fixture', 'pack_format': 15}}
+    if json.dumps(item, sort_keys=True) != json.dumps(expected, sort_keys=True):
+        raise VerificationError('fixture_relocation_pack_metadata')
+    return value
+
+
+def build(classes, metadata, minecraft="1.21.1", loader="fabric", pack_metadata=None):
+    if minecraft not in {"1.20.1", "1.21.1"}:
+        raise VerificationError("fixture_relocation_game_version")
+    if loader not in {'fabric', 'forge'} or loader == 'forge' and minecraft != '1.20.1':
+        raise VerificationError('fixture_relocation_loader_version')
+    if (loader == 'forge') != (pack_metadata is not None):
+        raise VerificationError('fixture_relocation_pack_metadata_required' if loader == 'forge' else 'fixture_relocation_pack_metadata_unexpected')
+    destination = LEGACY if loader == 'forge' else FABRIC_LEGACY if minecraft == "1.20.1" else NEW
+    raw = regular_bytes(metadata, 65536)
+    metadata_path = 'META-INF/mods.toml' if loader == 'forge' else 'fabric.mod.json'
+    members = {metadata_path: forge_metadata(raw) if loader == 'forge' else relocated_metadata(raw, destination)}
+    if pack_metadata is not None:
+        members['pack.mcmeta'] = forge_pack_metadata(regular_bytes(pack_metadata, 65536))
     count = 0
-    total = len(members["fabric.mod.json"])
+    total = sum(map(len, members.values()))
     for root in classes:
         if root.is_symlink() or not root.is_dir():
             raise VerificationError("fixture_relocation_directory")
@@ -75,10 +112,10 @@ def build(classes, metadata):
                         count += 1
                         if count > MAX_CLASSES:
                             raise VerificationError("fixture_relocation_capacity")
-                        name = relocate_name(path.relative_to(root).as_posix())
-                        if name in members or not name.startswith(("io/p2wlan/mc/fabric/fixture/", "io/p2wlan/mc/fabric/game/fixture/")):
+                        name = relocate_name(path.relative_to(root).as_posix(), destination)
+                        if name in members or not name.startswith((f"io/p2wlan/mc/{loader}/fixture/", destination + "fixture/")):
                             raise VerificationError("fixture_relocation_class_owner")
-                        value = relocate_class(regular_bytes(path, MAX_CLASS))
+                        value = relocate_class(regular_bytes(path, MAX_CLASS), destination)
                         total += len(value)
                         if total > MAX_TOTAL:
                             raise VerificationError("fixture_relocation_capacity")
@@ -103,15 +140,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--classes", action="append", type=Path, required=True)
     parser.add_argument("--metadata", type=Path, required=True)
+    parser.add_argument("--pack-metadata", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--minecraft", choices=("1.20.1", "1.21.1"), default="1.21.1")
+    parser.add_argument("--loader", choices=('fabric', 'forge'), default='fabric')
     args = parser.parse_args()
     try:
-        value, count = build(args.classes, args.metadata)
+        value, count = build(args.classes, args.metadata, args.minecraft, args.loader, args.pack_metadata)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         publish(args.output, value)
     except (OSError, ValueError, TypeError, KeyError) as failure:
         parser.exit(1, "FAIL " + (str(failure) if isinstance(failure, VerificationError) else "FIXTURE_RELOCATION_IO") + "\n")
-    print("PASS installed Fabric fixture relocation:", count, "classes")
+    print("PASS installed fixture relocation:", args.loader, args.minecraft, count, "classes")
 
 
 if __name__ == "__main__":

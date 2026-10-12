@@ -1,0 +1,14 @@
+pluginManagement {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net/' }
+        gradlePluginPortal()
+    }
+}
+rootProject.name = 'p2wlan-minecraft-forge-legacy'
+// FG6 and Gradle 8.8 are isolated from the modern FG7 build graph.
+include 'common', 'netty-transport', 'native-bundle', 'universal-bootstrap', 'forge'
+project(':common').projectDir = file('../common')
+project(':netty-transport').projectDir = file('../netty-transport')
+project(':native-bundle').projectDir = file('../native-bundle')
+project(':universal-bootstrap').projectDir = file('../universal-bootstrap')
+project(':forge').projectDir = file('../adapters/forge-1.20.1')

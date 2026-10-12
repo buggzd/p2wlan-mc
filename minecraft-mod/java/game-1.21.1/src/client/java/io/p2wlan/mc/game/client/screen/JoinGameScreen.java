@@ -3,6 +3,7 @@ package io.p2wlan.mc.game.client.screen;
 import io.p2wlan.mc.common.GameService;
 import io.p2wlan.mc.common.JoinProxy;
 import io.p2wlan.mc.common.JoinProxyException;
+import io.p2wlan.mc.game.client.GameUi;
 import io.p2wlan.mc.game.client.connect.GameJoins;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -33,7 +34,7 @@ public final class JoinGameScreen extends Screen {
         if (attempt != null && (attempt.status().phase() == GameJoins.Phase.REGISTERING || attempt.status().phase() == GameJoins.Phase.CONNECTING)) attempt.revoke();
     }
     @Override public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        renderBackground(context, mouseX, mouseY, delta); super.render(context, mouseX, mouseY, delta);
+        GameUi.background(this, context, mouseX, mouseY, delta); super.render(context, mouseX, mouseY, delta);
         Component status = failure != null ? Component.literal(failure) : attempt == null ? Component.literal("Starting…") : attempt.progress();
         context.drawCenteredString(font, title, width / 2, height / 2 - 25, 0xffffff);
         context.drawCenteredString(font, Component.literal(font.plainSubstrByWidth(status.getString(), Math.max(20, width - 30))), width / 2, height / 2, 0xffcc66);

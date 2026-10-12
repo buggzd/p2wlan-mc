@@ -158,7 +158,7 @@ public final class AgentClientTests {
             AgentException error = failure(client.request("echo", new JsonObject()), AgentException.Code.REMOTE_REJECTED);
             check("AUTH_REQUIRED".equals(error.remoteCode()));
             check(!client.isClosed());
-            check(client.request("ping", new JsonObject()).get(3, TimeUnit.SECONDS).data().isEmpty());
+            check(client.request("ping", new JsonObject()).get(3, TimeUnit.SECONDS).data().size() == 0);
         }
         for (String mode : List.of("bad_owner", "bad_id", "fractional_id", "event_owner")) {
             try (AgentClient client = peer(probe, mode, 1000)) {

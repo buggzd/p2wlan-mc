@@ -3,6 +3,7 @@ package io.p2wlan.mc.game.client.screen;
 import io.p2wlan.mc.common.DiagnosticPresentation;
 import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.game.client.ClientPlatform;
+import io.p2wlan.mc.game.client.GameUi;
 import net.minecraft.Util;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -46,7 +47,7 @@ public final class DiagnosticsScreen extends LocalPanelScreen {
         int y = layout.top() + row * 12;
         draw.drawString(font, font.plainSubstrByWidth(value, layout.width()), layout.left(), y, color);
         if (mouseX >= layout.left() && mouseX < layout.left() + layout.width() && mouseY >= y && mouseY < y + 11)
-            setTooltipForNextRenderPass(Component.literal(value));
+            GameUi.tooltip(this, Component.literal(value));
     }
     @Override public void render(GuiGraphics draw, int mouseX, int mouseY, float delta) {
         super.render(draw, mouseX, mouseY, delta);

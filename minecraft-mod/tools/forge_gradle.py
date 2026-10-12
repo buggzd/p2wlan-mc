@@ -67,7 +67,7 @@ def command(environment):
     if not java:
         raise ValueError('FORGE_JAVA_REQUIRED')
     selected = [java, '-jar', str(directory / 'gradle-wrapper.jar')]
-    helpers = [environment[name] for name in ('P2WLAN_FORGE_JAVA25_HOME', 'P2WLAN_FORGE_JAVA8_HOME') if environment.get(name)]
+    helpers = [environment[name] for name in ('P2WLAN_FORGE_JAVA25_HOME', 'P2WLAN_FORGE_JAVA8_HOME', 'P2WLAN_LEGACY_JAVA_HOME') if environment.get(name)]
     if helpers:
         homes = [environment.get('JAVA_HOME', ''), *helpers]
         if any(not home or not Path(home).is_absolute() or not Path(home).is_dir() for home in homes):

@@ -9,9 +9,10 @@ repositories {
 dependencies {
     compileOnly 'net.fabricmc:sponge-mixin:0.15.5+mixin.0.8.7'
     compileOnly 'org.ow2.asm:asm-tree:9.7.1'
-    compileOnly 'com.google.code.gson:gson:2.10.1'
+    compileOnly 'com.google.code.gson:gson:2.10'
 }
 java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
     withSourcesJar()

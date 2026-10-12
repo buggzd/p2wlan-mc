@@ -3,6 +3,7 @@ package io.p2wlan.mc.game.client.screen;
 import com.google.gson.JsonObject;
 import io.p2wlan.mc.common.*;
 import io.p2wlan.mc.game.client.ClientPlatform;
+import io.p2wlan.mc.game.client.GameUi;
 import io.p2wlan.mc.game.client.connect.GameJoins;
 import io.p2wlan.mc.game.client.lan.ClientNetworkView;
 import java.util.concurrent.CompletableFuture;
@@ -102,7 +103,7 @@ final class RuntimeScreen extends AgentScreen {
                     +"\n未入服时，面板取已观测设备中最低的有效 RTT；游戏内显示当前服务端。";
             tooltip += "\n在线数为近期已观测设备（含本机），最多观测 16 个对端。";
             if (!ClientNetworkView.reason().isEmpty()) tooltip += "\n状态："+ClientNetworkView.reason();
-            setTooltipForNextRenderPass(Component.literal(tooltip));
+            GameUi.tooltip(this, Component.literal(tooltip));
         }
     }
 }

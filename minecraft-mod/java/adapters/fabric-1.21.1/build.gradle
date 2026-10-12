@@ -22,6 +22,7 @@ dependencies {
     hmclFabricApi "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
     include 'net.java.dev.jna:jna:5.14.0'
     implementation project(':common')
+    implementation project(':universal-bootstrap')
     include project(':common')
     implementation project(':netty-transport')
     include project(':netty-transport')
@@ -38,8 +39,10 @@ loom {
     }
 }
 sourceSets.client.java.srcDir rootProject.file('game-1.21.1/src/client/java')
+sourceSets.client.java.srcDir rootProject.file('game-api-1.21.1/src/client/java')
 sourceSets.main.java.srcDir rootProject.file('game-1.21.1/src/server/java')
 java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
     withSourcesJar()
@@ -48,16 +51,44 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 21
     options.encoding = 'UTF-8'
 }
+tasks.named('compileJava', JavaCompile) { options.release = 17 }
+tasks.named('compileClientJava', JavaCompile) { options.release = 17 }
+configurations.matching {
+    it.name in ['compileClasspath', 'runtimeClasspath'] ||
+            it.name.endsWith('CompileClasspath') || it.name.endsWith('RuntimeClasspath')
+}.configureEach {
+    attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 21)
+}
 processResources {
     inputs.property 'version', project.version
     filesMatching('fabric.mod.json') { expand version: project.version }
 }
+// Bootstrap bytecode is loader-neutral and stays outside Loom's remapper.
+def mappedJar = tasks.named('remapJar')
+mappedJar.configure { destinationDirectory = layout.buildDirectory.dir('remapped') }
+def canonicalBootstrap = project(':universal-bootstrap').layout.buildDirectory.file("libs/p2wlan-universal-bootstrap-${project.version}.jar")
+def finalJar = layout.buildDirectory.file(mappedJar.flatMap { it.archiveFileName }.map { "libs/${it}" })
+def finalizeFabricInput = tasks.register('finalizeFabricInput', Exec) {
+    dependsOn mappedJar, ':universal-bootstrap:jar'
+    inputs.files(mappedJar.flatMap { it.archiveFile }, canonicalBootstrap)
+    inputs.files(rootProject.fileTree('../tools') { include '*.py' })
+    inputs.property 'minecraft', '1.21.1'
+    inputs.property 'development', developmentEnabled
+    outputs.file finalJar
+    doFirst {
+        commandLine 'python3', rootProject.file('../tools/fabric_input.py'), '--minecraft', '1.21.1',
+                '--remapped', mappedJar.get().archiveFile.get().asFile,
+                '--bootstrap', canonicalBootstrap.get().asFile, '--output', finalJar.get().asFile
+        if (developmentEnabled) args '--development'
+    }
+}
+assemble.dependsOn finalizeFabricInput
 
 tasks.register('verifyModJar', Exec) {
-    if (!externalInstalled) dependsOn remapJar
+    if (!externalInstalled) dependsOn finalizeFabricInput
     doFirst {
         commandLine 'python3', rootProject.file(externalInstalled ? '../tools/universal_jar.py' : '../tools/verify_mod_jar.py'),
-                *(externalInstalled ? ['verify', installedArchive.get()] : [tasks.named('remapJar').get().archiveFile.get().asFile])
+                *(externalInstalled ? ['verify', installedArchive.get()] : [finalJar.get().asFile])
         if (developmentEnabled) args '--development'
     }
 }
@@ -83,6 +114,7 @@ check.dependsOn clientBootstrapTest
 if (providers.gradleProperty('clientHookFixture').isPresent()) {
     def fixture = sourceSets.create('clientFixture')
     fixture.java.srcDir rootProject.file('game-1.21.1/src/clientFixture/java')
+    fixture.java.srcDir rootProject.file('game-api-1.21.1/src/fixture/java')
     fixture.compileClasspath += sourceSets.client.output + sourceSets.client.compileClasspath
     fixture.runtimeClasspath += sourceSets.client.output + sourceSets.client.runtimeClasspath
     loom.mods.register('p2wlan_client_hook_test') { sourceSet fixture }
@@ -126,13 +158,14 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
     if (!externalInstalled) server.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     def client = sourceSets.create('localGameClientFixture')
     client.java.srcDir rootProject.file('game-1.21.1/src/localGameClientFixture/java')
+    client.java.srcDir rootProject.file('game-api-1.21.1/src/fixture/java')
     client.compileClasspath += server.output + sourceSets.client.output + sourceSets.client.compileClasspath
     if (!externalInstalled) client.runtimeClasspath += server.output + sourceSets.client.output + sourceSets.client.runtimeClasspath
     def fixtureRuntime = { sdk ->
         configurations[sdk.runtimeClasspathConfigurationName].incoming.artifactView {
             componentFilter { identity ->
                 !(identity instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier
-                        && identity.projectPath in [':common', ':netty-transport', ':native-bundle']) &&
+                        && identity.projectPath in [':common', ':netty-transport', ':native-bundle', ':universal-bootstrap']) &&
                 !(identity instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier
                         && identity.group == 'net.java.dev.jna' && identity.module == 'jna')
             }
@@ -198,6 +231,7 @@ if (providers.gradleProperty('integratedGameFixture').isPresent()) {
     }
     def host = sourceSets.create('integratedFixture')
     host.java.srcDir rootProject.file('game-1.21.1/src/integratedFixture/java')
+    host.java.srcDir rootProject.file('game-api-1.21.1/src/fixture/java')
     host.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
     host.java.srcDir layout.projectDirectory.dir('src/fixtureCommon/java')
     host.compileClasspath += sourceSets.client.output + sourceSets.client.compileClasspath
@@ -219,7 +253,7 @@ if (providers.gradleProperty('integratedGameFixture').isPresent()) {
         def runtime = configurations[sourceSets.client.runtimeClasspathConfigurationName].incoming.artifactView {
             componentFilter { identity ->
                 !(identity instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier
-                        && identity.projectPath in [':common', ':netty-transport', ':native-bundle']) &&
+                        && identity.projectPath in [':common', ':netty-transport', ':native-bundle', ':universal-bootstrap']) &&
                 !(identity instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier
                         && identity.group == 'net.java.dev.jna' && identity.module == 'jna')
             }
@@ -268,7 +302,7 @@ tasks.register('buildHmclPack', Exec) {
         def output = layout.buildDirectory.dir('distributions').get().asFile
         output.mkdirs()
         commandLine 'python3', rootProject.file('../tools/hmcl_pack.py'), 'build',
-                '--mod', tasks.named('remapJar').get().archiveFile.get().asFile,
+                '--mod', finalJar.get().asFile,
                 '--fabric-api', configurations.hmclFabricApi.singleFile,
                 '--platform', platform,
                 '--output', new File(output, "p2wlan-hmcl-fabric-1.21.1-${platform}-${project.version}.zip")

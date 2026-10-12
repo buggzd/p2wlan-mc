@@ -16,8 +16,16 @@ def developmentEnabled = providers.gradleProperty('developmentNative').map { val
 }.getOrElse(false)
 sourceSets.main.java.srcDir new File(game, 'src/server/java')
 sourceSets.main.java.srcDir new File(game, 'src/client/java')
+sourceSets.main.java.srcDir rootProject.file('../game-api-1.21.1/src/client/java')
 java { toolchain.languageVersion = JavaLanguageVersion.of(21); withSourcesJar() }
 tasks.withType(JavaCompile).configureEach { options.release = 21; options.encoding = 'UTF-8' }
+tasks.named('compileJava', JavaCompile) { options.release = 17 }
+configurations.matching {
+    it.name in ['compileClasspath', 'runtimeClasspath'] ||
+            it.name.endsWith('CompileClasspath') || it.name.endsWith('RuntimeClasspath')
+}.configureEach {
+    attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 21)
+}
 minecraft {
     mappings channel: 'official', version: '1.21.1'
     runs {
@@ -44,12 +52,14 @@ repositories {
 }
 jarJar.register() { archiveClassifier = null }
 tasks.named('jar') {
+    from { project(':universal-bootstrap').sourceSets.main.output.classesDirs }
     archiveClassifier = 'slim'
     manifest.attributes('MixinConfigs': 'p2wlan.forge.mixins.json,p2wlan.forge.client.mixins.json')
 }
 dependencies {
     implementation minecraft.dependency('net.minecraftforge:forge:1.21.1-52.1.16')
     implementation project(':common')
+    implementation project(':universal-bootstrap')
     implementation project(':netty-transport')
     if (!externalInstalled) implementation project(':native-bundle')
     // Same portable code/resources; Gson and JNA already belong to the game bootstrap.
@@ -127,7 +137,7 @@ def installedRuntime = { fixture ->
     def runtime = configurations[fixture.runtimeClasspathConfigurationName].incoming.artifactView {
         componentFilter { identity ->
             !(identity instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier
-                    && identity.projectPath in [':common', ':netty-transport', ':native-bundle'])
+                    && identity.projectPath in [':common', ':netty-transport', ':native-bundle', ':universal-bootstrap'])
         }
     }.files
     // FG 7 feeds this same collection into the JVM and its legacy runtime
@@ -147,6 +157,7 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
     // its annotated classes in one output root. Dist-filtered event glue keeps
     // client checks dormant in the dedicated JVM.
     gameServer.java.srcDir new File(game, 'src/localGameClientFixture/java')
+    gameServer.java.srcDir rootProject.file('../game-api-1.21.1/src/fixture/java')
     gameServer.java.srcDir layout.projectDirectory.dir('src/localGameClientFixture/java')
     minecraft.runs.named('server') {
         with(gameServer) {
@@ -186,6 +197,7 @@ if (providers.gradleProperty('integratedGameFixture').isPresent()) {
     if (!providers.gradleProperty('localGameFixture').isPresent()) throw new GradleException('INTEGRATED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
     def hostFixture = sourceSets.create('integratedFixture')
     hostFixture.java.srcDir new File(game, 'src/integratedFixture/java')
+    hostFixture.java.srcDir rootProject.file('../game-api-1.21.1/src/fixture/java')
     hostFixture.java.srcDir new File(game, 'src/fixtureCommon/java')
     hostFixture.java.srcDir layout.projectDirectory.dir('src/fixtureCommon/java')
     configurations.integratedFixtureImplementation.extendsFrom configurations.implementation

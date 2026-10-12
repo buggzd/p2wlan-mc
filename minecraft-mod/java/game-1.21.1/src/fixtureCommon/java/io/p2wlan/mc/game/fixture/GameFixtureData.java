@@ -12,6 +12,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import net.minecraft.SharedConstants;
 
 /** Private, run-bound test inputs/results only; never packaged or a network owner. */
 final class GameFixtureData {
@@ -51,6 +52,23 @@ final class GameFixtureData {
         String code = error instanceof AgentException agent ? agent.code().name()
                 : error instanceof IllegalStateException && error.getMessage() != null && error.getMessage().matches("[A-Z0-9_]{1,100}") ? error.getMessage() : "FIXTURE_EXECUTION";
         reason = stage + "_" + code;
+        // Private test evidence only; no exception message, credentials or file paths.
+        // The runner's pass/fail contract still uses the stable reason above.
+        try {
+            JsonObject failure = new JsonObject();
+            failure.addProperty("schema", 1); failure.addProperty("run", run);
+            failure.addProperty("role", role); failure.addProperty("stage", stage);
+            String type = error.getClass().getName();
+            failure.addProperty("type", type.matches("[A-Za-z0-9_.$]{1,256}") ? type : "OTHER");
+            JsonArray frames = new JsonArray();
+            StackTraceElement[] stack = error.getStackTrace();
+            for (int index = 0; index < Math.min(8, stack.length); index++) {
+                String frame = stack[index].getClassName() + "#" + stack[index].getMethodName();
+                if (frame.matches("[A-Za-z0-9_.$#<>]{1,256}")) frames.add(frame + ":" + stack[index].getLineNumber());
+            }
+            failure.add("frames", frames);
+            write(root.resolve(role + "-failure.fixture.json"), failure);
+        } catch (Exception unavailable) { /* Diagnostic failure cannot replace the execution result. */ }
     }
     static void write(Path path, JsonObject value) throws Exception {
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
@@ -61,7 +79,9 @@ final class GameFixtureData {
         JsonObject result = new JsonObject();
         result.addProperty("schema", 1); result.addProperty("run", run); result.addProperty("role", role);
         result.addProperty("status", "OK".equals(reason) && helperCleanup && worldCleanup ? "pass" : "fail");
-        result.addProperty("reason", reason); result.addProperty("checks", checks); result.addProperty("minecraft", "1.21.1");
+        String minecraft = SharedConstants.getCurrentVersion().getName();
+        if (!Set.of("1.20.1", "1.21.1").contains(minecraft)) throw new IllegalStateException("FIXTURE_GAME_VERSION");
+        result.addProperty("reason", reason); result.addProperty("checks", checks); result.addProperty("minecraft", minecraft);
         result.addProperty("helper_cleanup", helperCleanup); result.addProperty("world_cleanup", worldCleanup);
         result.addProperty("joins", joins); result.addProperty("rounds", rounds);
         JsonArray completed = new JsonArray(); cases.forEach(completed::add); result.add("cases", completed);

@@ -73,8 +73,8 @@ public final class IntegratedHostChecks {
                 case "RUNTIME" -> {
                     if(!runtime.isCurrent(helper)) return;
                     var settings=new LevelSettings("Integrated fixture",GameType.CREATIVE,false,Difficulty.PEACEFUL,false,new GameRules(),WorldDataConfiguration.DEFAULT);
-                    client.createWorldOpenFlows().createFreshLevel("p2wlan-integrated-fixture",settings,new WorldOptions(1L,false,false),
-                            registries->registries.registryOrThrow(Registries.WORLD_PRESET).getHolderOrThrow(WorldPresets.FLAT).value().createWorldDimensions(),client.screen);
+                    GameFixtureApi.createFreshLevel(client,"p2wlan-integrated-fixture",settings,new WorldOptions(1L,false,false),
+                            registries->registries.registryOrThrow(Registries.WORLD_PRESET).getHolderOrThrow(WorldPresets.FLAT).value().createWorldDimensions());
                     data.advance("WORLD",90);
                 }
                 case "WORLD" -> {
@@ -85,7 +85,7 @@ public final class IntegratedHostChecks {
                     client.setScreen(new PauseScreen(true));data.advance("LOCAL_PAUSE",15);
                 }
                 case "LOCAL_PAUSE" -> {
-                    if(server==null||!server.isPaused()) return;data.check(!world.hosted(),"LOCAL_PAUSE_UNSHARED");
+                    if(server==null||!GameFixtureApi.serverPaused(server)) return;data.check(!world.hosted(),"LOCAL_PAUSE_UNSHARED");
                     client.setScreen(AccountScreen.entry(client.screen));data.advance("SHARE",15);
                 }
                 case "SHARE" -> {
@@ -98,7 +98,7 @@ public final class IntegratedHostChecks {
                     client.setScreen(new PauseScreen(true));startTick=server.getTickCount();data.advance("REMOTE_PAUSE",15);
                 }
                 case "REMOTE_PAUSE" -> {
-                    if(server.getTickCount()<startTick+10||server.isPaused()) return;data.check(world.hosted(),"SHARED_PAUSE_TICKS");
+                    if(server.getTickCount()<startTick+10||GameFixtureApi.serverPaused(server)) return;data.check(world.hosted(),"SHARED_PAUSE_TICKS");
                     data.cases.add("integrated_world");data.cases.add("no_vanilla_lan");data.cases.add("shared_pause");
                     String peer=helper.snapshot().map(value->RuntimeView.text(value.data(),"peer_id")).orElse(null);data.check(peer!=null&&!peer.isBlank(),"HOST_PEER");
                     var ready=new JsonObject();ready.addProperty("schema",1);ready.addProperty("run",data.run);ready.addProperty("peer",peer);GameFixtureData.write(data.root.resolve("server-ready.json"),ready);data.advance("PLAY",140);
@@ -117,11 +117,11 @@ public final class IntegratedHostChecks {
                     data.check(!world.hosted()&&!server.isPublished()&&server.getPort()<0,"UNHOST_RESTORES_LOCAL_PAUSE");
                     client.setScreen(new PauseScreen(true));data.advance("PAUSED_AGAIN",15);
                 }
-                case "PAUSED_AGAIN" -> { if(!server.isPaused()) return;data.check(world.isCurrent(),"PAUSE_RESTORED_OWNER");data.cases.add("unhost_pause");pending=helper.request("stop",runtime.arguments());data.advance("STOP_ROOM",20); }
+                case "PAUSED_AGAIN" -> { if(!GameFixtureApi.serverPaused(server)) return;data.check(world.isCurrent(),"PAUSE_RESTORED_OWNER");data.cases.add("unhost_pause");pending=helper.request("stop",runtime.arguments());data.advance("STOP_ROOM",20); }
                 case "STOP_ROOM" -> { if(!pending.isDone()) return;data.check(helper.isCurrent(pending.join()),"ROOM_STOP_OWNER");
                     // Match Vanilla PauseScreen: close the local play connection
                     // first so the integrated server can stop before disconnect waits.
-                    data.advance("WORLD_CLOSE",25);client.level.disconnect();client.disconnect();client.setScreen(new net.minecraft.client.gui.screens.TitleScreen()); }
+                    data.advance("WORLD_CLOSE",25);client.level.disconnect();GameFixtureApi.disconnect(client);client.setScreen(new net.minecraft.client.gui.screens.TitleScreen()); }
                 case "WORLD_CLOSE" -> { if(!serverStopped||client.getSingleplayerServer()!=null||client.level!=null) return;data.check(!world.isCurrent(),"WORLD_RETIRED");data.cases.add("world_cleanup");ClientPlatform.agent().close();data.advance("HELPER_CLOSE",25); }
                 case "HELPER_CLOSE" -> { if(!ClientPlatform.agent().stopped().isDone()) return;ClientPlatform.agent().stopped().join();data.check(!ProcessHandle.of(helper.processId()).map(ProcessHandle::isAlive).orElse(false),"HELPER_REAPED");data.cases.add("helper_cleanup");data.reason="OK";finish(client,true); }
                 default -> throw new IllegalStateException("INTEGRATED_STAGE");

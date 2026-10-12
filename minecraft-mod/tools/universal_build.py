@@ -14,6 +14,7 @@ from native import PROJECT
 
 def commands(environment, offline=False, development=False, build_root=None):
     from forge_gradle import command
+    from legacy_gradle import command as legacy_command
     options = ["--no-daemon"]
     if offline:
         options.append("--offline")
@@ -25,11 +26,14 @@ def commands(environment, offline=False, development=False, build_root=None):
         (PROJECT / "java", [str(wrapper), *options, "-PfabricAdapter", ":fabric:verifyModJar"]),
         (PROJECT / "java", [str(wrapper), *options, "-PneoforgeAdapter", ":neoforge:verifyModJar"]),
         (PROJECT / "java/forge", [*command(environment), *options, ":forge:verifyModJar"]),
+        (PROJECT / "java/forge-legacy", [*legacy_command(environment), *options, ":forge:verifyModJar"]),
+        (PROJECT / "java", [str(wrapper), *options, "-PfabricLegacyAdapter", ":fabric-legacy:verifyModJar"]),
     ]
     if build_root is not None:
         for directory, arguments in selected:
+            cache = 'legacy-forge-cache' if directory.name == 'forge-legacy' else 'forge-cache' if directory.name == 'forge' else 'standard-cache'
             arguments += ["-I", str(build_root / "outputs.gradle"), "-Dp2wlan.universal.outputRoot=" + str(build_root),
-                          "--project-cache-dir", str(build_root / ("forge-cache" if directory.name == "forge" else "standard-cache"))]
+                          "--project-cache-dir", str(build_root / cache)]
     return selected
 
 
@@ -37,7 +41,11 @@ def prepare_inputs(directory):
     from native_bundle import OUTPUT, PLATFORMS, executable_name
     from universal_jar import regular_bytes
     (directory / "outputs.gradle").write_text(
-        "allprojects { layout.buildDirectory.set(new File(System.getProperty('p2wlan.universal.outputRoot'), project.name)) }\n",
+        "allprojects {\n"
+        "    def name = project.name\n"
+        "    if (name == 'forge' && rootProject.name == 'p2wlan-minecraft-forge-legacy') name = 'forge-legacy'\n"
+        "    layout.buildDirectory.set(new File(System.getProperty('p2wlan.universal.outputRoot'), name))\n"
+        "}\n",
         encoding="utf-8")
     count = 0
     for platform in sorted(PLATFORMS):
@@ -69,10 +77,12 @@ def build(output, environment, offline=False, development=False):
         fabric = inputs / "fabric/libs/p2wlan-fabric-1.21.1-0.1.0.jar"
         neoforge = inputs / "neoforge/libs/p2wlan-neoforge-1.21.1-0.1.0.jar"
         forge = inputs / "forge/libs/p2wlan-forge-1.21.1-0.1.0.jar"
+        legacy_forge = inputs / "forge-legacy/libs/p2wlan-forge-1.20.1-0.1.0.jar"
+        legacy_fabric = inputs / "fabric-legacy/libs/p2wlan-fabric-1.20.1-0.1.0.jar"
         bootstrap = inputs / "universal-bootstrap/libs/p2wlan-universal-bootstrap-0.1.0.jar"
         relocated = relocate_fabric(fabric, development)
         value = build_bytes(regular_bytes(fabric), regular_bytes(neoforge), regular_bytes(forge), relocated,
-                            regular_bytes(bootstrap), development)
+                            regular_bytes(bootstrap), development, legacy_forge=regular_bytes(legacy_forge), legacy_fabric=regular_bytes(legacy_fabric))
     # The relocated input stays in memory. Verified publication creates a new
     # artifact or reuses identical bytes without changing an existing result.
     import io

@@ -3,14 +3,15 @@ plugins { id 'java-library' }
 // Minecraft already supplies Netty. Keep it compile-only in the reusable jar;
 // account/IPC consumers need not load it or acquire a Minecraft dependency.
 java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
     withSourcesJar()
 }
 dependencies {
     api project(':common')
-    compileOnly 'io.netty:netty-transport:4.1.97.Final'
-    testImplementation 'io.netty:netty-transport:4.1.97.Final'
+    compileOnly 'io.netty:netty-transport:4.1.82.Final'
+    testImplementation 'io.netty:netty-transport:4.1.82.Final'
 }
 tasks.withType(JavaCompile).configureEach {
     options.release = 17

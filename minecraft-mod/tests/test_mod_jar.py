@@ -57,14 +57,14 @@ class ModJarTests(unittest.TestCase):
                     "depends": {"minecraft": "1.21.1", "java": ">=21"}, "mixins": verify.MIXINS,
                     "jars": [{"file": "META-INF/jars/common.jar"}, {"file": "META-INF/jars/native.jar"}, {"file": "META-INF/jars/jna.jar"}, {"file": "META-INF/jars/transport.jar"}]}
         top = {"fabric.mod.json": json.dumps(metadata), "p2wlan.mixins.json": json.dumps(verify.MIXIN_CONFIG),
-               verify.WORLD_COMMANDS: bytecode(65),
-               verify.MIXIN_CONFIG["refmap"]: json.dumps(verify.REFMAP), verify.SERVER_MIXIN: bytecode(65), verify.MAIN: bytecode(65), verify.CLIENT: bytecode(65),
+               verify.WORLD_COMMANDS: bytecode(61),
+               verify.MIXIN_CONFIG["refmap"]: json.dumps(verify.REFMAP), verify.SERVER_MIXIN: bytecode(61), verify.MAIN: bytecode(61), verify.CLIENT: bytecode(61),
                "p2wlan.client.mixins.json": json.dumps(verify.CLIENT_MIXIN_CONFIG),
-               verify.CLIENT_MIXIN_CONFIG["refmap"]: json.dumps(verify.CLIENT_REFMAP), verify.CLIENT_MIXIN: bytecode(65), verify.INTEGRATED_MIXIN: bytecode(65),
+               verify.CLIENT_MIXIN_CONFIG["refmap"]: json.dumps(verify.CLIENT_REFMAP), verify.CLIENT_MIXIN: bytecode(61), verify.INTEGRATED_MIXIN: bytecode(61),
                "META-INF/jars/common.jar": jar(common), "META-INF/jars/native.jar": jar(native),
                "META-INF/jars/jna.jar": jar(JNA_FIXTURE),
                "META-INF/jars/transport.jar": jar({name: bytecode(61) for name in verify.TRANSPORT})}
-        top.update({name: bytecode(65) for name in verify.LAN_MIXINS})
+        top.update({name: bytecode(61) for name in verify.LAN_MIXINS})
         return top, metadata, common, native
 
     def check(self, top, development=True):
@@ -97,17 +97,17 @@ class ModJarTests(unittest.TestCase):
         for name in ("GameClientChecks", "GameFixtureData", "IntegratedHostChecks"):
             with self.subTest(name=name):
                 top, _, _, _ = self.fixture()
-                top[f'io/p2wlan/mc/game/fixture/{name}.class'] = bytecode(65)
+                top[f'io/p2wlan/mc/game/fixture/{name}.class'] = bytecode(61)
                 with self.assertRaisesRegex(verify.VerificationError, 'mod_test_fixture_present'):
                     self.check(top)
 
-    def test_shared_server_commands_are_present_java_21_and_client_free(self):
+    def test_shared_server_commands_are_present_java_17_and_client_free(self):
         top, _, _, _ = self.fixture()
         del top[verify.WORLD_COMMANDS]
         with self.assertRaisesRegex(verify.VerificationError, "mod_archive_member_invalid"):
             self.check(top)
         top, _, _, _ = self.fixture()
-        top[verify.WORLD_COMMANDS] = bytecode(61)
+        top[verify.WORLD_COMMANDS] = bytecode(65)
         with self.assertRaises(verify.VerificationError):
             self.check(top)
         for prefix in (b"net/minecraft/client/Minecraft", b"io/p2wlan/mc/game/client/ClientPlatform"):
@@ -203,7 +203,7 @@ class ModJarTests(unittest.TestCase):
         top[verify.MAIN] += b"io/p2wlan/mc/fabric/client/"
         with self.assertRaisesRegex(verify.VerificationError, "mod_dedicated_client_reference"):
             self.check(top)
-        top[verify.MAIN] = bytecode(65)
+        top[verify.MAIN] = bytecode(61)
         metadata["depends"]["minecraft"] = ">=1.21.1"
         top["fabric.mod.json"] = json.dumps(metadata)
         with self.assertRaisesRegex(verify.VerificationError, "mod_fabric_contract"):
@@ -233,7 +233,7 @@ class ModJarTests(unittest.TestCase):
 
     def test_isolated_client_fixture_cannot_leak_into_production_archive(self):
         top, _, _, _ = self.fixture()
-        top["io/p2wlan/mc/fabric/fixture/ClientHookFixture.class"] = bytecode(65)
+        top["io/p2wlan/mc/fabric/fixture/ClientHookFixture.class"] = bytecode(61)
         with self.assertRaisesRegex(verify.VerificationError, "mod_test_fixture_present"):
             self.check(top)
 
@@ -254,7 +254,7 @@ class ModJarTests(unittest.TestCase):
             with self.assertRaisesRegex(verify.VerificationError, "mod_client_mixin_refmap"):
                 self.check(top)
 
-    def test_vanilla_browser_hooks_are_present_and_java_21(self):
+    def test_vanilla_browser_hooks_are_present_and_java_17(self):
         for name in verify.LAN_MIXINS:
             with self.subTest(name=name):
                 top, _, _, _ = self.fixture()
@@ -262,7 +262,7 @@ class ModJarTests(unittest.TestCase):
                 with self.assertRaisesRegex(verify.VerificationError, "mod_archive_member_invalid"):
                     self.check(top)
                 top, _, _, _ = self.fixture()
-                top[name] = bytecode(61)
+                top[name] = bytecode(65)
                 with self.assertRaises(verify.VerificationError):
                     self.check(top)
         for name in verify.LAN_MAPPING:

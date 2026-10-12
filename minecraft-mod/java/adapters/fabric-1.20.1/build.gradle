@@ -1,0 +1,266 @@
+plugins { id 'fabric-loom' version '1.10.5' }
+
+base { archivesName = 'p2wlan-fabric-1.20.1' }
+def developmentEnabled = providers.gradleProperty('developmentNative').map { value ->
+    value.isEmpty() || value == 'true'
+}.getOrElse(false)
+def installedArchive = providers.gradleProperty('installedModArchive')
+def externalInstalled = installedArchive.isPresent()
+if (externalInstalled && !providers.gradleProperty('localGameFixture').isPresent()) {
+    throw new GradleException('FABRIC_INSTALLED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
+}
+repositories { maven { url = 'https://maven.fabricmc.net/' } }
+dependencies {
+    minecraft 'com.mojang:minecraft:1.20.1'
+    mappings loom.officialMojangMappings()
+    modImplementation 'net.fabricmc:fabric-loader:0.16.14'
+    modImplementation 'net.fabricmc.fabric-api:fabric-api:0.92.12+1.20.1'
+    implementation project(':common')
+    implementation project(':netty-transport')
+    if (!externalInstalled) implementation project(':native-bundle')
+    implementation project(':universal-bootstrap')
+    include project(':common')
+    include project(':netty-transport')
+    include project(':native-bundle')
+    include 'net.java.dev.jna:jna:5.14.0'
+}
+loom {
+    splitEnvironmentSourceSets()
+    if (!externalInstalled) mods {
+        p2wlan {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+    mixin {
+        add sourceSets.main, 'p2wlan-fabric-1.20.1-refmap.json'
+        add sourceSets.client, 'client-p2wlan-fabric-1.20.1-refmap.json'
+    }
+}
+sourceSets.main.java {
+    srcDir rootProject.file('adapters/fabric-1.21.1/src/main/java')
+    srcDir rootProject.file('game-1.21.1/src/server/java')
+    include 'io/p2wlan/mc/fabric/FabricP2wlan.java'
+    include 'io/p2wlan/mc/fabric/world/FabricWorlds.java'
+    include 'io/p2wlan/mc/fabric/legacy/**'
+    include 'io/p2wlan/mc/game/server/**'
+}
+sourceSets.client.java {
+    srcDir rootProject.file('adapters/fabric-1.21.1/src/client/java')
+    srcDir rootProject.file('game-1.21.1/src/client/java')
+    srcDir rootProject.file('game-api-1.20.1/src/client/java')
+    include 'io/p2wlan/mc/fabric/client/FabricP2wlanClient.java'
+    include 'io/p2wlan/mc/fabric/legacy/**'
+    include 'io/p2wlan/mc/game/**'
+    exclude 'io/p2wlan/mc/game/mixin/MultiplayerListMixin.java'
+}
+def generatedGame = layout.buildDirectory.dir('generated/sources/game1201')
+def listMixin = 'io/p2wlan/mc/game/mixin/MultiplayerListMixin.java'
+def prepareGame = tasks.register('prepareLegacyGameSources', Exec) {
+    inputs.files(rootProject.file('../tools/game_sources.py'), rootProject.file('../tools/source_contract.py'))
+    inputs.file(rootProject.file('game-1.21.1/src/client/java/' + listMixin))
+    outputs.file(generatedGame.map { it.file(listMixin) })
+    commandLine 'python3', rootProject.file('../tools/game_sources.py'), '--output', generatedGame.get().asFile
+}
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+}
+tasks.withType(JavaCompile).configureEach { options.release = 17; options.encoding = 'UTF-8' }
+tasks.named('compileClientJava', JavaCompile) {
+    dependsOn prepareGame
+    source generatedGame.map { it.file(listMixin) }
+}
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand version: project.version }
+}
+// Bootstrap bytecode is loader-neutral and stays outside Loom's remapper.
+def mappedJar = tasks.named('remapJar')
+mappedJar.configure { destinationDirectory = layout.buildDirectory.dir('remapped') }
+def canonicalBootstrap = project(':universal-bootstrap').layout.buildDirectory.file("libs/p2wlan-universal-bootstrap-${project.version}.jar")
+def finalJar = layout.buildDirectory.file(mappedJar.flatMap { it.archiveFileName }.map { "libs/${it}" })
+def finalizeFabricInput = tasks.register('finalizeFabricInput', Exec) {
+    dependsOn mappedJar, ':universal-bootstrap:jar'
+    inputs.files(mappedJar.flatMap { it.archiveFile }, canonicalBootstrap)
+    inputs.files(rootProject.fileTree('../tools') { include '*.py' })
+    inputs.property 'minecraft', '1.20.1'
+    inputs.property 'development', developmentEnabled
+    outputs.file finalJar
+    doFirst {
+        commandLine 'python3', rootProject.file('../tools/fabric_input.py'), '--minecraft', '1.20.1',
+                '--remapped', mappedJar.get().archiveFile.get().asFile,
+                '--bootstrap', canonicalBootstrap.get().asFile, '--output', finalJar.get().asFile
+        if (developmentEnabled) args '--development'
+    }
+}
+assemble.dependsOn finalizeFabricInput
+tasks.named('sourcesJar') {
+    dependsOn prepareGame
+    from(generatedGame) { include listMixin }
+}
+tasks.register('verifyModJar', Exec) {
+    if (!externalInstalled) dependsOn finalizeFabricInput
+    doFirst {
+        commandLine 'python3', rootProject.file(externalInstalled ? '../tools/universal_jar.py' : '../tools/verify_fabric_legacy_jar.py'), 'verify',
+                externalInstalled ? installedArchive.get() : finalJar.get().asFile
+        if (developmentEnabled) args '--development'
+    }
+}
+check.dependsOn verifyModJar
+tasks.register('worldTransportTest') { dependsOn ':netty-transport:worldTransportTest' }
+tasks.register('joinTransportTest') { dependsOn ':netty-transport:joinTransportTest' }
+tasks.register('clientBootstrapTest') { dependsOn ':netty-transport:clientBootstrapTest' }
+check.dependsOn worldTransportTest, joinTransportTest, clientBootstrapTest
+
+if (developmentEnabled) {
+    loom.runs.configureEach { vmArg '-Dp2wlan.allowDevelopmentNative=true' }
+}
+
+// Real local gameplay is a separate explicit test mod, never a production
+// entrypoint. The wrapper owns fresh accounts, Control and disposable worlds.
+if (providers.gradleProperty('localGameFixture').isPresent()) {
+    def server = sourceSets.create('localGameFixture')
+    server.java.srcDir rootProject.file('adapters/fabric-1.21.1/src/localGameFixture/java')
+    server.java.srcDir rootProject.file('game-1.21.1/src/localGameFixture/java')
+    server.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
+    server.java.srcDir rootProject.file('adapters/fabric-1.21.1/src/fixtureCommon/java')
+    server.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    if (!externalInstalled) server.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    def client = sourceSets.create('localGameClientFixture')
+    client.java.srcDir rootProject.file('adapters/fabric-1.21.1/src/localGameClientFixture/java')
+    client.java.srcDir rootProject.file('game-api-1.20.1/src/fixture/java')
+    client.java.srcDir rootProject.file('game-1.21.1/src/localGameClientFixture/java')
+    client.compileClasspath += server.output + sourceSets.client.output + sourceSets.client.compileClasspath
+    if (!externalInstalled) client.runtimeClasspath += server.output + sourceSets.client.output + sourceSets.client.runtimeClasspath
+    def fixtureRuntime = { sdk ->
+        configurations[sdk.runtimeClasspathConfigurationName].incoming.artifactView {
+            componentFilter { identity ->
+                !(identity instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier
+                        && identity.projectPath in [project.path, ':common', ':netty-transport', ':native-bundle', ':universal-bootstrap']) &&
+                !(identity instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier
+                        && identity.group == 'net.java.dev.jna' && identity.module == 'jna')
+            }
+        }.files
+    }
+    def relocatedFixture = { name, sources, metadata ->
+        def destination = layout.buildDirectory.file("installed-fixtures/${name}.jar")
+        def relocation = tasks.register("relocate${name.capitalize()}", Exec) {
+            dependsOn sources.collect { tasks.named(it.classesTaskName) }
+            inputs.files(sources.collect { it.output.classesDirs })
+            inputs.file(metadata)
+            inputs.files(rootProject.file('../tools/fixture_relocation.py'), rootProject.file('../tools/class_relocation.py'))
+            outputs.file(destination)
+            doFirst {
+                def selected = ['python3', rootProject.file('../tools/fixture_relocation.py'), '--minecraft', '1.20.1']
+                sources.each { source -> source.output.classesDirs.files.sort().each { directory -> selected += ['--classes', directory] } }
+                selected += ['--metadata', metadata, '--output', destination.get().asFile]
+                commandLine selected
+            }
+        }
+        files(destination).builtBy(relocation)
+    }
+    def metadata = layout.projectDirectory.file('src/localGameFixture/resources/fabric.mod.json').asFile
+    def serverJar = externalInstalled ? relocatedFixture('localGameServer', [server], metadata) : null
+    def clientJar = externalInstalled ? relocatedFixture('localGameClient', [server, client], metadata) : null
+    if (externalInstalled) {
+        server.runtimeClasspath = serverJar + fixtureRuntime(sourceSets.main)
+        client.runtimeClasspath = clientJar + fixtureRuntime(sourceSets.client)
+    }
+    loom.mods.register('p2wlan_local_game_test') {
+        if (externalInstalled) modFiles.from(serverJar, clientJar)
+        else { sourceSet server; sourceSet client }
+    }
+    loom.runs.register('localGameServer') {
+        inherit loom.runs.server
+        source server
+        runDir providers.gradleProperty('localGameServerDirectory').get()
+        property 'p2wlan.gameFixture.config', providers.gradleProperty('localGameServerConfig').get()
+        if (externalInstalled) {
+            property 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
+            property 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+        }
+        ideConfigGenerated false
+    }
+    loom.runs.register('localGameClient') {
+        inherit loom.runs.client
+        source client
+        runDir providers.gradleProperty('localGameClientDirectory').get()
+        property 'p2wlan.gameFixture.config', providers.gradleProperty('localGameClientConfig').get()
+        if (externalInstalled) {
+            property 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
+            property 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+        }
+        ideConfigGenerated false
+    }
+}
+
+// The host and guest have disjoint runtime source sets. Shared fixture data is
+// compiled from one source into each test-only mod, not imported across mods.
+if (providers.gradleProperty('integratedGameFixture').isPresent()) {
+    if (!providers.gradleProperty('localGameFixture').isPresent()) {
+        throw new GradleException('INTEGRATED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
+    }
+    def host = sourceSets.create('integratedFixture')
+    host.java.srcDir rootProject.file('adapters/fabric-1.21.1/src/integratedFixture/java')
+    host.java.srcDir rootProject.file('game-api-1.20.1/src/fixture/java')
+    host.java.srcDir rootProject.file('game-1.21.1/src/integratedFixture/java')
+    host.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
+    host.java.srcDir rootProject.file('adapters/fabric-1.21.1/src/fixtureCommon/java')
+    host.compileClasspath += sourceSets.client.output + sourceSets.client.compileClasspath
+    if (externalInstalled) {
+        def destination = layout.buildDirectory.file('installed-fixtures/integratedHost.jar')
+        def relocation = tasks.register('relocateIntegratedHost', Exec) {
+            dependsOn tasks.named(host.classesTaskName)
+            inputs.files(host.output.classesDirs)
+            inputs.file(layout.projectDirectory.file('src/integratedFixture/resources/fabric.mod.json'))
+            inputs.files(rootProject.file('../tools/fixture_relocation.py'), rootProject.file('../tools/class_relocation.py'))
+            outputs.file(destination)
+            doFirst {
+                def selected = ['python3', rootProject.file('../tools/fixture_relocation.py'), '--minecraft', '1.20.1']
+                host.output.classesDirs.files.sort().each { directory -> selected += ['--classes', directory] }
+                selected += ['--metadata', layout.projectDirectory.file('src/integratedFixture/resources/fabric.mod.json').asFile, '--output', destination.get().asFile]
+                commandLine selected
+            }
+        }
+        def runtime = configurations[sourceSets.client.runtimeClasspathConfigurationName].incoming.artifactView {
+            componentFilter { identity ->
+                !(identity instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier
+                        && identity.projectPath in [project.path, ':common', ':netty-transport', ':native-bundle', ':universal-bootstrap']) &&
+                !(identity instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier
+                        && identity.group == 'net.java.dev.jna' && identity.module == 'jna')
+            }
+        }.files
+        def fixtureJar = files(destination).builtBy(relocation)
+        host.runtimeClasspath = fixtureJar + runtime
+        loom.mods.register('p2wlan_integrated_test') { modFiles.from(fixtureJar) }
+    } else {
+        host.runtimeClasspath += sourceSets.client.output + sourceSets.client.runtimeClasspath
+        loom.mods.register('p2wlan_integrated_test') { sourceSet host }
+    }
+    loom.runs.register('integratedHost') {
+        inherit loom.runs.client
+        source host
+        runDir providers.gradleProperty('localGameServerDirectory').get()
+        property 'p2wlan.gameFixture.config', providers.gradleProperty('localGameServerConfig').get()
+        if (externalInstalled) {
+            property 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
+            property 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+        }
+        programArgs '--username', 'IntegratedHost'
+        ideConfigGenerated false
+    }
+    loom.runs.named('localGameClient') {
+        programArgs '--username', 'IntegratedGuest'
+    }
+}
+
+// Loom reads/builds with Java 21; Minecraft 1.20.1 executes on Java 17.
+tasks.withType(net.fabricmc.loom.task.RunGameTask).configureEach {
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(17) })
+}
+tasks.matching { it.name in ['runServer', 'runClient', 'runLocalGameServer', 'runLocalGameClient', 'runIntegratedHost'] }.configureEach {
+    dependsOn tasks.named('verifyModJar')
+}

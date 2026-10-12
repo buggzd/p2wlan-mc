@@ -1,8 +1,11 @@
 plugins { id 'java-library' }
 
+// All loader producers embed the same Java-17 portable bytecode.
+java { toolchain.languageVersion = JavaLanguageVersion.of(17) }
+
 dependencies {
-    api 'com.google.code.gson:gson:2.10.1'
-    implementation 'net.java.dev.jna:jna:5.14.0'
+    api 'com.google.code.gson:gson:2.10'
+    implementation 'net.java.dev.jna:jna:5.12.1'
 }
 
 tasks.withType(JavaCompile).configureEach {

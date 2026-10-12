@@ -12,7 +12,7 @@ public final class LatencyHud {
     public static void render(GuiGraphics draw) {
         var client=Minecraft.getInstance();var settings=ClientDisplaySettings.current();
         var service=GameJoins.playingService(client);
-        if (!settings.hudVisible() || service==null || client.options.hideGui || client.getDebugOverlay().showDebugScreen()) return;
+        if (!settings.hudVisible() || service==null || client.options.hideGui || GameUi.debugVisible(client)) return;
         var lines=TelemetryPresentation.hud(settings,ClientNetworkView.peer(service.peer()),System.nanoTime());
         int viewportWidth=client.getWindow().getGuiScaledWidth(),viewportHeight=client.getWindow().getGuiScaledHeight();
         int width=Math.min(viewportWidth-12,lines.stream().mapToInt(client.font::width).max().orElse(0)+8),height=lines.size()*11+5;

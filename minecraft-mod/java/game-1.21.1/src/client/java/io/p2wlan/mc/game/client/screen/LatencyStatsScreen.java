@@ -2,6 +2,7 @@ package io.p2wlan.mc.game.client.screen;
 
 import io.p2wlan.mc.common.LatencyStatistics;
 import io.p2wlan.mc.common.PeerTelemetry;
+import io.p2wlan.mc.game.client.GameUi;
 import io.p2wlan.mc.game.client.lan.ClientNetworkView;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
@@ -40,6 +41,6 @@ public final class LatencyStatsScreen extends LocalPanelScreen {
         Long[] values=stats==null?new Long[4]:new Long[]{stats.p50Us(),stats.p90Us(),stats.p95Us(),stats.p99Us()};
         for (int i=0;i<4;i++) metric(draw,labels[i],LatencyStatistics.ms(values[i])+" ms",i%2==0?layout.left():layout.right(),layout.row(2+i/2),layout.halfWidth());
         if (mouseX>=layout.left() && mouseX<layout.left()+layout.width() && mouseY>=layout.top() && mouseY<layout.row(3)+24)
-            setTooltipForNextRenderPass(Component.literal(peer==null?"RTT 是 P2WLAN 网络核心测得的路径往返时间。":peer.tooltip(now)));
+            GameUi.tooltip(this, Component.literal(peer==null?"RTT 是 P2WLAN 网络核心测得的路径往返时间。":peer.tooltip(now)));
     }
 }

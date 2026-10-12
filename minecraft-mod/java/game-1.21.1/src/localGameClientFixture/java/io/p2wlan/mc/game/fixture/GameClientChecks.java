@@ -262,7 +262,7 @@ public final class GameClientChecks {
                     if (!(client.screen instanceof net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen multiplayer)) return;
                     var widget=((io.p2wlan.mc.game.client.lan.VanillaLanScreen) multiplayer).p2wlan$list();
                     if (!savedServerInserted) {
-                        var ordinary = new net.minecraft.client.multiplayer.ServerData("Fixture saved server", "127.0.0.1:9", net.minecraft.client.multiplayer.ServerData.Type.OTHER);
+                        var ordinary = GameFixtureApi.savedServer("Fixture saved server", "127.0.0.1:9");
                         multiplayer.getServers().add(ordinary, false); widget.updateOnlineServers(multiplayer.getServers());
                         savedServerInserted = true;
                         data.check(widget.children().stream().anyMatch(net.minecraft.client.gui.screens.multiplayer.ServerSelectionList.OnlineServerEntry.class::isInstance), "VANILLA_SAVED_SERVER_RETAINED");
@@ -273,7 +273,8 @@ public final class GameClientChecks {
                     var entry=selected.get();
                     data.check(widget instanceof io.p2wlan.mc.game.client.lan.VanillaLanList && runtime.equals(entry.service().runtime())
                             && io.p2wlan.mc.game.client.lan.ClientNetworkView.contains(entry.service()),"VANILLA_BROWSER_FENCED_ROW");
-                    data.check(!entry.getNarration().getString().contains(peer) && !entry.getNarration().getString().isBlank(),"HUMAN_SERVER_LABEL");
+                    String narration = ((net.minecraft.client.gui.screens.multiplayer.ServerSelectionList.Entry) entry).getNarration().getString();
+                    data.check(!narration.contains(peer) && !narration.isBlank(),"HUMAN_SERVER_LABEL");
                     widget.setSelected(entry); chosenService = entry.service(); data.advance("BROWSER_JOIN", 10);
                 }
                 case "BROWSER_JOIN" -> {
@@ -315,7 +316,7 @@ public final class GameClientChecks {
                     }
                     if (received == GameFixtureData.ROUNDS && client.player.experienceLevel == received && telemetryConfirmed && hudCaptured) {
                         data.check(client.level.getGameTime() - worldTime >= 350, "WORLD_TICK_PROGRESS");
-                        data.cases.add("sustained_duplex"); client.level.disconnect(); client.disconnect(); client.setScreen(new TitleScreen());
+                        data.cases.add("sustained_duplex"); client.level.disconnect(); GameFixtureApi.disconnect(client); client.setScreen(new TitleScreen());
                         GameJoins.shutdown(); data.advance("DISCONNECT", 15); return;
                     }
                     if (received == sent && client.player.experienceLevel == sent && System.nanoTime() >= nextRound) {

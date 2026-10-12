@@ -110,7 +110,7 @@ public final class ClientNetworkView {
                     observations.roster(RoomPeers.parse(reply, runtime), now);
                     var ordered = new ArrayList<>(observations.pollingPeers());
                     var playing = GameJoins.playingService(client);
-                    if (playing != null && ordered.remove(playing.peer())) ordered.addFirst(playing.peer());
+                    if (playing != null && ordered.remove(playing.peer())) ordered.add(0, playing.peer());
                     cycle = List.copyOf(ordered); index = 0;
                     if (cycle.isEmpty()) nextPoll = now + 1_000_000_000L;
                 }

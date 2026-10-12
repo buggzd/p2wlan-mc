@@ -14,15 +14,19 @@ class UniversalBootstrapTests(unittest.TestCase):
             'p2wlan.dispatch.client.json': ('io.p2wlan.mc.game.mixin', 'ClientMixinPlugin'),
             'p2wlan.dispatch.fabric.json': ('io.p2wlan.mc.fabric.game.server.mixin', 'ServerMixinPlugin'),
             'p2wlan.dispatch.fabric.client.json': ('io.p2wlan.mc.fabric.game.mixin', 'ClientMixinPlugin'),
+            'p2wlan.dispatch.1201.json': ('io.p2wlan.mc.game.v1_20_1.server.mixin', 'ServerMixinPlugin'),
+            'p2wlan.dispatch.1201.client.json': ('io.p2wlan.mc.game.v1_20_1.mixin', 'ClientMixinPlugin'),
+            'p2wlan.dispatch.fabric.1201.json': ('io.p2wlan.mc.fabric.game.v1_20_1.server.mixin', 'ServerMixinPlugin'),
+            'p2wlan.dispatch.fabric.1201.client.json': ('io.p2wlan.mc.fabric.game.v1_20_1.mixin', 'ClientMixinPlugin'),
         }
         resources = MODULE / 'src/main/resources'
         self.assertEqual({path.name for path in resources.glob('*.json')}, set(expected))
         for name, (package, plugin) in expected.items():
             with self.subTest(config=name):
                 self.assertEqual(json.loads((resources / name).read_text()), {
-                    'required': True, 'minVersion': '0.8.7', 'package': package,
+                    'required': True, 'minVersion': '0.8.5', 'package': package,
                     'plugin': 'io.p2wlan.mc.bootstrap.' + plugin,
-                    'compatibilityLevel': 'JAVA_21', 'mixins': [], 'injectors': {'defaultRequire': 1},
+                    'compatibilityLevel': 'JAVA_17', 'mixins': [], 'injectors': {'defaultRequire': 1},
                 })
                 for ordinary in ('io.p2wlan.mc.common', 'io.p2wlan.mc.game.client', 'io.p2wlan.mc.fabric.game.client'):
                     self.assertFalse(ordinary.startswith(package + '.'))

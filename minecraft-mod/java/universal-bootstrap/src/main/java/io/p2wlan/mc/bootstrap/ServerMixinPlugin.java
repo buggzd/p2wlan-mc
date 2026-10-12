@@ -11,21 +11,20 @@ import static io.p2wlan.mc.bootstrap.BootstrapFailure.Code;
 /** Only the selected loader's narrow server package receives its one mixin. */
 public final class ServerMixinPlugin implements IMixinConfigPlugin {
     private final UniversalEnvironment.Selection selection;
-    private UniversalEnvironment.Family family;
+    private UniversalEnvironment.Binding family;
     public ServerMixinPlugin() { this(UniversalEnvironment.current()); }
     public ServerMixinPlugin(UniversalEnvironment.Selection selection) { this.selection = Objects.requireNonNull(selection); }
     @Override public void onLoad(String packageName) {
-        var next = UniversalEnvironment.family(packageName, false);
-        if (family != null && family != next) throw new BootstrapFailure(Code.DISPATCH_CHANGED);
+        var next = UniversalEnvironment.binding(packageName, false);
+        if (family != null && !family.equals(next)) throw new BootstrapFailure(Code.DISPATCH_CHANGED);
         family = next;
     }
-    private UniversalEnvironment.Family binding() {
+    private UniversalEnvironment.Binding binding() {
         if (family == null) throw new BootstrapFailure(Code.DISPATCH_UNBOUND);
         return family;
     }
     @Override public String getRefMapperConfig() {
-        return selection.family() == binding() && selection.loader() == UniversalEnvironment.Loader.FABRIC
-                ? UniversalEnvironment.SERVER_REFMAP : null;
+        return UniversalEnvironment.refmap(selection, binding(), false);
     }
     @Override public List<String> getMixins() { return UniversalEnvironment.serverMixins(selection, binding()); }
     @Override public boolean shouldApplyMixin(String targetClassName, String mixinClassName) { return true; }
