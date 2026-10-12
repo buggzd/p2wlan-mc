@@ -1,4 +1,4 @@
-package io.p2wlan.mc.neoforge.mixin;
+package io.p2wlan.mc.game.server.mixin;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.bootstrap.AbstractBootstrap;

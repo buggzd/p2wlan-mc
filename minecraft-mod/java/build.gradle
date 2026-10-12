@@ -1,7 +1,2 @@
 plugins { id 'base' }
-
-allprojects {
-    group = 'io.p2wlan.mc'
-    version = '0.1.0'
-    repositories { mavenCentral() }
-}
+apply from: 'conventions.gradle'

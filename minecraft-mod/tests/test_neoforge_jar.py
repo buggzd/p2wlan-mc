@@ -67,6 +67,15 @@ config="p2wlan.neoforge.client.mixins.json"
     def check(self, top, development=True):
         return verify.verify(io.BytesIO(jar(top)), development)
 
+    def check_portable(self, top, loader):
+        with zipfile.ZipFile(io.BytesIO(jar(top))) as archive:
+            return verify.portable(archive, '0.1.0', True, loader)
+
+    @staticmethod
+    def nested(top, component):
+        with zipfile.ZipFile(io.BytesIO(top[f'META-INF/jarjar/{component}.jar'])) as archive:
+            return {name: archive.read(name) for name in archive.namelist()}
+
     def test_complete_and_development_opt_in(self):
         top = self.fixture()
         self.assertEqual(self.check(top)[0]['verification-platform'], 'macos-aarch64')
@@ -134,6 +143,63 @@ config="p2wlan.neoforge.client.mixins.json"
         with self.assertRaisesRegex(verify.VerificationError, 'neoforge_duplicate_bootstrap_jna'): self.check(top)
         top = self.fixture(); top['io/p2wlan/mc/neoforge/fixture/ServerBootFixture.class'] = bytecode(65)
         with self.assertRaisesRegex(verify.VerificationError, 'neoforge_test_fixture_in_artifact'): self.check(top)
+
+    def test_portable_classes_have_one_component_owner_for_both_loaders(self):
+        common = 'io/p2wlan/mc/common/WorldHost$Target.class'
+        transport = verify.TRANSPORT[-1]
+        for loader in ('neoforge', 'forge'):
+            self.assertEqual(self.check_portable(self.fixture(), loader)[0]['verification-platform'], 'macos-aarch64')
+            for member in (common, transport, 'META-INF/versions/21/' + common, 'META-INF/versions/21/' + transport):
+                with self.subTest(loader=loader, component='top', member=member):
+                    top = self.fixture(); top[member] = bytecode(61)
+                    with self.assertRaisesRegex(verify.VerificationError, loader + '_jarjar_class_owner'):
+                        self.check_portable(top, loader)
+            for component, member in (('common', transport), ('transport', common),
+                                      ('common', 'rogue/Bootstrap.class'), ('transport', 'rogue/Bootstrap.class'),
+                                      ('common', 'META-INF/versions/21/' + transport),
+                                      ('transport', 'META-INF/versions/21/' + common)):
+                with self.subTest(loader=loader, component=component, member=member):
+                    top = self.fixture(); values = self.nested(top, component)
+                    top[f'META-INF/jarjar/{component}.jar'] = jar(values | {member: bytecode(61)})
+                    with self.assertRaisesRegex(verify.VerificationError, loader + '_jarjar_class_owner'):
+                        self.check_portable(top, loader)
+            for component, member in (('common', common), ('transport', transport)):
+                # A versioned class within its existing owner is still local
+                # to that component; the forbidden case is a second owner.
+                top = self.fixture(); values = self.nested(top, component)
+                top[f'META-INF/jarjar/{component}.jar'] = jar(values | {'META-INF/versions/21/' + member: bytecode(61)})
+                self.assertEqual(self.check_portable(top, loader)[0]['verification-platform'], 'macos-aarch64')
+            for member in (common, transport, 'rogue/Bootstrap.class', 'module-info.class'):
+                with self.subTest(loader=loader, component='native', member=member):
+                    top = self.fixture(); values = self.nested(top, 'native')
+                    top['META-INF/jarjar/native.jar'] = jar(values | {member: bytecode(61)})
+                    with self.assertRaisesRegex(verify.VerificationError, loader + '_native_module_classes'):
+                        self.check_portable(top, loader)
+
+    def test_native_payload_belongs_only_to_the_named_resource_module(self):
+        for loader in ('neoforge', 'forge'):
+            for component in ('top', 'common', 'transport'):
+                for relocate in (False, True):
+                    for prefix in ('', 'META-INF/versions/21/'):
+                        with self.subTest(loader=loader, component=component, relocate=relocate, prefix=prefix):
+                            top = self.fixture(); native = self.nested(top, 'native')
+                            payload = {name: value for name, value in native.items() if name.startswith('p2wlan/native/')}
+                            if relocate:
+                                top['META-INF/jarjar/native.jar'] = jar({name: value for name, value in native.items() if name not in payload})
+                            payload = {prefix + name: value for name, value in payload.items()}
+                            if component == 'top':
+                                top.update(payload)
+                            else:
+                                top[f'META-INF/jarjar/{component}.jar'] = jar(self.nested(top, component) | payload)
+                            with self.assertRaisesRegex(verify.VerificationError, loader + '_native_resource_owner'):
+                                self.check_portable(top, loader)
+            # Native checksums bind the canonical entries. Runtime-selected
+            # versioned copies must not shadow those source-checked bytes.
+            top = self.fixture(); native = self.nested(top, 'native')
+            versioned = {'META-INF/versions/21/' + name: value for name, value in native.items() if name.startswith('p2wlan/native/')}
+            top['META-INF/jarjar/native.jar'] = jar(native | versioned)
+            with self.assertRaisesRegex(verify.VerificationError, 'mod_native_resource_unexpected'):
+                self.check_portable(top, loader)
 
 
 if __name__ == '__main__':

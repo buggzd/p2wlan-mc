@@ -185,3 +185,11 @@ tasks.register('worldSessionsTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.common.WorldSessionsTests'
 }
 check.dependsOn worldSessionsTest
+
+// Local/module read policy; loader-specific NIO edges remain separately tested.
+tasks.register('layerNativeResourcesTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.LayerNativeResourcesTests'
+}
+check.dependsOn layerNativeResourcesTest

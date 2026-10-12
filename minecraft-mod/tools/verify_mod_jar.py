@@ -16,11 +16,11 @@ COMMON = "io/p2wlan/mc/common/BundledAgent.class"
 TRANSPORT = tuple(f"io/p2wlan/mc/transport/{name}.class" for name in
                   ("LoopbackBind", "LoopbackAdmission", "ProxyPrelude", "ScopedClientConnect"))
 WORLD_COMMANDS = "io/p2wlan/mc/game/server/WorldCommands.class"
-SERVER_MIXIN = "io/p2wlan/mc/fabric/mixin/ServerNetworkIoMixin.class"
-MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.fabric.mixin", "compatibilityLevel": "JAVA_21",
-                "mixins": ["ServerNetworkIoMixin"], "injectors": {"defaultRequire": 1},
+SERVER_MIXIN = "io/p2wlan/mc/game/server/mixin/ServerConnectionMixin.class"
+MIXIN_CONFIG = {"required": True, "package": "io.p2wlan.mc.game.server.mixin", "compatibilityLevel": "JAVA_21",
+                "mixins": ["ServerConnectionMixin"], "injectors": {"defaultRequire": 1},
                 "refmap": "p2wlan-fabric-1.21.1-refmap.json"}
-BIND_MAPPING = {"io/p2wlan/mc/fabric/mixin/ServerNetworkIoMixin": {"startTcpServerListener": "Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V"}}
+BIND_MAPPING = {"io/p2wlan/mc/game/server/mixin/ServerConnectionMixin": {"startTcpServerListener": "Lnet/minecraft/class_3242;method_14354(Ljava/net/InetAddress;I)V"}}
 REFMAP = {"mappings": BIND_MAPPING, "data": {"named:intermediary": BIND_MAPPING}}
 CLIENT_MIXIN = "io/p2wlan/mc/game/mixin/ClientConnectionMixin.class"
 INTEGRATED_MIXIN = "io/p2wlan/mc/game/mixin/IntegratedServerMixin.class"
