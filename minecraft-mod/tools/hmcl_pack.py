@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import hashlib
 import io
 import json
@@ -11,10 +12,13 @@ from pathlib import Path
 import stat
 import subprocess
 import tempfile
+from types import MappingProxyType
 import zipfile
 
 from artifact_checks import MAX_BINARY, PLATFORMS, VerificationError, bind_sources, entries, metadata, read
 from verify_mod_jar import verify as verify_mod
+from verify_neoforge_jar import verify as verify_neoforge
+from verify_forge_jar import verify as verify_forge
 
 MINECRAFT = "1.21.1"
 LOADER = "0.16.14"
@@ -29,7 +33,57 @@ MOD = f"overrides/mods/p2wlan-fabric-{MINECRAFT}-{VERSION}.jar"
 API = f"overrides/mods/fabric-api-{API_VERSION}.jar"
 GUIDE = "P2WLAN-安装说明.txt"
 INDEX = "P2WLAN-PACK.json"
-PAYLOADS = {"manifest.json", MOD, API, GUIDE, "overrides/" + GUIDE}
+
+
+@dataclass(frozen=True)
+class LoaderProfile:
+    minecraft: str
+    loader: str
+    name: str
+    version: str
+    api_version: str | None = None
+    api_sha256: str | None = None
+
+    @property
+    def mod_path(self):
+        return f"overrides/mods/p2wlan-{self.loader}-{self.minecraft}-{VERSION}.jar"
+
+    @property
+    def api_path(self):
+        return f"overrides/mods/fabric-api-{self.api_version}.jar" if self.api_version else None
+
+
+# Only audited source-defined combinations are admitted. A later game version
+# needs its own pins and archive contract; callers cannot supply checksums or
+# verification functions. The networking/native implementation remains shared.
+PROFILES = MappingProxyType({
+    (MINECRAFT, "fabric"): LoaderProfile(MINECRAFT, "fabric", "Fabric", LOADER, API_VERSION, API_SHA256),
+    (MINECRAFT, "neoforge"): LoaderProfile(MINECRAFT, "neoforge", "NeoForge", "21.1.256"),
+    (MINECRAFT, "forge"): LoaderProfile(MINECRAFT, "forge", "Forge", "52.1.16"),
+})
+VERIFIERS = MappingProxyType({
+    (MINECRAFT, "fabric"): verify_mod,
+    (MINECRAFT, "neoforge"): verify_neoforge,
+    (MINECRAFT, "forge"): verify_forge,
+})
+
+
+def profile(loader="fabric"):
+    if not isinstance(loader, str) or (MINECRAFT, loader) not in PROFILES:
+        raise VerificationError("pack_loader_unsupported")
+    return PROFILES[MINECRAFT, loader]
+
+
+def payload_names(loader="fabric"):
+    selected = profile(loader)
+    names = {"manifest.json", selected.mod_path, GUIDE, "overrides/" + GUIDE}
+    if selected.api_path:
+        names.add(selected.api_path)
+    return frozenset(names)
+
+
+# Existing Python callers retain the Fabric defaults.
+PAYLOADS = payload_names()
 NAMES = PAYLOADS | {INDEX}
 
 
@@ -41,28 +95,33 @@ def encoded(value):
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
 
 
-def launcher_manifest(platform):
+def launcher_manifest(platform, loader="fabric"):
     if not isinstance(platform, str) or platform not in PLATFORMS:
         raise VerificationError("pack_platform_unsupported")
+    selected = profile(loader)
     return {"manifestType": "minecraftModpack", "manifestVersion": 1,
-            "name": f"P2WLAN Fabric {MINECRAFT} ({platform})", "version": VERSION,
-            "author": "P2WLAN", "minecraft": {"version": MINECRAFT,
-                "modLoaders": [{"id": "fabric-" + LOADER, "primary": True}]},
+            "name": f"P2WLAN {selected.name} {selected.minecraft} ({platform})", "version": VERSION,
+            "author": "P2WLAN", "minecraft": {"version": selected.minecraft,
+                "modLoaders": [{"id": selected.loader + "-" + selected.version, "primary": True}]},
             "files": [], "overrides": "overrides"}
 
 
-def guide(platform):
-    launcher_manifest(platform)
+def guide(platform, loader="fabric"):
+    launcher_manifest(platform, loader)
+    selected = profile(loader)
+    label = "Fabric Loader" if loader == "fabric" else selected.name
+    dependencies = f" / Fabric API {selected.api_version}" if selected.api_version else ""
     return (f"P2WLAN 实验整合包 — {platform}\r\n"
-            f"Minecraft {MINECRAFT} / Fabric Loader {LOADER} / Fabric API {API_VERSION}\r\n"
-            "实机验证范围：macOS Apple Silicon 本机离线认证专服；Windows/HMCL 与跨机器联机待验证。\r\n"
+            f"Minecraft {selected.minecraft} / {label} {selected.version}{dependencies}\r\n"
+            "实机验证范围：macOS Apple Silicon 本机离线认证专服及内置世界；Windows/HMCL 与跨机器联机待验证。\r\n"
             "1. 在 HMCL 的整合包安装入口选择本 ZIP，不要把 ZIP 放进 mods 文件夹。\r\n"
             "2. 使用独立游戏实例、64 位操作系统和 64 位 Java 21。\r\n"
             "Windows 目标是 x86-64（Intel/AMD 64 位），实例及临时目录须放在本地 NTFS；不支持 32 位 Java/Windows。\r\n"
             "3. 使用自己的游戏账号启动；包内不含游戏本体、Java、账号或凭据。\r\n"
             "4. 点击菜单按钮旁的方形局域网像素图标打开 P2WLAN，首次填写 Control 地址并登录或注册；以后保留登录会话和地址。\r\n"
             "5. 加入或创建房间后，点击房间名称连接虚拟局域网。\r\n"
-            "6. 返回 Minecraft 多人游戏，选择带 P2WLAN 标记的服务器进入。\r\n"
+            "6. 房主进入单人世界，在暂停菜单的 P2WLAN 面板点击“共享本地世界”；停止时点击“停止共享”。\r\n"
+            "朋友连接同一房间后，返回 Minecraft 多人游戏，选择带 P2WLAN 标记的服务器进入。\r\n"
             "退出游戏世界不会断开房间；要断开，请在 P2WLAN 面板点击“断开房间”。\r\n"
             "面板的“显示设置”可开启游戏浮层（默认关闭），选择基础/详细/高级与显示位置。\r\n"
             "“延迟统计”显示最近 60 秒（最多 256 个成功 RTT 样本）的 Min/Avg/Max 与 P50/P90/P95/P99。\r\n"
@@ -74,24 +133,32 @@ def guide(platform):
             "P2WLAN-PACK.json 记录构建身份、执行核验方式、文件大小和 SHA-256；wine-build-info 表示在 Wine 中执行构建身份核验。\r\n").encode("utf-8")
 
 
-def verify_api(value):
-    if not 0 < len(value) <= MAX_API or checksum(value) != API_SHA256:
+def verify_api(value, loader="fabric"):
+    selected = profile(loader)
+    if selected.api_version is None:
+        if value is not None:
+            raise VerificationError("pack_fabric_api_unexpected")
+        return
+    if not isinstance(value, (bytes, bytearray)) or not 0 < len(value) <= MAX_API or checksum(value) != selected.api_sha256:
         raise VerificationError("pack_fabric_api_checksum")
     with zipfile.ZipFile(io.BytesIO(value)) as archive:
         entries(archive)
         info = metadata(archive)
-        if info.get("id") != "fabric-api" or info.get("version") != API_VERSION:
+        if info.get("id") != "fabric-api" or info.get("version") != selected.api_version:
             raise VerificationError("pack_fabric_api_contract")
 
 
-def native_info(value, platform):
-    launcher_manifest(platform)
-    natives = verify_mod(io.BytesIO(value))  # Release-only, including nested native hashes.
+def native_info(value, platform, loader="fabric"):
+    launcher_manifest(platform, loader)
+    selected = profile(loader)
+    # Every verifier requires the complete installed archive, including nested
+    # portable/native payloads. A Forge slim/source JAR cannot satisfy it.
+    natives = VERIFIERS[selected.minecraft, selected.loader](io.BytesIO(value), False)
     bind_sources(natives, False)
     if platform not in {item["verification-platform"] for item in natives}:
         raise VerificationError("pack_target_native_missing")
-    return {"schema": 1, "format": "curseforge-zip", "minecraft": MINECRAFT,
-            "loader": {"id": "fabric", "version": LOADER}, "mod_version": VERSION,
+    return {"schema": 1, "format": "curseforge-zip", "minecraft": selected.minecraft,
+            "loader": {"id": selected.loader, "version": selected.version}, "mod_version": VERSION,
             "platform": platform, "source_revision": natives[0]["source-revision"],
             "native_source_sha256": natives[0]["source-sha256"],
             "native_targets": sorted(item["verification-platform"] for item in natives),
@@ -100,20 +167,23 @@ def native_info(value, platform):
             "verification": "archive-structure/source-binding"}
 
 
-def file_records(payloads):
+def file_records(payloads, loader="fabric"):
     return [{"path": name, "size": len(payloads[name]), "sha256": checksum(payloads[name])}
-            for name in sorted(PAYLOADS)]
+            for name in sorted(payload_names(loader))]
 
 
-def build_bytes(mod, api, platform):
+def build_bytes(mod, api, platform, loader="fabric"):
+    selected = profile(loader)
     if not 0 < len(mod) <= MAX_BINARY:
         raise VerificationError("pack_mod_size")
-    info = native_info(mod, platform)
-    verify_api(api)
-    instructions = guide(platform)
-    payloads = {"manifest.json": encoded(launcher_manifest(platform)), MOD: mod, API: api,
+    info = native_info(mod, platform, loader)
+    verify_api(api, loader)
+    instructions = guide(platform, loader)
+    payloads = {"manifest.json": encoded(launcher_manifest(platform, loader)), selected.mod_path: mod,
                 GUIDE: instructions, "overrides/" + GUIDE: instructions}
-    payloads[INDEX] = encoded(info | {"files": file_records(payloads)})
+    if selected.api_path:
+        payloads[selected.api_path] = api
+    payloads[INDEX] = encoded(info | {"files": file_records(payloads, loader)})
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for name in sorted(payloads):
@@ -127,33 +197,46 @@ def build_bytes(mod, api, platform):
         raise VerificationError("pack_archive_size")
     # Re-read exactly the bytes that will be published, and recheck HEAD and
     # source digest after construction. A source change cannot keep stale proof.
-    verify_zip(io.BytesIO(value), platform)
+    verify_zip(io.BytesIO(value), platform, loader)
     return value
 
 
-def verify_zip(source, expected_platform=None):
+def verify_zip(source, expected_platform=None, expected_loader=None):
     with zipfile.ZipFile(source) as archive:
-        if entries(archive) != NAMES or sum(item.file_size for item in archive.infolist()) > MAX_PACK:
+        names = entries(archive)
+        if INDEX not in names or sum(item.file_size for item in archive.infolist()) > MAX_PACK:
             raise VerificationError("pack_archive_layout")
         if any(item.is_dir() or item.flag_bits & 1
                or item.external_attr >> 16 & 0o170000 not in {0, stat.S_IFREG}
                for item in archive.infolist()):
             raise VerificationError("pack_archive_file_type")
         index = metadata(archive, INDEX)
+        loader_info = index.get("loader")
+        if not isinstance(loader_info, dict) or set(loader_info) != {"id", "version"}:
+            raise VerificationError("pack_metadata_mismatch")
+        loader = loader_info["id"]
+        selected = profile(loader)
+        if loader_info["version"] != selected.version or index.get("minecraft") != selected.minecraft:
+            raise VerificationError("pack_metadata_mismatch")
+        if expected_loader is not None and selected != profile(expected_loader):
+            raise VerificationError("pack_loader_mismatch")
+        admitted = payload_names(loader)
+        if names != admitted | {INDEX}:
+            raise VerificationError("pack_archive_layout")
         platform = index.get("platform")
-        launcher_manifest(platform)
+        launcher_manifest(platform, loader)
         if expected_platform is not None and platform != expected_platform:
             raise VerificationError("pack_target_mismatch")
-        payloads = {name: read(archive, name, MAX_BINARY if name == MOD else MAX_API if name == API else 65536)
-                    for name in PAYLOADS}
-        expected = native_info(payloads[MOD], platform) | {"files": file_records(payloads)}
+        payloads = {name: read(archive, name, MAX_BINARY if name == selected.mod_path else MAX_API if name == selected.api_path else 65536)
+                    for name in admitted}
+        expected = native_info(payloads[selected.mod_path], platform, loader) | {"files": file_records(payloads, loader)}
         # JSON booleans and floats must not masquerade as integer schema/size.
         if encoded(index) != encoded(expected):
             raise VerificationError("pack_metadata_mismatch")
-        verify_api(payloads[API])
-        if payloads["manifest.json"] != encoded(launcher_manifest(platform)):
+        verify_api(payloads[selected.api_path] if selected.api_path else None, loader)
+        if payloads["manifest.json"] != encoded(launcher_manifest(platform, loader)):
             raise VerificationError("pack_launcher_manifest")
-        if payloads[GUIDE] != guide(platform) or payloads["overrides/" + GUIDE] != payloads[GUIDE]:
+        if payloads[GUIDE] != guide(platform, loader) or payloads["overrides/" + GUIDE] != payloads[GUIDE]:
             raise VerificationError("pack_install_guide")
         return expected
 
@@ -211,23 +294,28 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     build = commands.add_parser("build")
     build.add_argument("--mod", type=Path, required=True)
-    build.add_argument("--fabric-api", type=Path, required=True)
+    build.add_argument("--fabric-api", type=Path)
+    build.add_argument("--loader", choices=("fabric", "neoforge", "forge"), default="fabric")
     build.add_argument("--platform", choices=sorted(PLATFORMS), required=True)
     build.add_argument("--output", type=Path, required=True)
     verify = commands.add_parser("verify")
     verify.add_argument("archive", type=Path)
+    verify.add_argument("--loader", choices=("fabric", "neoforge", "forge"), default="fabric")
     verify.add_argument("--platform", choices=sorted(PLATFORMS), required=True)
     args = parser.parse_args()
+    if args.command == "build" and (args.loader == "fabric") != (args.fabric_api is not None):
+        parser.error("--fabric-api is required only for Fabric packs")
     try:
         if args.command == "build":
-            value = build_bytes(regular_bytes(args.mod, MAX_BINARY), regular_bytes(args.fabric_api, MAX_API), args.platform)
+            api = regular_bytes(args.fabric_api, MAX_API) if args.fabric_api is not None else None
+            value = build_bytes(regular_bytes(args.mod, MAX_BINARY), api, args.platform, args.loader)
             publish(args.output, value)
         else:
             value = regular_bytes(args.archive, MAX_PACK)
-        info = verify_zip(io.BytesIO(value), args.platform)
+        info = verify_zip(io.BytesIO(value), args.platform, args.loader)
     except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, subprocess.SubprocessError) as error:
         parser.exit(1, f"HMCL pack failed: {str(error) if isinstance(error, VerificationError) else 'PACK_IO'}\n")
-    print("PASS HMCL ZIP structure/source binding: " + args.platform)
+    print("PASS HMCL ZIP structure/source binding: " + args.loader + " / " + args.platform)
     print(json.dumps(info | {"artifact_sha256": checksum(value)}, ensure_ascii=False, sort_keys=True))
 
 

@@ -99,6 +99,22 @@ tasks.register('verifyModJar', Exec) {
     }
 }
 check.dependsOn verifyModJar
+tasks.register('buildHmclPack', Exec) {
+    dependsOn tasks.named('verifyModJar')
+    doFirst {
+        def platform = providers.gradleProperty('hmclPlatform').getOrElse('')
+        if (!(platform in ['macos-aarch64', 'macos-x86_64', 'linux-aarch64', 'linux-x86_64', 'windows-x86_64'])) {
+            throw new GradleException('Specify -PhmclPlatform with an exact native target')
+        }
+        if (developmentEnabled) throw new GradleException('HMCL packs require release native resources')
+        def output = layout.buildDirectory.dir('distributions').get().asFile
+        output.mkdirs()
+        commandLine 'python3', rootProject.file('../../tools/hmcl_pack.py'), 'build',
+                '--loader', 'forge', '--mod', tasks.named('jarJar').get().archiveFile.get().asFile,
+                '--platform', platform,
+                '--output', new File(output, "p2wlan-hmcl-forge-1.21.1-${platform}-${project.version}.zip")
+    }
+}
 tasks.matching { it.name in ['runServer', 'runClient'] }.configureEach {
     dependsOn tasks.named('verifyModJar')
 }

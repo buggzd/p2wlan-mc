@@ -2,6 +2,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -71,6 +72,27 @@ class JavaToolTests(unittest.TestCase):
             self.assertIn(":common:windowsNativeFilesystemTest", command)
             self.assertIn("--offline", command)
             self.assertFalse(any("fabric" in item or "runClient" in item or "runServer" in item for item in command))
+
+    def test_multiloader_hmcl_routes_keep_the_correct_build_and_target(self):
+        target = '-PhmclPlatform=windows-x86_64'
+        for loader in ('neoforge', 'forge'):
+            with self.subTest(loader=loader), patch('sys.argv', ['java.py', loader + '-hmcl-pack', target, '--offline']), \
+                    patch.object(java.subprocess, 'check_output', return_value='/fixture/jdk21\n'), \
+                    patch.dict('sys.modules', {'forge_gradle': SimpleNamespace(command=lambda env: ['/fixture/java21', '-jar', '/fixture/gradle9.jar'])}), \
+                    patch.object(java.subprocess, 'call', return_value=0) as run:
+                self.assertEqual(java.main(), 0)
+                command = run.call_args.args[0]
+                self.assertIn(':' + loader + ':buildHmclPack', command)
+                self.assertIn(target, command)
+                self.assertIn('--offline', command)
+                self.assertFalse(any('runClient' in item or 'runServer' in item for item in command))
+                self.assertNotIn('-PfabricAdapter', command)
+                if loader == 'forge':
+                    self.assertEqual(command[:3], ['/fixture/java21', '-jar', '/fixture/gradle9.jar'])
+                    self.assertEqual(run.call_args.kwargs['cwd'], PROJECT / 'java/forge')
+                else:
+                    self.assertIn('-PneoforgeAdapter', command)
+                    self.assertEqual(run.call_args.kwargs['cwd'], PROJECT / 'java')
 
     def test_account_commands_do_not_configure_or_launch_minecraft(self):
         for command, expected in (("account-test", ":account-cli:accountTest"),

@@ -34,7 +34,7 @@ def probe_artifacts(messages):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client", "neoforge-build", "neoforge-server", "neoforge-client", "forge-build", "forge-server", "forge-client", "account-test", "account-build", "hmcl-pack", "windows-native-test"))
+    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client", "neoforge-build", "neoforge-server", "neoforge-client", "neoforge-hmcl-pack", "forge-build", "forge-server", "forge-client", "forge-hmcl-pack", "account-test", "account-build", "hmcl-pack", "windows-native-test"))
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     wrapper = PROJECT / "java" / ("gradlew.bat" if sys.platform == "win32" else "gradlew")
@@ -45,7 +45,7 @@ def main():
     if sys.platform == "darwin":
         selected = subprocess.check_output(["/usr/libexec/java_home", "-v", "21"], text=True).strip()
         env["JAVA_HOME"] = selected
-    tasks = {"neoforge-client": ["-PneoforgeAdapter", ":neoforge:verifyModJar", ":neoforge:runClient"], "neoforge-build": ["-PneoforgeAdapter", ":neoforge:build"], "neoforge-server": ["-PneoforgeAdapter", ":neoforge:verifyModJar", ":neoforge:runServer"], "windows-native-test": [":common:windowsNativePolicyTest", ":common:windowsNativeFilesystemTest"], "hmcl-pack": ["-PfabricAdapter", ":fabric:buildHmclPack"], "account-test": [":account-cli:accountTest"], "account-build": [":account-cli:check", ":account-cli:verifyAccountDistribution"], "test": [":netty-transport:check", ":common:layerNativeResourcesTest", ":common:worldSessionsTest", ":common:protocolTest", ":common:modDiagnosticsTest", ":common:worldGuardTest", ":common:nativeBundleTest", ":common:windowsNativePolicyTest", ":common:agentLifecycleTest", ":common:accountCatalogTest", ":common:controlTransportTest", ":common:screenPresentationTest", ":common:displaySettingsTest", ":common:networkCatalogTest", ":common:scheduledTaskTest", ":account-cli:accountTest"], "fabric-build": ["-PfabricAdapter", ":fabric:build"], "fabric-server": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runServer"], "fabric-client": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runClient"], "bundle-test": [":common:bundledAgentTest", ":common:bundledLifecycleTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
+    tasks = {"neoforge-hmcl-pack": ["-PneoforgeAdapter", ":neoforge:buildHmclPack"], "neoforge-client": ["-PneoforgeAdapter", ":neoforge:verifyModJar", ":neoforge:runClient"], "neoforge-build": ["-PneoforgeAdapter", ":neoforge:build"], "neoforge-server": ["-PneoforgeAdapter", ":neoforge:verifyModJar", ":neoforge:runServer"], "windows-native-test": [":common:windowsNativePolicyTest", ":common:windowsNativeFilesystemTest"], "hmcl-pack": ["-PfabricAdapter", ":fabric:buildHmclPack"], "account-test": [":account-cli:accountTest"], "account-build": [":account-cli:check", ":account-cli:verifyAccountDistribution"], "test": [":netty-transport:check", ":common:layerNativeResourcesTest", ":common:worldSessionsTest", ":common:protocolTest", ":common:modDiagnosticsTest", ":common:worldGuardTest", ":common:nativeBundleTest", ":common:windowsNativePolicyTest", ":common:agentLifecycleTest", ":common:accountCatalogTest", ":common:controlTransportTest", ":common:screenPresentationTest", ":common:displaySettingsTest", ":common:networkCatalogTest", ":common:scheduledTaskTest", ":account-cli:accountTest"], "fabric-build": ["-PfabricAdapter", ":fabric:build"], "fabric-server": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runServer"], "fabric-client": ["-PfabricAdapter", ":fabric:verifyModJar", ":fabric:runClient"], "bundle-test": [":common:bundledAgentTest", ":common:bundledLifecycleTest"], "build": ["build"], "wrapper": ["wrapper", "--gradle-version", "8.14", "--distribution-type", "bin"]}
     if args.command == "interop":
         from native import build_command, prepare
         prepare()
@@ -63,7 +63,7 @@ def main():
                             "-PworldGuardProbe=" + binaries["world_guard_probe"]]
     if args.command.startswith("forge-"):
         from forge_gradle import command
-        selected = {"forge-build": [":forge:build"], "forge-server": [":forge:verifyModJar", ":forge:runServer"],
+        selected = {"forge-hmcl-pack": [":forge:buildHmclPack"], "forge-build": [":forge:build"], "forge-server": [":forge:verifyModJar", ":forge:runServer"],
                     "forge-client": [":forge:verifyModJar", ":forge:runClient"]}[args.command]
         try:
             return subprocess.call([*command(env), "--no-daemon", *selected, *args.args], cwd=PROJECT / "java/forge", env=env)

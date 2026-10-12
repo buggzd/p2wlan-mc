@@ -729,9 +729,10 @@ verification targets.
 ## HMCL ZIP packaging
 
 `tools/hmcl_pack.py` creates a CurseForge-format ZIP recognized by HMCL. Its
-`manifest.json` pins Minecraft 1.21.1 and Fabric Loader 0.16.14; `overrides/mods`
-contains only the checked P2WLAN Mod and the exact Fabric API 0.116.7+1.21.1 Maven
-artifact. A short UTF-8 Chinese installation guide is included both outside and
+`manifest.json` pins Minecraft 1.21.1 and the selected loader: Fabric 0.16.14,
+NeoForge 21.1.256 or Forge 52.1.16. `overrides/mods` contains the checked final
+P2WLAN Mod for that loader; only Fabric also includes the exact Fabric API
+0.116.7+1.21.1 Maven artifact. A short UTF-8 Chinese installation guide is included both outside and
 inside `overrides`. The game, Java, launcher accounts, server addresses, private
 profiles, logs, worlds and EULA files are not copied into the pack. The launcher
 obtains the game and loader; the player uses their own account and Java 21.
@@ -741,11 +742,15 @@ root, choose a native target actually present in the verified Mod:
 
 ```sh
 python3 minecraft-mod/tools/java.py hmcl-pack -PhmclPlatform=windows-x86_64
+python3 minecraft-mod/tools/java.py neoforge-hmcl-pack -PhmclPlatform=windows-x86_64
+python3 minecraft-mod/tools/java.py forge-hmcl-pack -PhmclPlatform=windows-x86_64
 ```
 
-The task verifies the release Mod before packaging, resolves the original API jar
-through Gradle, and checks its fixed SHA-256. It writes
-`minecraft-mod/java/adapters/fabric-1.21.1/build/distributions/p2wlan-hmcl-fabric-1.21.1-windows-x86_64-0.1.0.zip`.
+Choose the corresponding command for the selected loader. Each task verifies
+the release Mod before packaging; Fabric additionally resolves the original API
+jar through Gradle and checks its fixed SHA-256. Outputs are under each adapter's
+`build/distributions/`, such as
+`minecraft-mod/java/adapters/forge-1.21.1/build/distributions/p2wlan-hmcl-forge-1.21.1-windows-x86_64-0.1.0.zip`.
 A missing Windows resource, development native, changed source binding or wrong
 API artifact fails the task; a Mac-only jar cannot produce a Windows-target pack.
 The same explicit property selects any other recognized target present in the
@@ -755,6 +760,8 @@ Verify that exact pack independently, from the same clean checkout:
 
 ```sh
 python3 minecraft-mod/tools/hmcl_pack.py verify minecraft-mod/java/adapters/fabric-1.21.1/build/distributions/p2wlan-hmcl-fabric-1.21.1-windows-x86_64-0.1.0.zip --platform windows-x86_64
+python3 minecraft-mod/tools/hmcl_pack.py verify minecraft-mod/java/adapters/neoforge-1.21.1/build/distributions/p2wlan-hmcl-neoforge-1.21.1-windows-x86_64-0.1.0.zip --platform windows-x86_64 --loader neoforge
+python3 minecraft-mod/tools/hmcl_pack.py verify minecraft-mod/java/adapters/forge-1.21.1/build/distributions/p2wlan-hmcl-forge-1.21.1-windows-x86_64-0.1.0.zip --platform windows-x86_64 --loader forge
 ```
 
 `P2WLAN-PACK.json` binds the source revision, native input digest, target and each
