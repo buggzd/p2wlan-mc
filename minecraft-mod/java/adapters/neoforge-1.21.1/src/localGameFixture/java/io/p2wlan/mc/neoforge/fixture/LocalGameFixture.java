@@ -17,6 +17,7 @@ import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 public final class LocalGameFixture {
     public LocalGameFixture() {
         if(FMLEnvironment.dist!=Dist.DEDICATED_SERVER) return;
+        InstalledArchiveChecks.verify();
         var checks=new GameServerChecks(NeoForgeP2wlan.AGENT,NeoForgeP2wlan::world,NeoForgeP2wlan::shutdownWorlds);
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event)->checks.commands(event.getDispatcher()));
         NeoForge.EVENT_BUS.addListener((ServerStartedEvent event)->checks.started());

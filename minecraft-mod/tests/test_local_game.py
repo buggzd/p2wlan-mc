@@ -6,11 +6,12 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / "tools"))
-from local_game import wait_game, game_environment, java_directory, CASES, CHECKS, INTEGRATED_SERVER_CASES, ROUNDS, archive_sha256, bounded_json, gradle_command, install_archive, main, server_settings, verify_ready, verify_result
+from local_game import wait_game, game_environment, java_directory, CASES, CHECKS, INTEGRATED_SERVER_CASES, ROUNDS, archive_sha256, bounded_json, external_archive, gradle_command, install_archive, main, prepare, prepare_seed_binary, server_settings, verify_ready, verify_result
 
 
 class LocalGameContractTests(unittest.TestCase):
@@ -97,11 +98,11 @@ class LocalGameContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_INVALID$'):
             archive_sha256(self.path)
         self.path.write_bytes(b'123456789')
-        with patch('local_game.MAX_BINARY', 8), self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_INVALID$'):
+        with patch('local_game.MAX_INSTALLED_ARCHIVE', 8), self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_INVALID$'):
             archive_sha256(self.path)
         # A file that grows after its stat still cannot exceed the read budget.
         self.path.write_bytes(b'12345678')
-        with patch('local_game.MAX_BINARY', 8), patch('local_game.Path.open', return_value=io.BytesIO(b'123456789')), \
+        with patch('local_game.MAX_INSTALLED_ARCHIVE', 8), patch('local_game.Path.open', return_value=io.BytesIO(b'123456789')), \
                 self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_INVALID$'):
             archive_sha256(self.path)
 
@@ -185,6 +186,74 @@ class LocalGameContractTests(unittest.TestCase):
         for loader in ('fabric', 'neoforge'):
             with self.subTest(loader=loader), self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_LOADER$'):
                 gradle_command(self.root, [f':{loader}:runLocalGameClient'], True, True, loader, installed=True)
+
+    def test_external_same_archive_runs_each_loader_with_exact_role_copy(self):
+        archive = self.installed_source()
+        captured = install_archive(self.root, archive, archive.read_bytes())
+        for loader in ('fabric', 'neoforge', 'forge'):
+            for role, task in (('server', 'runLocalGameServer'), ('client', 'runLocalGameClient'), ('server', 'runIntegratedHost')):
+                with self.subTest(loader=loader, task=task), patch.dict('os.environ', {}, clear=True), \
+                        patch('forge_gradle.command', return_value=['java21', '-jar', 'forge9-wrapper']), patch('local_game.game_environment', return_value={}):
+                    command = gradle_command(self.root, [f':{loader}:{task}'], True, True, loader,
+                                             integrated=task == 'runIntegratedHost', archive_sha=captured, installed_mod=archive)
+                target = self.root / role / 'mods/p2wlan.jar'
+                self.assertIn('-PinstalledModArchive=' + str(target), command)
+                self.assertIn('-PlocalGameInstalledArchive=' + str(target), command)
+                self.assertIn('-PlocalGameInstalledSha256=' + captured, command)
+        for loader in ('fabric', 'neoforge', 'forge'):
+            with self.subTest(loader=loader), patch('forge_gradle.command', return_value=['java21']), \
+                    patch('local_game.game_environment', return_value={}), self.assertRaisesRegex(ValueError, 'GAME_INSTALLED_ARCHIVE_CHANGED'):
+                gradle_command(self.root, [f':{loader}:runLocalGameClient'], False, False, loader, installed_mod=archive)
+
+    def test_external_verifier_receives_the_exact_bounded_snapshot(self):
+        self.path.write_bytes(b'wrapper contract snapshot')
+        expected = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        with patch('universal_jar.verify', return_value={'artifact_sha256': expected}) as verify:
+            self.assertEqual(external_archive(self.path, True), self.path.read_bytes())
+            self.assertEqual(verify.call_args.args[0].getvalue(), self.path.read_bytes())
+            self.assertTrue(verify.call_args.args[1])
+        with self.assertRaisesRegex(ValueError, 'GAME_INSTALLED_ARCHIVE_INVALID'):
+            external_archive(Path('relative.jar'), True)
+        with patch('universal_jar.verify', side_effect=ValueError('private exception payload')), \
+                self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_VERIFICATION$'):
+            external_archive(self.path, True)
+        with patch('universal_jar.verify', return_value={'artifact_sha256': '0' * 64}), \
+                self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_CHANGED$'):
+            external_archive(self.path, True)
+
+    def test_external_prepare_uses_installed_native_and_never_builds_local_bundle(self):
+        from types import SimpleNamespace
+        archive = self.installed_source()
+        child = SimpleNamespace(process=SimpleNamespace(wait=lambda timeout: 0), close=lambda: None)
+        with patch('local_game.shutil.which', return_value='/fixture/go'), \
+                patch('local_game.external_archive', return_value=archive.read_bytes()), \
+                patch('local_game.prepare_seed_binary') as seed, patch('local_game.subprocess.run') as run, \
+                patch('local_game.FixtureProcess', return_value=child) as build:
+            captured = prepare(self.root, {}, True, True, 'fabric', True, installed_mod=archive)
+        self.assertEqual(captured, hashlib.sha256(archive.read_bytes()).hexdigest())
+        seed.assert_called_once_with(self.root, archive.read_bytes())
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[0][0], 'go')
+        self.assertIn(':fabric:relocateLocalGameClient', build.call_args.args[0])
+        self.assertIn(':fabric:relocateIntegratedHost', build.call_args.args[0])
+
+    def test_seed_image_comes_only_from_verified_native_child_bytes(self):
+        def packaged(binary, checksum=None):
+            child = io.BytesIO()
+            with zipfile.ZipFile(child, 'w') as archive:
+                archive.writestr('p2wlan/native/macos-aarch64/manifest.properties',
+                                 'executable-size=' + str(len(binary)) + '\nexecutable-sha256=' + (checksum or hashlib.sha256(binary).hexdigest()) + '\n')
+                archive.writestr('p2wlan/native/macos-aarch64/p2wlan-mc-agent', binary)
+            outer = io.BytesIO()
+            with zipfile.ZipFile(outer, 'w') as archive:
+                archive.writestr('META-INF/jarjar/native.jar', child.getvalue())
+            return outer.getvalue()
+        with patch('local_game.host_platform', return_value=('macos', 'aarch64')):
+            binary = prepare_seed_binary(self.root, packaged(b'fixture executable bytes'))
+            self.assertEqual(binary.read_bytes(), b'fixture executable bytes')
+            self.assertEqual(binary.stat().st_mode & 0o777, 0o500)
+            with self.assertRaisesRegex(ValueError, 'GAME_INSTALLED_NATIVE_CHANGED'):
+                prepare_seed_binary(self.root, packaged(b'changed executable', '0' * 64))
 
     def test_failed_game_process_is_not_masked_by_its_live_peer_deadline(self):
         from types import SimpleNamespace

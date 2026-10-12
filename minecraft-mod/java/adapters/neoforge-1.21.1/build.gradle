@@ -3,9 +3,14 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.148'
 }
 base { archivesName = 'p2wlan-neoforge-1.21.1' }
-def installedFixture = providers.gradleProperty('serverInstalledFixture').isPresent()
-if (installedFixture && !providers.gradleProperty('serverBootFixture').isPresent()) {
+def installedArchive = providers.gradleProperty('installedModArchive')
+def externalInstalled = installedArchive.isPresent()
+def installedFixture = providers.gradleProperty('serverInstalledFixture').isPresent() || externalInstalled
+if (providers.gradleProperty('serverInstalledFixture').isPresent() && !providers.gradleProperty('serverBootFixture').isPresent()) {
     throw new GradleException('NEOFORGE_INSTALLED_FIXTURE_REQUIRES_SERVER_FIXTURE')
+}
+if (externalInstalled && !providers.gradleProperty('localGameFixture').isPresent()) {
+    throw new GradleException('NEOFORGE_INSTALLED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
 }
 def developmentEnabled = providers.gradleProperty('developmentNative').map { value ->
     value.isEmpty() || value == 'true'
@@ -41,7 +46,7 @@ neoForge {
 dependencies {
     implementation project(':common')
     implementation project(':netty-transport')
-    implementation project(':native-bundle')
+    if (!externalInstalled) implementation project(':native-bundle')
     // NeoForge 1.21.1 ignores plain libraries on the ordinary development
     // classpath. JarJar handles installed mods; development runs need this
     // explicit legacy classpath as well (including transitive IPC/JNA inputs).
@@ -83,12 +88,22 @@ processResources {
 // Every game run depends on the same production archive check, including the
 // test-only server fixture. Ordinary task ordering is not sufficient.
 tasks.register('verifyModJar', Exec) {
-    dependsOn jar
+    if (!externalInstalled) dependsOn jar
     doFirst {
-        commandLine 'python3', rootProject.file('../tools/verify_neoforge_jar.py'),
-                tasks.named('jar').get().archiveFile.get().asFile
+        commandLine 'python3', rootProject.file(externalInstalled ? '../tools/universal_jar.py' : '../tools/verify_neoforge_jar.py'),
+                *(externalInstalled ? ['verify', installedArchive.get()] : [tasks.named('jar').get().archiveFile.get().asFile])
         if (developmentEnabled) args '--development'
     }
+}
+
+def installedRuntime = { fixture, extra ->
+    def runtime = configurations[sourceSets.main.runtimeClasspathConfigurationName].incoming.artifactView {
+        componentFilter { identity ->
+            !(identity instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier
+                    && identity.projectPath in [':common', ':netty-transport', ':native-bundle'])
+        }
+    }.files
+    fixture.runtimeClasspath = fixture.output + extra + runtime
 }
 check.dependsOn verifyModJar
 tasks.register('buildHmclPack', Exec) {
@@ -161,18 +176,26 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
     def gameServer = sourceSets.create('localGameFixture')
     gameServer.java.srcDir rootProject.file('game-1.21.1/src/localGameFixture/java')
     gameServer.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
+    gameServer.java.srcDir layout.projectDirectory.dir('src/fixtureCommon/java')
     gameServer.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
-    gameServer.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    if (externalInstalled) installedRuntime(gameServer, files())
+    else gameServer.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     def gameClient = sourceSets.create('localGameClientFixture')
     gameClient.java.srcDir rootProject.file('game-1.21.1/src/localGameClientFixture/java')
     gameClient.compileClasspath += gameServer.output + sourceSets.main.output + sourceSets.main.compileClasspath
-    gameClient.runtimeClasspath += gameServer.output + sourceSets.main.output + sourceSets.main.runtimeClasspath
+    if (externalInstalled) installedRuntime(gameClient, gameServer.output)
+    else gameClient.runtimeClasspath += gameServer.output + sourceSets.main.output + sourceSets.main.runtimeClasspath
     neoForge.mods.register('p2wlan_local_game_test') { sourceSet gameServer; sourceSet gameClient }
     neoForge.runs.register('localGameServer') {
         server()
         sourceSet = gameServer
+        if (externalInstalled) loadedMods = [neoForge.mods.p2wlan_local_game_test]
         gameDirectory = file(providers.gradleProperty('localGameServerDirectory').get())
         systemProperty 'p2wlan.gameFixture.config', providers.gradleProperty('localGameServerConfig').get()
+        if (externalInstalled) {
+            systemProperty 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
+            systemProperty 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+        }
         if (developmentEnabled) systemProperty 'p2wlan.allowDevelopmentNative', 'true'
         programArgument '--nogui'
         disableIdeRun()
@@ -180,8 +203,13 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
     neoForge.runs.register('localGameClient') {
         client()
         sourceSet = gameClient
+        if (externalInstalled) loadedMods = [neoForge.mods.p2wlan_local_game_test]
         gameDirectory = file(providers.gradleProperty('localGameClientDirectory').get())
         systemProperty 'p2wlan.gameFixture.config', providers.gradleProperty('localGameClientConfig').get()
+        if (externalInstalled) {
+            systemProperty 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
+            systemProperty 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+        }
         if (developmentEnabled) systemProperty 'p2wlan.allowDevelopmentNative', 'true'
         disableIdeRun()
     }
@@ -194,22 +222,28 @@ if (providers.gradleProperty('integratedGameFixture').isPresent()) {
     def hostFixture=sourceSets.create('integratedFixture')
     hostFixture.java.srcDir rootProject.file('game-1.21.1/src/integratedFixture/java')
     hostFixture.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
+    hostFixture.java.srcDir layout.projectDirectory.dir('src/fixtureCommon/java')
     hostFixture.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
-    hostFixture.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    if (externalInstalled) installedRuntime(hostFixture, files())
+    else hostFixture.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     neoForge.mods.register('p2wlan_integrated_test') { sourceSet hostFixture }
     neoForge.runs.register('integratedHost') {
         client()
         sourceSet=hostFixture
-        loadedMods=[neoForge.mods.p2wlan,neoForge.mods.p2wlan_integrated_test]
+        loadedMods=externalInstalled ? [neoForge.mods.p2wlan_integrated_test] : [neoForge.mods.p2wlan,neoForge.mods.p2wlan_integrated_test]
         gameDirectory=file(providers.gradleProperty('localGameServerDirectory').get())
         systemProperty 'p2wlan.gameFixture.config',providers.gradleProperty('localGameServerConfig').get()
+        if (externalInstalled) {
+            systemProperty 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
+            systemProperty 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+        }
         if(developmentEnabled) systemProperty 'p2wlan.allowDevelopmentNative','true'
         programArgument '--username'
         programArgument 'IntegratedHost'
         disableIdeRun()
     }
     neoForge.runs.named('localGameClient') {
-        loadedMods=[neoForge.mods.p2wlan,neoForge.mods.p2wlan_local_game_test]
+        loadedMods=externalInstalled ? [neoForge.mods.p2wlan_local_game_test] : [neoForge.mods.p2wlan,neoForge.mods.p2wlan_local_game_test]
         programArgument '--username'
         programArgument 'IntegratedGuest'
     }

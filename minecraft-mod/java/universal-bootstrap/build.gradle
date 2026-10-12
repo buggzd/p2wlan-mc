@@ -1,0 +1,31 @@
+plugins { id 'java-library' }
+group = 'io.p2wlan.mc'
+version = '0.1.0'
+base { archivesName = 'p2wlan-universal-bootstrap' }
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+}
+dependencies {
+    compileOnly 'net.fabricmc:sponge-mixin:0.15.5+mixin.0.8.7'
+    compileOnly 'org.ow2.asm:asm-tree:9.7.1'
+    compileOnly 'com.google.code.gson:gson:2.10.1'
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+}
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+    options.encoding = 'UTF-8'
+    options.compilerArgs += '-proc:none'
+}
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
+tasks.register('bootstrapPolicyTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.bootstrap.BootstrapPolicyTests'
+}
+check.dependsOn bootstrapPolicyTest

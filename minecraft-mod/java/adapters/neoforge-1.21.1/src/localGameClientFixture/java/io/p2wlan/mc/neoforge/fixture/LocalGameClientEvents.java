@@ -16,7 +16,7 @@ public final class LocalGameClientEvents {
             new io.p2wlan.mc.neoforge.LocalNativeResources(LocalGameClientEvents.class.getClassLoader(),LocalGameClientEvents.class.getModule().getLayer())));
     private static boolean started;
     @SubscribeEvent public static void tick(ClientTickEvent.Post event) {
-        if(!started) { started=true; CHECKS.start(); }
+        if(!started) { InstalledArchiveChecks.verify(); started=true; CHECKS.start(); }
         CHECKS.tick(Minecraft.getInstance());
     }
     @SubscribeEvent public static void render(ScreenEvent.Render.Post event) { CHECKS.painted(event.getScreen()); }

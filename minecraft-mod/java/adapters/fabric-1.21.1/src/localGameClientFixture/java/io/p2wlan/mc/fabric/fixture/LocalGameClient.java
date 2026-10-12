@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 /** Loader-specific observations feed the exact shared widget/game assertions. */
 public final class LocalGameClient implements ClientModInitializer {
     @Override public void onInitializeClient() {
+        InstalledArchiveChecks.verify();
         var checks=new GameClientChecks();
         ClientLifecycleEvents.CLIENT_STARTED.register(client->checks.start());
         ClientTickEvents.END_CLIENT_TICK.register(checks::tick);

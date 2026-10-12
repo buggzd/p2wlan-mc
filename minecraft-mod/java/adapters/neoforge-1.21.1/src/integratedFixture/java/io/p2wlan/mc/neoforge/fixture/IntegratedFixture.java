@@ -12,6 +12,7 @@ import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 @Mod(value="p2wlan_integrated_test",dist=Dist.CLIENT)
 public final class IntegratedFixture {
     public IntegratedFixture() {
+        InstalledArchiveChecks.verify();
         var checks=new IntegratedHostChecks();
         var started=new java.util.concurrent.atomic.AtomicBoolean();
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post event)->{if(started.compareAndSet(false,true))checks.start();checks.tick(Minecraft.getInstance());});

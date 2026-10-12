@@ -13,6 +13,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 public final class LocalGameServer implements ModInitializer {
     @Override public void onInitialize() {
         if(FabricLoader.getInstance().getEnvironmentType()!=EnvType.SERVER) return;
+        InstalledArchiveChecks.verify();
         var checks=new GameServerChecks(FabricP2wlan.AGENT,FabricWorlds::current,FabricWorlds::shutdown);
         CommandRegistrationCallback.EVENT.register((dispatcher,registry,environment)->checks.commands(dispatcher));
         ServerPlayConnectionEvents.JOIN.register((handler,sender,server)->checks.joined());

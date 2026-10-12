@@ -34,9 +34,11 @@ def probe_artifacts(messages):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client", "neoforge-build", "neoforge-server", "neoforge-client", "neoforge-hmcl-pack", "forge-build", "forge-server", "forge-client", "forge-hmcl-pack", "account-test", "account-build", "hmcl-pack", "windows-native-test"))
+    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client", "neoforge-build", "neoforge-server", "neoforge-client", "neoforge-hmcl-pack", "forge-build", "forge-server", "forge-client", "forge-hmcl-pack", "universal-build", "account-test", "account-build", "hmcl-pack", "windows-native-test"))
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.command == "universal-build":
+        return subprocess.call([sys.executable, str(PROJECT / "tools/universal_build.py"), *args.args], cwd=PROJECT)
     wrapper = PROJECT / "java" / ("gradlew.bat" if sys.platform == "win32" else "gradlew")
     gradle = str(wrapper) if wrapper.is_file() else shutil.which("gradle")
     if not gradle:
@@ -69,6 +71,8 @@ def main():
             return subprocess.call([*command(env), "--no-daemon", *selected, *args.args], cwd=PROJECT / "java/forge", env=env)
         except (OSError, ValueError) as error:
             parser.error(str(error) if isinstance(error, ValueError) else "FORGE_BOOTSTRAP_IO")
+    if args.command == "test":
+        tasks["test"].append(":universal-bootstrap:bootstrapPolicyTest")
     return subprocess.call([gradle, "--no-daemon", *tasks[args.command], *args.args], cwd=PROJECT / "java", env=env)
 
 if __name__ == "__main__":

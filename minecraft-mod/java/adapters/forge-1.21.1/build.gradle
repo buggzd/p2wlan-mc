@@ -5,7 +5,9 @@ plugins {
 }
 base { archivesName = 'p2wlan-forge-1.21.1' }
 def game = rootProject.file('../game-1.21.1')
-def installedFixture = providers.gradleProperty('installedGameFixture').isPresent()
+def installedArchive = providers.gradleProperty('installedModArchive')
+def externalInstalled = installedArchive.isPresent()
+def installedFixture = providers.gradleProperty('installedGameFixture').isPresent() || externalInstalled
 if (installedFixture && !providers.gradleProperty('localGameFixture').isPresent()) {
     throw new GradleException('FORGE_INSTALLED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
 }
@@ -49,7 +51,7 @@ dependencies {
     implementation minecraft.dependency('net.minecraftforge:forge:1.21.1-52.1.16')
     implementation project(':common')
     implementation project(':netty-transport')
-    implementation project(':native-bundle')
+    if (!externalInstalled) implementation project(':native-bundle')
     // Same portable code/resources; Gson and JNA already belong to the game bootstrap.
     jarJar(project(':common')) { transitive = false }
     jarJar(project(':netty-transport')) { transitive = false }
@@ -91,10 +93,10 @@ tasks.register('launcherPolicyTest', JavaExec) {
 }
 check.dependsOn launcherPolicyTest
 tasks.register('verifyModJar', Exec) {
-    dependsOn tasks.named('jarJar')
+    if (!externalInstalled) dependsOn tasks.named('jarJar')
     doFirst {
-        commandLine 'python3', rootProject.file('../../tools/verify_forge_jar.py'),
-                tasks.named('jarJar').get().archiveFile.get().asFile
+        commandLine 'python3', rootProject.file(externalInstalled ? '../../tools/universal_jar.py' : '../../tools/verify_forge_jar.py'),
+                *(externalInstalled ? ['verify', installedArchive.get()] : [tasks.named('jarJar').get().archiveFile.get().asFile])
         if (developmentEnabled) args '--development'
     }
 }
@@ -155,6 +157,7 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
             if (installedFixture) {
                 systemProperty 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
                 systemProperty 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+                systemProperty 'p2wlan.gameFixture.installedUniversal', externalInstalled ? 'true' : 'false'
             }
             mods {
                 if (!installedFixture) p2wlan { source sourceSets.main }
@@ -169,6 +172,7 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
             if (installedFixture) {
                 systemProperty 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
                 systemProperty 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+                systemProperty 'p2wlan.gameFixture.installedUniversal', externalInstalled ? 'true' : 'false'
             }
             if (providers.gradleProperty('integratedGameFixture').isPresent()) args '--username', 'IntegratedGuest'
             mods {
@@ -195,6 +199,7 @@ if (providers.gradleProperty('integratedGameFixture').isPresent()) {
             if (installedFixture) {
                 systemProperty 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
                 systemProperty 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+                systemProperty 'p2wlan.gameFixture.installedUniversal', externalInstalled ? 'true' : 'false'
             }
             args '--username', 'IntegratedHost'
             mods {

@@ -13,13 +13,13 @@ public final class LocalNativeResources implements BundledAgent.Resources {
     private final LayerNativeResources resources;
     public LocalNativeResources(ClassLoader loader) { this(loader, null); }
     public LocalNativeResources(ClassLoader loader, ModuleLayer layer) {
-        resources = new LayerNativeResources(loader, layer, LocalNativeResources::unwrap);
+        resources = new LayerNativeResources(loader, layer, LocalNativeResources::backing);
     }
     @Override public InputStream open(String name) throws IOException { return resources.open(name); }
-    private static Path unwrap(Path path) {
+    public static Path backing(Path path) {
         if (path.getFileSystem() instanceof UnionFileSystem union) return union.getPrimaryPath();
         if (path.getFileSystem() instanceof PathFileSystem nested) return nested.getTarget();
         return null;
     }
-    static boolean localBacking(Path path) { return LayerNativeResources.localBacking(path, LocalNativeResources::unwrap); }
+    static boolean localBacking(Path path) { return LayerNativeResources.localBacking(path, LocalNativeResources::backing); }
 }

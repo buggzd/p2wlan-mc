@@ -11,6 +11,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 /** Loader events only; the same host checks run on both game adapters. */
 public final class IntegratedFixture implements ClientModInitializer {
     @Override public void onInitializeClient() {
+        InstalledArchiveChecks.verify();
         var checks = new IntegratedHostChecks();
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> checks.start());
         ClientTickEvents.END_CLIENT_TICK.register(checks::tick);

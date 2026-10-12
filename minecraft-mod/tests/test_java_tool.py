@@ -17,6 +17,12 @@ def artifact(name):
 
 
 class JavaToolTests(unittest.TestCase):
+    def test_universal_route_uses_one_assembly_entry_and_preserves_options(self):
+        with patch("sys.argv", ["java.py", "universal-build", "--development", "--offline"]), \
+                patch.object(java.subprocess, "call", return_value=0) as run:
+            self.assertEqual(java.main(), 0)
+            self.assertEqual(run.call_args.args[0], [java.sys.executable, str(PROJECT / "tools/universal_build.py"), "--development", "--offline"])
+
     def test_actual_cargo_artifacts_are_required_not_guessed_target_paths(self):
         messages = [artifact("frame_probe"), artifact("agent_probe"), artifact("world_guard_probe")]
         self.assertEqual(java.probe_artifacts(messages),
