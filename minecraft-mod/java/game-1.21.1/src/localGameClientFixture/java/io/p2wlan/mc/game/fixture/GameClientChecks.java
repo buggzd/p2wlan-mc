@@ -355,6 +355,25 @@ public final class GameClientChecks {
                 default -> throw new IllegalStateException("CLIENT_STEP");
             }
         } catch (Throwable error) {
+            if ("AGENT".equals(data.stage)) {
+                // Private bounded gate evidence, not readiness/control flow or
+                // additional passing checks. No credentials or exception text.
+                try {
+                    var owner = io.p2wlan.mc.game.client.ClientPlatform.agent();
+                    var gate = new JsonObject();
+                    gate.addProperty("schema", 1); gate.addProperty("run", data.run);
+                    gate.addProperty("ready", owner.ready().isDone());
+                    gate.addProperty("ready_failed", owner.ready().isCompletedExceptionally());
+                    gate.addProperty("phase", owner.status().phase().name());
+                    gate.addProperty("reason", owner.status().reason());
+                    gate.addProperty("overlay", client.getOverlay() != null);
+                    gate.addProperty("title", client.screen instanceof TitleScreen);
+                    gate.addProperty("onboarding", client.screen instanceof net.minecraft.client.gui.screens.AccessibilityOnboardingScreen);
+                    String view = client.screen == null ? "NONE" : client.screen.getClass().getSimpleName();
+                    gate.addProperty("view", view.matches("[A-Za-z0-9_$]{1,80}") ? view : "OTHER");
+                    GameFixtureData.write(data.root.resolve("agent-gate.fixture.json"), gate);
+                } catch (Exception ignored) { /* Result still fails closed. */ }
+            }
             data.fail(error); if (diagnosticOwner != null) diagnosticOwner.close(); GameJoins.shutdown(); io.p2wlan.mc.game.client.ClientPlatform.agent().close(); finish(client);
         }
     }

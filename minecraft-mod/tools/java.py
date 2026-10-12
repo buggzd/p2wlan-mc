@@ -34,7 +34,7 @@ def probe_artifacts(messages):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client", "neoforge-build", "neoforge-server", "neoforge-client", "account-test", "account-build", "hmcl-pack", "windows-native-test"))
+    parser.add_argument("command", choices=("test", "build", "wrapper", "interop", "bundle-test", "fabric-build", "fabric-server", "fabric-client", "neoforge-build", "neoforge-server", "neoforge-client", "forge-build", "forge-server", "forge-client", "account-test", "account-build", "hmcl-pack", "windows-native-test"))
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     wrapper = PROJECT / "java" / ("gradlew.bat" if sys.platform == "win32" else "gradlew")
@@ -61,6 +61,14 @@ def main():
         tasks["interop"] = [":common:codecInteropTest", ":common:agentClientTest", ":common:worldGuardTest", ":common:uiCompletionTest", ":common:worldHostTest", ":common:joinProxyTest",
                             "-PnativeProbe=" + binaries["frame_probe"], "-PagentProbe=" + binaries["agent_probe"],
                             "-PworldGuardProbe=" + binaries["world_guard_probe"]]
+    if args.command.startswith("forge-"):
+        from forge_gradle import command
+        selected = {"forge-build": [":forge:build"], "forge-server": [":forge:verifyModJar", ":forge:runServer"],
+                    "forge-client": [":forge:verifyModJar", ":forge:runClient"]}[args.command]
+        try:
+            return subprocess.call([*command(env), "--no-daemon", *selected, *args.args], cwd=PROJECT / "java/forge", env=env)
+        except (OSError, ValueError) as error:
+            parser.error(str(error) if isinstance(error, ValueError) else "FORGE_BOOTSTRAP_IO")
     return subprocess.call([gradle, "--no-daemon", *tasks[args.command], *args.args], cwd=PROJECT / "java", env=env)
 
 if __name__ == "__main__":

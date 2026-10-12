@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -9,7 +10,7 @@ from unittest.mock import patch
 
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / "tools"))
-from local_game import CASES, CHECKS, INTEGRATED_SERVER_CASES, ROUNDS, bounded_json, gradle_command, main, server_settings, verify_ready, verify_result
+from local_game import wait_game, game_environment, java_directory, CASES, CHECKS, INTEGRATED_SERVER_CASES, ROUNDS, archive_sha256, bounded_json, gradle_command, install_archive, main, server_settings, verify_ready, verify_result
 
 
 class LocalGameContractTests(unittest.TestCase):
@@ -33,6 +34,199 @@ class LocalGameContractTests(unittest.TestCase):
         self.assertIn('-PlocalGameServerDirectory=/fixture-job/server',command)
         self.assertIn('-PlocalGameClientDirectory=/fixture-job/client',command)
         self.assertIn(':neoforge:runLocalGameClient',command)
+
+    def test_forge_uses_gradle_9_source_set_profiles_and_sanitized_environment(self):
+        for before, after in ((":forge:runLocalGameServer", ":forge:runLocalGameFixtureServer"),
+                              (":forge:runLocalGameClient", ":forge:runLocalGameFixtureClient"),
+                              (":forge:runIntegratedHost", ":forge:runIntegratedFixtureClient")):
+            with patch('forge_gradle.command', return_value=['java21', '-jar', 'forge9-wrapper']), \
+                 patch('local_game.game_environment', return_value={}):
+                args = gradle_command(self.root, [before], True, True, 'forge', integrated=True)
+                self.assertEqual(args[:3], ['java21', '-jar', 'forge9-wrapper'])
+                self.assertIn(after, args)
+                self.assertFalse(any(flag in args for flag in ('-PforgeAdapter', '-PneoforgeAdapter', '-PfabricAdapter')))
+                self.assertIn('-PintegratedGameFixture', args)
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.dict('os.environ', {'P2WLAN_FORGE_ASSETS': temporary}), \
+                 patch('forge_gradle.command', return_value=['java21', '-jar', 'forge9-wrapper']), \
+                 patch('local_game.game_environment', return_value={}):
+                args = gradle_command(self.root, [':forge:localGameClientFixtureClasses'], False, False, 'forge')
+                self.assertIn('-PforgeAssetDirectory=' + temporary, args)
+                self.assertIn(':forge:localGameFixtureClasses', args)
+                self.assertNotIn(':forge:localGameClientFixtureClasses', args)
+        build = (PROJECT / 'java/adapters/forge-1.21.1/build.gradle').read_text()
+        self.assertIn("net.minecraftforge.launcher.p2wlan.P2wlanAssetsLauncher", build)
+        client_launch = build.split("if (name.endsWith('Client')) {", 1)[1]
+        self.assertIn("if (System.getProperty('os.name').startsWith('Mac')) jvmArgs '-XstartOnFirstThread'", client_launch)
+        self.assertNotIn('GLFW_CHECK_THREAD0', build)
+        self.assertIn("--mixin.config=p2wlan.forge.mixins.json", build)
+        self.assertIn("--mixin.config=p2wlan.forge.client.mixins.json", build)
+        self.assertNotIn('failOnNoDiscoveredTests', build)
+        self.assertIn("sourceSets.create('resourcePolicy')", build)
+        self.assertEqual(java_directory('forge'), PROJECT / 'java/forge')
+        self.assertEqual(java_directory('fabric'), PROJECT / 'java')
+        variables = {'P2WLAN_FORGE_GRADLE_ZIP': '/fixture/gradle.zip', 'P2WLAN_FORGE_JAVA25_HOME': '/fixture/jdk25', 'P2WLAN_FORGE_JAVA8_HOME': '/fixture/jdk8',
+                     'P2WLAN_TOKEN': 'excluded', 'CONTROL_ADMIN_TOKEN': 'excluded', 'JAVA_TOOL_OPTIONS': 'excluded'}
+        with patch.dict('os.environ', variables, clear=True), \
+             patch('local_game.subprocess.check_output', return_value='/fixture/jdk21'):
+            env = game_environment('forge')
+            self.assertEqual(env['P2WLAN_FORGE_GRADLE_ZIP'], '/fixture/gradle.zip')
+            self.assertEqual(env['P2WLAN_FORGE_JAVA25_HOME'], '/fixture/jdk25')
+            for name in ('P2WLAN_TOKEN', 'CONTROL_ADMIN_TOKEN', 'JAVA_TOOL_OPTIONS'):
+                self.assertNotIn(name, env)
+            self.assertNotIn('P2WLAN_FORGE_GRADLE_ZIP', game_environment('fabric'))
+
+    def installed_source(self):
+        archive = self.root / 'build/forge/libs/p2wlan-forge-1.21.1-0.1.0.jar'
+        archive.parent.mkdir(parents=True)
+        archive.write_bytes(b'isolated synthetic archive bytes')
+        for role in CASES:
+            (self.root / role).mkdir()
+        return archive
+
+    def test_installed_archive_hash_requires_bounded_regular_bytes(self):
+        payload = b'fixture'
+        self.path.write_bytes(payload)
+        self.assertEqual(archive_sha256(self.path), hashlib.sha256(payload).hexdigest())
+        link = self.root / 'linked.jar'
+        link.symlink_to(self.path)
+        for path in (self.root / 'missing.jar', self.root, link):
+            with self.subTest(path=path.name), self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_INVALID$'):
+                archive_sha256(path)
+        self.path.write_bytes(b'')
+        with self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_INVALID$'):
+            archive_sha256(self.path)
+        self.path.write_bytes(b'123456789')
+        with patch('local_game.MAX_BINARY', 8), self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_INVALID$'):
+            archive_sha256(self.path)
+        # A file that grows after its stat still cannot exceed the read budget.
+        self.path.write_bytes(b'12345678')
+        with patch('local_game.MAX_BINARY', 8), patch('local_game.Path.open', return_value=io.BytesIO(b'123456789')), \
+                self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_INVALID$'):
+            archive_sha256(self.path)
+
+    def test_installed_archive_copies_are_private_and_create_only(self):
+        archive = self.installed_source()
+        payload = archive.read_bytes()
+        expected = hashlib.sha256(payload).hexdigest()
+        self.assertEqual(install_archive(self.root), expected)
+        for role in CASES:
+            mods = self.root / role / 'mods'
+            target = mods / 'p2wlan.jar'
+            self.assertEqual(target.read_bytes(), payload)
+            self.assertEqual(mods.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        with self.assertRaises(FileExistsError):
+            install_archive(self.root)
+        for role in CASES:
+            self.assertEqual((self.root / role / 'mods/p2wlan.jar').read_bytes(), payload)
+
+    def test_install_detects_copy_mutation_and_late_source_replacement(self):
+        for mutation in ('copy', 'source'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                job = Path(temporary)
+                archive = job / 'build/forge/libs/p2wlan-forge-1.21.1-0.1.0.jar'
+                archive.parent.mkdir(parents=True)
+                archive.write_bytes(b'original fixture bytes')
+                for role in CASES:
+                    (job / role).mkdir()
+                def hash_at_boundary(path):
+                    if mutation == 'copy' and path == job / 'server/mods/p2wlan.jar':
+                        path.write_bytes(b'changed copy bytes')
+                    value = archive_sha256(path)
+                    if mutation == 'source' and path == job / 'client/mods/p2wlan.jar':
+                        # Both copied archives are unchanged; the selected
+                        # source is replaced before final installation commit.
+                        archive.write_bytes(b'changed source bytes')
+                    return value
+                with patch('local_game.archive_sha256', side_effect=hash_at_boundary), \
+                        self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_CHANGED$'):
+                    install_archive(job)
+
+    def test_installed_run_tasks_bind_captured_digest_and_exact_role_copy(self):
+        archive = self.installed_source()
+        captured = install_archive(self.root)
+        archive.write_bytes(b'changed build source after installation')
+        for task, role, integrated in ((':forge:runLocalGameServer', 'server', False),
+                                       (':forge:runLocalGameClient', 'client', False),
+                                       (':forge:runIntegratedHost', 'server', True),
+                                       (':forge:runLocalGameClient', 'client', True)):
+            with self.subTest(task=task, integrated=integrated), patch.dict('os.environ', {}, clear=True), \
+                    patch('forge_gradle.command', return_value=['java21', '-jar', 'forge9-wrapper']), \
+                    patch('local_game.game_environment', return_value={}):
+                command = gradle_command(self.root, [task], True, True, 'forge', integrated, installed=True, archive_sha=captured)
+            self.assertIn('-PinstalledGameFixture', command)
+            self.assertIn('-PlocalGameInstalledArchive=' + str(self.root / role / 'mods/p2wlan.jar'), command)
+            self.assertIn('-PlocalGameInstalledSha256=' + captured, command)
+            self.assertEqual('-PintegratedGameFixture' in command, integrated)
+        for role, task in (('server', ':forge:runLocalGameServer'), ('client', ':forge:runLocalGameClient')):
+            target = self.root / role / 'mods/p2wlan.jar'
+            target.write_bytes(b'changed installed copy')
+            with self.subTest(role=role), patch.dict('os.environ', {}, clear=True), \
+                    patch('forge_gradle.command', return_value=['java21', '-jar', 'forge9-wrapper']), \
+                    patch('local_game.game_environment', return_value={}), \
+                    self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_CHANGED$'):
+                gradle_command(self.root, [task], True, True, 'forge', installed=True, archive_sha=captured)
+
+    def test_installed_run_requires_captured_digest_but_class_build_does_not(self):
+        for task in (':forge:runLocalGameServer', ':forge:runLocalGameClient', ':forge:runIntegratedHost',
+                     ':forge:runLocalGameFixtureServer', ':forge:runLocalGameFixtureClient', ':forge:runIntegratedFixtureClient'):
+            with self.subTest(task=task), patch.dict('os.environ', {}, clear=True), \
+                    patch('forge_gradle.command', return_value=['java21', '-jar', 'forge9-wrapper']), \
+                    patch('local_game.game_environment', return_value={}), \
+                    self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_ARCHIVE_[A-Z_]+$'):
+                gradle_command(self.root, [task], True, True, 'forge', installed=True)
+        with patch.dict('os.environ', {}, clear=True), \
+                patch('forge_gradle.command', return_value=['java21', '-jar', 'forge9-wrapper']), \
+                patch('local_game.game_environment', return_value={}):
+            command = gradle_command(self.root, [':forge:localGameFixtureClasses'], True, True, 'forge', installed=True)
+        self.assertIn(':forge:localGameFixtureClasses', command)
+        self.assertFalse(any(value.startswith('-PlocalGameInstalledSha256=') for value in command))
+        for loader in ('fabric', 'neoforge'):
+            with self.subTest(loader=loader), self.assertRaisesRegex(ValueError, '^GAME_INSTALLED_LOADER$'):
+                gradle_command(self.root, [f':{loader}:runLocalGameClient'], True, True, loader, installed=True)
+
+    def test_failed_game_process_is_not_masked_by_its_live_peer_deadline(self):
+        from types import SimpleNamespace
+        failed = SimpleNamespace(process=SimpleNamespace(poll=lambda: 1))
+        live = SimpleNamespace(process=SimpleNamespace(poll=lambda: None))
+        with self.assertRaisesRegex(ValueError, 'GAME_PROCESS_EXIT'), patch('local_game.time.sleep') as sleep:
+            wait_game([failed, live], self.root, self.run)
+        sleep.assert_not_called()
+
+    def test_inflight_results_reject_malformed_or_foreign_evidence_with_fixed_codes(self):
+        from types import SimpleNamespace
+        live = SimpleNamespace(process=SimpleNamespace(poll=lambda: None))
+        private = "fixture-private@example.com /private/profile credential-value"
+        for role in CASES:
+            path = self.root / (role + "-result.json")
+            failed = self.result(role) | {"status": "fail", "reason": "PLAY_DEADLINE_PLAY", "checks": 0, "rounds": 0}
+            values = [None, [], 1, private, {}, failed | {"schema": True}, failed | {"schema": 2},
+                      failed | {"run": "b" * 32, "reason": private}, failed | {"role": "other", "reason": private},
+                      failed | {"status": private}, failed | {"reason": private}, failed | {"reason": None},
+                      failed | {"reason": "FAIL\nPRIVATE"}, failed | {"reason": "A" * 118}, failed | {"extra": private}]
+            payloads = [json.dumps(value) for value in values] + ["{", '{"schema":1,"schema":1}']
+            for payload in payloads:
+                with self.subTest(role=role, payload=payload):
+                    path.write_text(payload)
+                    with patch('local_game.time.sleep') as sleep, self.assertRaises(ValueError) as failure:
+                        wait_game([live], self.root, self.run)
+                    self.assertEqual(str(failure.exception), "GAME_RESULT_CONTRACT_" + role.upper())
+                    self.assertNotIn(private, str(failure.exception))
+                    sleep.assert_not_called()
+            path.unlink()
+
+    def test_inflight_failure_reports_only_current_bounded_fixture_reason(self):
+        from types import SimpleNamespace
+        live = SimpleNamespace(process=SimpleNamespace(poll=lambda: None))
+        for reason in ("NOT_COMPLETED", "PLAY_DEADLINE_PLAY", "DISPLAY_SETTINGS_" + "A" * 100):
+            failed = self.result("client") | {"status": "fail", "reason": reason, "checks": 0, "rounds": 0,
+                                             "helper_cleanup": False, "cases": []}
+            (self.root / "client-result.json").write_text(json.dumps(failed))
+            with self.subTest(reason=reason), patch('local_game.time.sleep') as sleep, self.assertRaises(ValueError) as failure:
+                wait_game([live], self.root, self.run)
+            self.assertEqual(str(failure.exception), "GAME_FAILED_" + reason)
+            sleep.assert_not_called()
 
     def test_both_exact_run_bound_gameplay_and_cleanup_results_required(self):
         for role in CASES:

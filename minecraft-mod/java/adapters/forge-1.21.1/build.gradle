@@ -1,0 +1,202 @@
+plugins {
+    id 'java-library'
+    id 'net.minecraftforge.gradle' version '7.0.29'
+    id 'net.minecraftforge.jarjar' version '0.2.3'
+}
+base { archivesName = 'p2wlan-forge-1.21.1' }
+def game = rootProject.file('../game-1.21.1')
+def installedFixture = providers.gradleProperty('installedGameFixture').isPresent()
+if (installedFixture && !providers.gradleProperty('localGameFixture').isPresent()) {
+    throw new GradleException('FORGE_INSTALLED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
+}
+def developmentEnabled = providers.gradleProperty('developmentNative').map { value ->
+    value.isEmpty() || value == 'true'
+}.getOrElse(false)
+sourceSets.main.java.srcDir new File(game, 'src/server/java')
+sourceSets.main.java.srcDir new File(game, 'src/client/java')
+java { toolchain.languageVersion = JavaLanguageVersion.of(21); withSourcesJar() }
+tasks.withType(JavaCompile).configureEach { options.release = 21; options.encoding = 'UTF-8' }
+minecraft {
+    mappings channel: 'official', version: '1.21.1'
+    runs {
+        configureEach {
+            workingDir = layout.projectDirectory.dir('run')
+            // Exploded development outputs have no JAR manifest. Keep these
+            // required configs explicit; installed JarJar uses MixinConfigs.
+            if (!installedFixture) args '--mixin.config=p2wlan.forge.mixins.json', '--mixin.config=p2wlan.forge.client.mixins.json'
+            if (developmentEnabled) systemProperty 'p2wlan.allowDevelopmentNative', 'true'
+        }
+        register('client')
+        register('server') { args '--nogui' }
+    }
+}
+repositories {
+    minecraft.mavenizer(it)
+    maven fg.forgeMaven
+    exclusiveContent {
+        forRepository { maven fg.minecraftLibsMaven }
+        // Mojang's macOS freetype patch has no Maven Central classifier.
+        filter { includeGroup 'org.lwjgl'; includeGroup 'com.mojang' }
+    }
+    mavenCentral()
+}
+jarJar.register() { archiveClassifier = null }
+tasks.named('jar') {
+    archiveClassifier = 'slim'
+    manifest.attributes('MixinConfigs': 'p2wlan.forge.mixins.json,p2wlan.forge.client.mixins.json')
+}
+dependencies {
+    implementation minecraft.dependency('net.minecraftforge:forge:1.21.1-52.1.16')
+    implementation project(':common')
+    implementation project(':netty-transport')
+    implementation project(':native-bundle')
+    // Same portable code/resources; Gson and JNA already belong to the game bootstrap.
+    jarJar(project(':common')) { transitive = false }
+    jarJar(project(':netty-transport')) { transitive = false }
+    jarJar(project(':native-bundle')) { transitive = false }
+}
+project(':native-bundle').plugins.withId('java') {
+    project(':native-bundle').tasks.named('jar') {
+        manifest.attributes('Automatic-Module-Name': 'io.p2wlan.mc.nativebundle')
+    }
+}
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/mods.toml') { expand version: project.version }
+}
+// Executable assertions use a dedicated harness source set, not a zero-test
+// JUnit task. The required JavaExec exercises local/module and foreign-provider cases.
+// Build launcher only. Prefix-based SDK argument construction is an exact
+// 7.0.29 contract; this is not game code, a Forge fork or a production payload.
+def launcherSupport = sourceSets.create('launcherSupport')
+configurations.launcherSupportCompileOnly.dependencies.add(dependencies.create('net.minecraftforge:slime-launcher:0.2.1'))
+def resourcePolicy = sourceSets.create('resourcePolicy')
+configurations.resourcePolicyImplementation.extendsFrom configurations.implementation
+resourcePolicy.compileClasspath += sourceSets.main.output
+resourcePolicy.runtimeClasspath += sourceSets.main.output
+tasks.register('resourcePolicyTest', JavaExec) {
+    dependsOn resourcePolicy.classesTaskName
+    classpath = resourcePolicy.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.forge.LocalNativeResourcesTests'
+    jvmArgs '--add-opens=java.base/java.lang.invoke=ALL-UNNAMED'
+}
+check.dependsOn resourcePolicyTest
+def launcherPolicy = sourceSets.create('launcherPolicy')
+launcherPolicy.compileClasspath += launcherSupport.output
+launcherPolicy.runtimeClasspath += launcherSupport.output
+tasks.register('launcherPolicyTest', JavaExec) {
+    dependsOn launcherPolicy.classesTaskName
+    classpath = launcherPolicy.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.forge.LauncherPolicyTests'
+}
+check.dependsOn launcherPolicyTest
+tasks.register('verifyModJar', Exec) {
+    dependsOn tasks.named('jarJar')
+    doFirst {
+        commandLine 'python3', rootProject.file('../../tools/verify_forge_jar.py'),
+                tasks.named('jarJar').get().archiveFile.get().asFile
+        if (developmentEnabled) args '--development'
+    }
+}
+check.dependsOn verifyModJar
+tasks.matching { it.name in ['runServer', 'runClient'] }.configureEach {
+    dependsOn tasks.named('verifyModJar')
+}
+
+// Fixtures compile the same physical game checks. Only source-set-specific
+// profiles see their mod outputs; ordinary runs never load any test mod.
+def installedRuntime = { fixture ->
+    def runtime = configurations[fixture.runtimeClasspathConfigurationName].incoming.artifactView {
+        componentFilter { identity ->
+            !(identity instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier
+                    && identity.projectPath in [':common', ':netty-transport', ':native-bundle'])
+        }
+    }.files
+    // FG 7 feeds this same collection into the JVM and its legacy runtime
+    // classpath token. Keep production output/libraries out of both paths.
+    fixture.runtimeClasspath = fixture.output + runtime
+}
+if (providers.gradleProperty('localGameFixture').isPresent()) {
+    def gameServer = sourceSets.create('localGameFixture')
+    gameServer.java.srcDir new File(game, 'src/localGameFixture/java')
+    gameServer.java.srcDir new File(game, 'src/fixtureCommon/java')
+    gameServer.java.srcDir layout.projectDirectory.dir('src/fixtureCommon/java')
+    configurations.localGameFixtureImplementation.extendsFrom configurations.implementation
+    gameServer.compileClasspath += sourceSets.main.output
+    if (installedFixture) installedRuntime(gameServer)
+    else gameServer.runtimeClasspath += sourceSets.main.output
+    // Forge's classpath locator requires each test mod's metadata and all of
+    // its annotated classes in one output root. Dist-filtered event glue keeps
+    // client checks dormant in the dedicated JVM.
+    gameServer.java.srcDir new File(game, 'src/localGameClientFixture/java')
+    gameServer.java.srcDir layout.projectDirectory.dir('src/localGameClientFixture/java')
+    minecraft.runs.named('server') {
+        with(gameServer) {
+            systemProperty 'terminal.jline', 'false'
+            systemProperty 'terminal.ansi', 'false'
+            workingDir = layout.projectDirectory.dir(providers.gradleProperty('localGameServerDirectory').get())
+            systemProperty 'p2wlan.gameFixture.config', providers.gradleProperty('localGameServerConfig').get()
+            if (installedFixture) {
+                systemProperty 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
+                systemProperty 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+            }
+            mods {
+                if (!installedFixture) p2wlan { source sourceSets.main }
+                p2wlan_local_game_test { source gameServer }
+            }
+        }
+    }
+    minecraft.runs.named('client') {
+        with(gameServer) {
+            workingDir = layout.projectDirectory.dir(providers.gradleProperty('localGameClientDirectory').get())
+            systemProperty 'p2wlan.gameFixture.config', providers.gradleProperty('localGameClientConfig').get()
+            if (installedFixture) {
+                systemProperty 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
+                systemProperty 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+            }
+            if (providers.gradleProperty('integratedGameFixture').isPresent()) args '--username', 'IntegratedGuest'
+            mods {
+                if (!installedFixture) p2wlan { source sourceSets.main }
+                p2wlan_local_game_test { source gameServer }
+            }
+        }
+    }
+}
+if (providers.gradleProperty('integratedGameFixture').isPresent()) {
+    if (!providers.gradleProperty('localGameFixture').isPresent()) throw new GradleException('INTEGRATED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
+    def hostFixture = sourceSets.create('integratedFixture')
+    hostFixture.java.srcDir new File(game, 'src/integratedFixture/java')
+    hostFixture.java.srcDir new File(game, 'src/fixtureCommon/java')
+    hostFixture.java.srcDir layout.projectDirectory.dir('src/fixtureCommon/java')
+    configurations.integratedFixtureImplementation.extendsFrom configurations.implementation
+    hostFixture.compileClasspath += sourceSets.main.output
+    if (installedFixture) installedRuntime(hostFixture)
+    else hostFixture.runtimeClasspath += sourceSets.main.output
+    minecraft.runs.named('client') {
+        with(hostFixture) {
+            workingDir = layout.projectDirectory.dir(providers.gradleProperty('localGameServerDirectory').get())
+            systemProperty 'p2wlan.gameFixture.config', providers.gradleProperty('localGameServerConfig').get()
+            if (installedFixture) {
+                systemProperty 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
+                systemProperty 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').getOrElse('')
+            }
+            args '--username', 'IntegratedHost'
+            mods {
+                if (!installedFixture) p2wlan { source sourceSets.main }
+                p2wlan_integrated_test { source hostFixture }
+            }
+        }
+    }
+}
+tasks.matching { it.name.startsWith('run') }.configureEach {
+    dependsOn tasks.named('verifyModJar')
+    if (name.endsWith('Client')) {
+        // Cocoa/GLFW must initialize on the process's first thread on macOS.
+        // This applies to ordinary clients and both client fixture profiles.
+        if (System.getProperty('os.name').startsWith('Mac')) jvmArgs '-XstartOnFirstThread'
+        dependsOn launcherSupport.classesTaskName
+        classpath += launcherSupport.output
+        mainClass = 'net.minecraftforge.launcher.p2wlan.P2wlanAssetsLauncher'
+        systemProperty 'p2wlan.forge.assetRoot', providers.gradleProperty('forgeAssetDirectory').getOrElse(rootProject.layout.buildDirectory.dir('assets').get().asFile.absolutePath)
+    }
+}

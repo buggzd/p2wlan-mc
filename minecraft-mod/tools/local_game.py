@@ -2,6 +2,7 @@
 """Opt-in local Control + real Minecraft clients/dedicated or integrated world."""
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -16,7 +17,7 @@ import uuid
 
 from control_smoke import Agent, FixtureError, available_port, environment, healthy, terminate
 from game_fixture_process import FixtureProcess
-from native_bundle import strict_object
+from native_bundle import MAX_BINARY, strict_object
 
 PROJECT = Path(__file__).resolve().parents[1]
 ADAPTER = PROJECT / "java/adapters/fabric-1.21.1"
@@ -62,23 +63,125 @@ def verify_ready(path, identity):
     return value
 
 
+def verify_inflight_result(path, identity, role):
+    failure = "GAME_RESULT_CONTRACT_" + role.upper()
+    try:
+        value = bounded_json(path)
+    except (OSError, ValueError):
+        raise ValueError(failure) from None
+    # GameFixtureData emits a fixed stage (at most 16 characters), one
+    # separator and an error code of at most 100 characters. Never report
+    # unchecked result text, including a result from another run or role.
+    if not isinstance(value, dict) or set(value) != FIELDS \
+            or type(value["schema"]) is not int or value["schema"] != 1 \
+            or value["run"] != identity or value["role"] != role \
+            or value["status"] not in ("pass", "fail") \
+            or not isinstance(value["reason"], str) or re.fullmatch(r"[A-Z][A-Z0-9_]{0,116}", value["reason"]) is None:
+        raise ValueError(failure)
+    return value
+
+
 def private_json(path, value):
     with path.open("x", encoding="utf-8") as stream:
         os.chmod(path, 0o600)
         json.dump(value, stream, ensure_ascii=False)
 
 
-def gradle_command(job, task, offline, development, loader="fabric", integrated=False):
+def java_directory(loader):
+    return PROJECT / ("java/forge" if loader == "forge" else "java")
+
+
+def game_environment(loader):
+    env = environment()
+    for key in ("JAVA_OPTS", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"):
+        env.pop(key, None)
+    if loader == "forge":
+        # Build-only paths, not Control/Relay/account configuration. All other
+        # P2WLAN environment values remain excluded by the shared sanitizer.
+        for key in ("P2WLAN_FORGE_GRADLE_ZIP", "P2WLAN_FORGE_JAVA25_HOME", "P2WLAN_FORGE_JAVA8_HOME", "P2WLAN_FORGE_ASSETS"):
+            if key in os.environ: env[key] = os.environ[key]
+    if sys.platform == "darwin":
+        env["JAVA_HOME"] = subprocess.check_output(["/usr/libexec/java_home", "-v", "21"], text=True, timeout=5).strip()
+    return env
+
+
+def archive_sha256(path):
+    if path.is_symlink() or not path.is_file() or not 0 < path.stat().st_size <= MAX_BINARY:
+        raise ValueError("GAME_INSTALLED_ARCHIVE_INVALID")
+    digest = hashlib.sha256()
+    count = 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(32768):
+            count += len(chunk)
+            if count > MAX_BINARY:
+                raise ValueError("GAME_INSTALLED_ARCHIVE_INVALID")
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def install_archive(job):
+    archive = job / "build/forge/libs/p2wlan-forge-1.21.1-0.1.0.jar"
+    expected = archive_sha256(archive)
+    for role in CASES:
+        mods = job / role / "mods"
+        mods.mkdir(mode=0o700)
+        target = mods / "p2wlan.jar"
+        with archive.open("rb") as source, target.open("xb") as destination:
+            os.chmod(target, 0o600)
+            count = 0
+            while chunk := source.read(32768):
+                count += len(chunk)
+                if count > MAX_BINARY:
+                    raise ValueError("GAME_INSTALLED_ARCHIVE_INVALID")
+                destination.write(chunk)
+        if archive_sha256(target) != expected:
+            raise ValueError("GAME_INSTALLED_ARCHIVE_CHANGED")
+    if archive_sha256(archive) != expected:
+        raise ValueError("GAME_INSTALLED_ARCHIVE_CHANGED")
+    return expected
+
+
+def gradle_command(job, task, offline, development, loader="fabric", integrated=False, installed=False, archive_sha=None):
+    if installed and loader != "forge":
+        raise ValueError("GAME_INSTALLED_LOADER")
     adapter = PROJECT / f"java/adapters/{loader}-1.21.1"
     directory = (lambda role: os.path.relpath(job / role, adapter)) if loader == "fabric" else (lambda role: str(job / role))
-    command = [str(PROJECT / "java/gradlew"), "--no-daemon", "-I", str(job / "build-output.gradle"),
-               "-Dp2wlan.fixture.outputRoot=" + str(job / "build"), "--project-cache-dir", str(job / "gradle-cache"), f"-P{loader}Adapter", "-PlocalGameFixture",
+    if loader == "forge":
+        from forge_gradle import command as forge_command
+        launcher = forge_command(game_environment(loader))
+        assets = os.environ.get("P2WLAN_FORGE_ASSETS")
+        if assets:
+            asset_path = Path(assets)
+            if not asset_path.is_absolute() or not asset_path.is_dir():
+                raise ValueError("FORGE_ASSET_DIRECTORY")
+            launcher.append("-PforgeAssetDirectory=" + str(asset_path))
+        replacements = {":forge:localGameClientFixtureClasses": ":forge:localGameFixtureClasses",
+                        ":forge:runLocalGameServer": ":forge:runLocalGameFixtureServer",
+                        ":forge:runLocalGameClient": ":forge:runLocalGameFixtureClient",
+                        ":forge:runIntegratedHost": ":forge:runIntegratedFixtureClient"}
+        task = [replacements.get(value, value) for value in task]
+    else:
+        launcher = [str(PROJECT / "java/gradlew")]
+    command = [*launcher, "--no-daemon", "-I", str(job / "build-output.gradle"),
+               "-Dp2wlan.fixture.outputRoot=" + str(job / "build"), "--project-cache-dir", str(job / "gradle-cache"), "-PlocalGameFixture",
                "-PlocalGameServerDirectory=" + directory("server"),
                "-PlocalGameClientDirectory=" + directory("client"),
                "-PlocalGameServerConfig=" + str(job / "server.json"),
                "-PlocalGameClientConfig=" + str(job / "client.json"), *task]
+    if loader != "forge":
+        command.append(f"-P{loader}Adapter")
     if integrated:
         command.append("-PintegratedGameFixture")
+    if installed:
+        role = "client" if ":forge:runLocalGameFixtureClient" in task else "server"
+        archive = job / role / "mods/p2wlan.jar"
+        command.extend(["-PinstalledGameFixture", "-PlocalGameInstalledArchive=" + str(archive)])
+        if any(value.startswith(":forge:run") for value in task) and archive_sha is None:
+            raise ValueError("GAME_INSTALLED_ARCHIVE_CHANGED")
+        if archive_sha is not None:
+            if re.fullmatch(r"[a-f0-9]{64}", archive_sha) is None or archive_sha256(archive) != archive_sha:
+                raise ValueError("GAME_INSTALLED_ARCHIVE_CHANGED")
+            command.append("-PlocalGameInstalledSha256=" + archive_sha)
     if offline:
         command.append("--offline")
     if development:
@@ -113,10 +216,16 @@ def wait_ready(server, job, identity):
 def wait_game(processes, job, identity, integrated=False):
     deadline = time.monotonic() + 240
     while any(child.process.poll() is None for child in processes):
+        # A failed peer must not be hidden behind the other world's play
+        # deadline; exact group cleanup still belongs to exercise's finally.
+        if any(child.process.poll() not in (None, 0) for child in processes):
+            raise ValueError("GAME_PROCESS_EXIT")
         for role in CASES:
             result = job / (role + "-result.json")
-            if result.exists() and bounded_json(result).get("status") != "pass":
-                raise ValueError("GAME_FAILED_" + str(bounded_json(result).get("reason", "INVALID")))
+            if result.exists():
+                value = verify_inflight_result(result, identity, role)
+                if value["status"] == "fail":
+                    raise ValueError("GAME_FAILED_" + value["reason"])
         if time.monotonic() >= deadline:
             raise ValueError("GAME_PROCESS_DEADLINE")
         time.sleep(0.1)
@@ -126,7 +235,7 @@ def wait_game(processes, job, identity, integrated=False):
     return {role: verify_result(job / (role + "-result.json"), identity, role, integrated) for role in CASES}
 
 
-def prepare(job, env, offline, development, loader="fabric", integrated=False):
+def prepare(job, env, offline, development, loader="fabric", integrated=False, installed=False):
     if not shutil.which("go", path=env.get("PATH")):
         raise ValueError("GAME_GO_REQUIRED_ON_PATH")
     (job / "build-output.gradle").write_text("allprojects { layout.buildDirectory.set(new File(System.getProperty('p2wlan.fixture.outputRoot'), project.name)) }\n", encoding="utf-8")
@@ -145,15 +254,16 @@ def prepare(job, env, offline, development, loader="fabric", integrated=False):
     tasks = [f":{loader}:verifyModJar", f":{loader}:localGameFixtureClasses", f":{loader}:localGameClientFixtureClasses"]
     if integrated:
         tasks.append(f":{loader}:integratedFixtureClasses")
-    build = FixtureProcess(gradle_command(job, tasks, offline, development, loader, integrated), PROJECT / "java", env, job / "build.log")
+    build = FixtureProcess(gradle_command(job, tasks, offline, development, loader, integrated, installed), java_directory(loader), env, job / "build.log")
     try:
         if build.process.wait(timeout=240):
             raise ValueError("GAME_FIXTURE_BUILD")
     finally:
         build.close()
+    return install_archive(job) if installed else None
 
 
-def exercise(job, env, offline, development, loader="fabric", integrated=False):
+def exercise(job, env, offline, development, loader="fabric", integrated=False, installed=False, archive_sha=None):
     identity = uuid.uuid4().hex
     port = available_port()
     control_url = "http://127.0.0.1:" + str(port)
@@ -172,9 +282,9 @@ def exercise(job, env, offline, development, loader="fabric", integrated=False):
         common = {"schema": 1, "run": identity, "control": control_url, "room": room, "room_password": password}
         private_json(job / "server.json", common | {"role": "server", "identifier": "", "password": ""})
         private_json(job / "client.json", common | {"role": "client", "identifier": "player-" + secrets.token_hex(8) + "@example.com", "password": secrets.token_hex(16)})
-        server = FixtureProcess(gradle_command(job, [f":{loader}:runIntegratedHost" if integrated else f":{loader}:runLocalGameServer"], offline, development, loader, integrated), PROJECT / "java", env, job / "server.log")
+        server = FixtureProcess(gradle_command(job, [f":{loader}:runIntegratedHost" if integrated else f":{loader}:runLocalGameServer"], offline, development, loader, integrated, installed, archive_sha), java_directory(loader), env, job / "server.log")
         children.append(server); wait_ready(server, job, identity)
-        client = FixtureProcess(gradle_command(job, [f":{loader}:runLocalGameClient"], offline, development, loader, integrated), PROJECT / "java", env, job / "client.log")
+        client = FixtureProcess(gradle_command(job, [f":{loader}:runLocalGameClient"], offline, development, loader, integrated, installed, archive_sha), java_directory(loader), env, job / "client.log")
         children.append(client)
         return wait_game([server, client], job, identity, integrated)
     finally:
@@ -203,22 +313,21 @@ def server_settings(port):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--loader", choices=("fabric", "neoforge"), default="fabric")
+    parser.add_argument("--loader", choices=("fabric", "neoforge", "forge"), default="fabric")
     parser.add_argument("--integrated", action="store_true", help="two real client JVMs with a fresh singleplayer host world")
+    parser.add_argument("--installed", action="store_true", help="Forge: load the checked JarJar archive with production classpath fallbacks excluded")
     parser.add_argument("--accept-eula", action="store_true", help="explicitly accept Minecraft server terms for this disposable local world")
     parser.add_argument("--offline-mode", action="store_true", help="explicitly use offline Minecraft authentication ONLY on a fresh loopback test server")
     parser.add_argument("--offline", action="store_true", help="use cached Cargo/Gradle dependencies")
     parser.add_argument("--development", action="store_true", help="explicitly permit source-bound development native resources")
     args = parser.parse_args()
+    if args.installed and args.loader != "forge":
+        parser.error("--installed requires --loader forge")
     if not args.accept_eula or not args.offline_mode:
         parser.error("explicit --accept-eula and --offline-mode are required; no user world/config is modified")
     if sys.platform not in {"darwin", "linux"}:
         parser.error("local gameplay fixture is not verified on this platform")
-    env = environment()
-    for key in ("JAVA_OPTS", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"):
-        env.pop(key, None)
-    if sys.platform == "darwin":
-        env["JAVA_HOME"] = subprocess.check_output(["/usr/libexec/java_home", "-v", "21"], text=True, timeout=5).strip()
+    env = game_environment(args.loader)
     parent = PROJECT / f"java/adapters/{args.loader}-1.21.1/build/local-game-fixture"
     parent.mkdir(parents=True, exist_ok=True)
     job = Path(tempfile.mkdtemp(prefix="run-", dir=parent)).resolve()
@@ -230,13 +339,14 @@ def main():
     original_eula = eula.read_bytes()
     (job / "server/server.properties").write_text(server_settings(available_port()), encoding="utf-8")
     try:
-        prepare(job, env, args.offline, args.development, args.loader, args.integrated)
-        checked = exercise(job, env, args.offline, args.development, args.loader, args.integrated)
+        archive_sha = prepare(job, env, args.offline, args.development, args.loader, args.integrated, args.installed)
+        checked = exercise(job, env, args.offline, args.development, args.loader, args.integrated, args.installed, archive_sha)
         if eula.read_bytes() != original_eula:
             raise ValueError("GAME_EULA_CHANGED")
         print("PASS real local Minecraft (" + args.loader + "): UI register/login, room join, encrypted service discovery, Vanilla play,")
         print("20 ordered C2S commands + S2C game-state/message replies over at least 18 seconds, disconnect/room-stop and both helpers/world cleanup.")
         print("Host mode:", "integrated" if args.integrated else "dedicated")
+        print("Installation:", "jarjar" if args.installed else "source")
         print("Assertions:", checked["server"]["checks"], "host;", checked["client"]["checks"], "guest. Scope: local Minecraft 1.21.1 on this host platform.")
     except KeyboardInterrupt:
         print("FAIL local Minecraft: CANCELLED", file=sys.stderr)

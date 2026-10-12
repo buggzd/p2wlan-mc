@@ -4,7 +4,7 @@
 
 This page documents implementation contracts and component-specific build/test entry points. Start with the user guide for Mod installation, accounts, rooms and game controls. Unless stated otherwise, commands run from the complete repository root.
 
-This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The Fabric baseline is pinned to Minecraft 1.21.1; an opt-in NeoForge 1.21.1 adapter shares the same common and transport modules. An opt-in local fixture checks actual offline-mode client/dedicated-server play through the Mod. Platform and gameplay verification scope is summarized in [Project status](../README.md#项目状态); the sections below describe each component and its test entry points.
+This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The Fabric baseline is pinned to Minecraft 1.21.1; opt-in NeoForge and Forge 1.21.1 adapters share the same common and transport modules. An opt-in local fixture checks actual offline-mode client/dedicated-server play through the Mod. Platform and gameplay verification scope is summarized in [Project status](../README.md#项目状态); the sections below describe each component and its test entry points.
 
 ## Native TCP endpoint
 
@@ -384,13 +384,13 @@ The join lifetime owns one native proxy, one real Minecraft connection and two o
 
 ## Guarded local world publication
 
-The shared `WorldSessions` owner retains one exact dedicated/integrated server lifetime and revokes its world guard **before** server stop/replacement. Fabric forwards start/tick/stop events and supplies its version-specific bind callback; queued intents and native publication use the same world identity. A publication has one worker and one JVM capacity slot, with no queued setup or automatic retry. A revoked, delayed native `host` reply is retained only for exact registration cleanup, never published for a replacement world. Local cleanup failure holds the capacity slot; uncertain native cleanup terminates that exact helper rather than replaying a mutation. Queued world IPC requests recheck their lifetime immediately before the pipe write.
+The shared `WorldSessions` owner retains one exact dedicated/integrated server lifetime and revokes its world guard **before** server stop/replacement. Each loader forwards start/tick/stop events and supplies its version-specific bind callback; queued intents and native publication use the same world identity. A publication has one worker and one JVM capacity slot, with no queued setup or automatic retry. A revoked, delayed native `host` reply is retained only for exact registration cleanup, never published for a replacement world. Local cleanup failure holds the capacity slot; uncertain native cleanup terminates that exact helper rather than replaying a mutation. Queued world IPC requests recheck their lifetime immediately before the pipe write.
 
 The adapter uses Minecraft's existing codecs, rate limiter, handshake handler and authoritative game-connection list, with an additional ephemeral **127.0.0.1** listener. It does not call the integrated-server open-to-LAN operation or advertise a LAN port. Existing dedicated-server listeners/configuration are unchanged: server operators remain responsible for restricting any separately configured public game port. Minecraft sees a loopback source, not the remote player's physical/virtual IP; IP-based bans or other Mods that rely on source IP need separate consideration. No forwarded-IP identity spoofing is performed.
 
 The Minecraft-facing listener itself consumes a fresh 40-byte local capability **before** initializing Vanilla codecs/connections. The outer `WorldGuard` authenticates that target and consumes its one-byte readiness acknowledgement before acknowledging native readiness; neither local prelude/acknowledgement reaches Minecraft. Unauthenticated local users cannot bypass the outer guard by connecting directly to this listener. A single Mod-owned NIO event loop drives accept/child registration, so unauthenticated local connects cannot build an unbounded registration queue on another game event loop. At most 32 children, 40 prelude bytes per child and one two-second timer per child are retained; existing Minecraft packet/player internals remain Minecraft-owned. Target revocation fences inbound/outbound game bytes and closes owned channels. Target cleanup waits at most two seconds each for children/listener closure and three seconds for the sole event loop to terminate; failed cleanup does not release the publication slot. Same-user code and other Mods remain inside the trusted local environment.
 
-The required, exact-version server Mixin is checked during bootstrap; absence fails before an unguarded bind. Its explicitly scoped bind reuses Vanilla's bind/stop ordering under the existing channel-list monitor, with a two-second wait limit. The Mod owns and closes its extra listener rather than accumulating closed entries in Vanilla's listener list. Ordinary Vanilla binds retain their original behavior. Concurrent full-game bind/stop competition remains unverified; the isolated local gameplay fixture below checks dedicated and integrated worlds. A required client-only IntegratedServer Mixin derives remote/pause semantics from the exact current `HOSTED` publication and its world/runtime fence. It does not maintain another hosting flag, change cheats/default game mode, announce a LAN port, or alter ordinary Vanilla LAN publication. The integrated fixture below checks unshared pause, hosted menu tick progress, unhost/pause restoration and world/helper cleanup on both pinned loaders.
+The one physical server Mixin under `java/game-1.21.1/src/server/java` is compiled into every loader archive and checked during bootstrap; absence fails before an unguarded bind. Its explicitly scoped bind reuses Vanilla's bind/stop ordering under the existing channel-list monitor, with a two-second wait limit. The Mod owns and closes its extra listener rather than accumulating closed entries in Vanilla's listener list. Ordinary Vanilla binds retain their original behavior. Concurrent full-game bind/stop competition remains unverified; the isolated local gameplay fixture below checks dedicated and integrated worlds. A required client-only IntegratedServer Mixin derives remote/pause semantics from the exact current `HOSTED` publication and its world/runtime fence. It does not maintain another hosting flag, change cheats/default game mode, announce a LAN port, or alter ordinary Vanilla LAN publication. The integrated fixture below checks unshared pause, hosted menu tick progress, unhost/pause restoration and world/helper cleanup on all three pinned loaders.
 
 In an integrated world, the runtime screen exposes explicit host/unhost intents without requiring cheats. One server-thread task is retained per world, with a three-second deadline. An expired result keeps its capacity until the queued runnable actually drains; the late runnable cannot mutate a replacement world/runtime or begin a host intent after its view expires. Closing a view after the effect has already begun does not undo that world-owned intent. Host receives the originally selected runtime rather than reacquiring a newer one. `Stop room` revokes local publication before requesting native stop, including a runtime still `starting`. A stop acknowledgement waits for a matching native status transition before returning to account controls; late presentation rejects another active runtime. None of these actions silently accept terms or automatically publish a world.
 
@@ -439,9 +439,10 @@ Netty transport and native resources. The resource module has the stable Java
 module name `io.p2wlan.mc.nativebundle`. JNA 5.14.0 comes from the pinned game's
 bootstrap layer; no second named JNA module is embedded. Development runs
 explicitly add the portable libraries to ModDev's additional runtime classpath.
-The adapter resolves the exact local native-resource module through its module
-reader, or uses the development classloader. Typed Union/JarJar filesystem
-backings are checked within eight levels before reading; ambiguous/remote
+The common `LayerNativeResources` resolver selects the exact local native-resource
+module through its module reader, or uses the development classloader. Loader
+glue supplies typed Union/JarJar backing edges. The common policy checks at most
+eight levels before reading; ambiguous/remote
 resources fail, and common manifest, executable, extraction and lifetime checks
 remain unchanged. The portable default retains its local file/JAR policy.
 
@@ -466,15 +467,99 @@ resource-only named-module access, ambiguity, remote refusal and the depth limit
 it runs as part of `neoforge-build` without starting Minecraft. Fixture classes
 stay out of production archives.
 
+## Forge adapter and build inputs
+
+`java/adapters/forge-1.21.1` targets **Minecraft 1.21.1**, **Forge 52.1.16**,
+**ForgeGradle 7.0.29**, **JarJar Gradle 0.2.3** and **Java 21**. Loader events,
+client render/widgets and typed loader-filesystem edges are the adapter's only
+implementation responsibilities. Its account screens, game joins, display
+observer, operator commands and server/client Mixins are the same physical
+Minecraft sources used by Fabric and NeoForge. Native and `WorldSessions`
+retain their existing state ownership.
+
+Forge uses the separate `java/forge` Gradle **9.3.1** build graph. It references
+the original portable projects, not copies. Fabric, NeoForge and ordinary Java
+checks retain the Gradle 8.14 entry point. The Forge bootstrap copies the existing
+tracked wrapper into one of two ignored, create-only slots and enforces the fixed
+Gradle distribution SHA-256. No new wrapper binary is stored in source control.
+
+The pinned Forge build uses JDK **25** for Mavenizer and JDK **8** as a launcher
+configuration helper, in addition to the game's JDK 21. Install those toolchains
+or permit the settings' Foojay resolver to provision them. Optional
+`P2WLAN_FORGE_JAVA25_HOME` / `P2WLAN_FORGE_JAVA8_HOME` select absolute installed
+helper directories; `JAVA_HOME` selects Java 21 outside the macOS automatic
+selection. An optional `P2WLAN_FORGE_GRADLE_ZIP` selects an absolute local Gradle
+9.3.1 ZIP only after its fixed official SHA-256 matches. These are build inputs,
+not account or server settings.
+
+With current source-bound native resources:
+
+```sh
+python3 minecraft-mod/tools/java.py forge-build -PdevelopmentNative
+python3 minecraft-mod/tools/java.py forge-server -PdevelopmentNative
+python3 minecraft-mod/tools/java.py forge-client -PdevelopmentNative
+```
+
+Use `native_bundle.py --development` for development resources; a clean release
+checkout uses `native_bundle.py` and omits `-PdevelopmentNative`. The final JAR is
+`minecraft-mod/java/adapters/forge-1.21.1/build/libs/p2wlan-forge-1.21.1-0.1.0.jar`.
+The `-slim.jar` lacks the required portable/native payloads and is not an install
+artifact. `forge-build` requires the explicit 33-check resource-policy harness, six
+launcher-argument checks and production-archive/source verification. The archive contains the same three
+JarJar components as NeoForge, with one named native-resource module and no
+second JNA payload. The development run forwards both required Mixin configs;
+installed runs read them from the final archive's `MixinConfigs` manifest.
+Archive checks require the Minecraft 1.21.1 resource/data-pack metadata, strict
+Mixin versions, unique common/transport class ownership and native payloads only
+in the named resource module. Build/test classes and duplicate JNA payloads are
+rejected. The resource harness includes actual Union/JarJar paths seen across
+separate classloaders. Forge's NIO provider may belong to the bootstrap loader;
+the adapter reads only the pinned SDK's public zero-argument `Path` getters,
+checking their exact class and signature before the shared locality/depth policy.
+
+ForgeGradle merges classes/resources within each source-set output, not between
+test mods. Its opt-in local fixture compiles dedicated and client observations
+into one dist-filtered test mod; the integrated host has a separate output and
+its own copy of the single `fixtureCommon` source. Production archives reject
+all fixture classes. Game checks still use the shared exact result contracts.
+A build-only entry adapter places the asset-cache argument before Slime
+Launcher's game separator. It is excluded from the installed JAR. Assets use
+an ignored build cache, not the user's Minecraft directory. For cached fixture execution, `P2WLAN_FORGE_ASSETS` may explicitly
+select an absolute asset cache; normal CLI runs can pass
+`-PforgeAssetDirectory=/absolute/path/to/asset-cache`. The launcher's asset checks
+remain enabled. First-run toolchains, dependencies and assets require network
+access before a cached/offline fixture run.
+
+The Forge local gameplay fixture accepts `--installed` for final-JarJar loading:
+
+```sh
+python3 minecraft-mod/tools/local_game.py --loader forge --installed --accept-eula --offline-mode --offline --development
+python3 minecraft-mod/tools/local_game.py --loader forge --installed --integrated --accept-eula --offline-mode --offline --development
+```
+
+Each mode creates fresh host/guest `mods/` directories, copies only the checked
+Mod archive and retains its SHA-256 through each launch. The Forge runtime
+excludes production source outputs and portable project libraries; only the
+test observation Mod remains on the development classpath. Before the shared
+game checks, each JVM verifies the exact installed Mod path/hash, same-layer
+`common` / `netty.transport` / `io.p2wlan.mc.nativebundle` modules, and at most
+eight typed backing steps to that same installed archive. Native helper startup
+then exercises the installed resource resolver. The fixed Slime development
+launcher supplies the game/Forge runtime for both source and installed modes.
+
+Both source and final-JarJar modes complete the dedicated **68 host / 65 guest**
+and integrated **77 host / 65 guest** contracts on macOS/aarch64. Windows/HMCL
+and other game versions require platform/version-specific execution.
+
 ## Shared Minecraft 1.21.1 game layer
 
-`java/game-1.21.1/src/server/java` supplies one operator-command implementation
-for both loaders. Each loader registers it with the existing `AgentLifecycle`,
+`java/game-1.21.1/src/server/java` supplies one operator-command and protected-server-Mixin implementation
+for all three loaders. Each loader registers it with the existing `AgentLifecycle`,
 the current `WorldSessions` lookup and its transport-hook availability check.
 Command completions retain the original process/world fences; loader glue
 does not own another room, publication or command queue.
 
-`java/game-1.21.1/src/client/java` is compiled directly into both loader archives;
+`java/game-1.21.1/src/client/java` is compiled directly into all three loader archives;
 there is one physical implementation of the screens, fenced game-join lifetime,
 read-only service observer, display/HUD settings and exact-version client Mixins.
 It imports Minecraft APIs but no Fabric, NeoForge or Forge class. Loader adapters
@@ -499,9 +584,10 @@ The two-JVM local gameplay fixture accepts an explicit loader:
 ```sh
 python3 minecraft-mod/tools/local_game.py --loader neoforge --accept-eula --offline-mode --offline --development
 python3 minecraft-mod/tools/local_game.py --loader fabric --accept-eula --offline-mode --offline --development
+python3 minecraft-mod/tools/local_game.py --loader forge --accept-eula --offline-mode --offline --development
 ```
 
-Both paths retain the shared 68 server / 65 client checks and real Vanilla
+All three paths retain the shared 68 server / 65 client checks and real Vanilla
 login, 20 ordered C2S/S2C exchanges, at least 18 seconds of play, room stop and
 world/helper cleanup. The default loader remains Fabric. Verification currently
 uses local macOS/aarch64 and Minecraft 1.21.1 with the pinned loader versions;
@@ -509,7 +595,7 @@ Windows and remote-machine execution remain separate verification targets.
 
 ## Isolated integrated-world gameplay verification
 
-The same test-only `IntegratedHostChecks` source runs on both loaders. Loader
+The same test-only `IntegratedHostChecks` source runs on all three loaders. Loader
 fixtures supply client ticks, command and player/world lifecycle events only.
 `fixtureCommon` data is compiled into each independent host/guest test mod from
 one source; the host runtime does not load the dedicated/guest fixture mod.
@@ -518,6 +604,7 @@ None of these sources are in ordinary runs or production archives.
 ```sh
 python3 minecraft-mod/tools/local_game.py --loader neoforge --integrated --accept-eula --offline-mode --offline --development
 python3 minecraft-mod/tools/local_game.py --loader fabric --integrated --accept-eula --offline-mode --offline --development
+python3 minecraft-mod/tools/local_game.py --loader forge --integrated --accept-eula --offline-mode --offline --development
 ```
 
 The host creates a disposable creative/peaceful flat world with cheats disabled.
@@ -533,7 +620,7 @@ shutdown sequence. Success requires all **77 host / 65 guest** checks, the exact
 nine host cases, world retirement and both native helpers exiting.
 
 The execution scope is local macOS/aarch64, Java 21 and Minecraft 1.21.1 with the
-pinned Fabric and NeoForge versions. The test server's authentication setting is
+pinned Fabric, NeoForge and Forge versions. The test server's authentication setting is
 changed only inside the new disposable world after explicit `--offline-mode`.
 EULA consent, bounded process/result checks, isolated build outputs and private
 state cleanup are the same as the dedicated gameplay mode below. Failed runs
@@ -625,10 +712,16 @@ and results remain under the ignored adapter `build/local-game-fixture/` tree;
 uncertain process cleanup retains private test state and fails closed. Do not
 publish these diagnostics as product documentation or release evidence.
 
-Both dedicated and integrated modes are verified on macOS/aarch64 with
-Minecraft 1.21.1, Fabric Loader 0.16.14 / API 0.116.7+1.21.1 and NeoForge 21.1.256.
-These local development runs use offline Minecraft authentication. Linux graphical
-execution, Windows/HMCL, Forge/other game versions, forced Relay, public NAT,
+The local Minecraft 1.21.1 compatibility matrix uses Java 21 on macOS/aarch64:
+
+| Loader | Dedicated host / real client | Integrated host / real guest | Gameplay Mod input |
+| --- | --- | --- | --- |
+| Fabric 0.16.14 / API 0.116.7+1.21.1 | 68 / 65 checks | 77 / 65 checks | Source outputs |
+| NeoForge 21.1.256 | 68 / 65 checks | 77 / 65 checks | Source outputs; separate installed dedicated/status checks above |
+| Forge 52.1.16 | 68 / 65 checks | 77 / 65 checks | Source outputs and checked final JarJar archive |
+
+These local runs use offline Minecraft authentication. Linux graphical
+execution, Windows/HMCL, other game versions, forced Relay, public NAT,
 cross-machine play and long-duration/network-change behavior are separate
 verification targets.
 

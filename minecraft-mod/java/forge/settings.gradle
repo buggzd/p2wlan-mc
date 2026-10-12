@@ -1,0 +1,14 @@
+pluginManagement {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net/' }
+        gradlePluginPortal()
+    }
+}
+plugins { id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0' }
+rootProject.name = 'p2wlan-minecraft-forge'
+// An independent Gradle 9 build graph, reusing the same physical portable projects.
+include 'common', 'netty-transport', 'native-bundle', 'forge'
+project(':common').projectDir = file('../common')
+project(':netty-transport').projectDir = file('../netty-transport')
+project(':native-bundle').projectDir = file('../native-bundle')
+project(':forge').projectDir = file('../adapters/forge-1.21.1')
