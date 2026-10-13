@@ -69,7 +69,7 @@ public final class JoinProxy implements AutoCloseable {
         registrationId = RuntimeView.text(data, "registration");
         String key = RuntimeView.text(data, "key");
         var port = data.get("port");
-        if (!data.keySet().equals(Set.of("registration", "world", "port", "key")) || registrationId == null
+        if (!JsonTrees.fields(data, Set.of("registration", "world", "port", "key")) || registrationId == null
                 || !registrationId.matches("[a-f0-9]{16}") || !attempt.equals(RuntimeView.text(data, "world")) || key == null
                 || !key.matches("[a-f0-9]{64}") || port == null || !port.isJsonPrimitive()
                 || !port.getAsJsonPrimitive().isNumber() || !port.getAsString().matches("[1-9][0-9]{0,4}") || port.getAsInt() > 65535) {

@@ -13,7 +13,7 @@ public record LatencyStatistics(int samples, boolean capacityLimited, Long lastS
     private static final Set<String> FIELDS = Set.of("window_ms", "capacity", "samples", "capacity_limited", "last_sample_age_ms",
             "min_us", "avg_us", "max_us", "p50_us", "p90_us", "p95_us", "p99_us");
     static LatencyStatistics parse(JsonObject value) throws AgentException {
-        if (!value.keySet().equals(FIELDS) || !Long.valueOf(WINDOW_MS).equals(PeerTelemetry.number(value,"window_ms"))
+        if (!JsonTrees.fields(value, FIELDS) || !Long.valueOf(WINDOW_MS).equals(PeerTelemetry.number(value,"window_ms"))
                 || !Long.valueOf(CAPACITY).equals(PeerTelemetry.number(value,"capacity"))) throw invalid();
         Long count = PeerTelemetry.number(value,"samples"), age = PeerTelemetry.number(value,"last_sample_age_ms");
         var limited = value.get("capacity_limited");

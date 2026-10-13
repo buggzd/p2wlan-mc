@@ -8,7 +8,7 @@ public record StatusSnapshot(String owner, long revision, JsonObject data) {
         if (owner == null || !owner.matches("[a-f0-9]{32}") || revision < 0 || data == null) {
             throw new IllegalArgumentException("INVALID_SNAPSHOT");
         }
-        data = data.deepCopy();
+        data = JsonTrees.copy(data);
     }
-    @Override public JsonObject data() { return data.deepCopy(); }
+    @Override public JsonObject data() { return JsonTrees.copy(data); }
 }

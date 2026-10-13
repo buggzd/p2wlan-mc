@@ -18,9 +18,9 @@ public final class AccountPresentation {
         if (authenticated == null || !authenticated.isJsonPrimitive()
                 || !authenticated.getAsJsonPrimitive().isBoolean()) return State.UNKNOWN;
         if (!authenticated.getAsBoolean()) {
-            return account.keySet().equals(Set.of("authenticated")) ? State.NO_SESSION : State.UNKNOWN;
+            return JsonTrees.fields(account, Set.of("authenticated")) ? State.NO_SESSION : State.UNKNOWN;
         }
-        return account.keySet().equals(Set.of("authenticated", "server", "user_id"))
+        return JsonTrees.fields(account, Set.of("authenticated", "server", "user_id"))
                 && boundedText(account.get("server"), 2048) && boundedText(account.get("user_id"), 128)
                 ? State.SAVED_SESSION : State.UNKNOWN;
     }

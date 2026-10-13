@@ -21,7 +21,7 @@ public record StartupDiagnostic(String stage, String operation, String target, I
         try {
             if (value == null || !value.isJsonObject()) throw new IllegalArgumentException();
             JsonObject data = value.getAsJsonObject();
-            if (!data.keySet().equals(Set.of("stage", "operation", "target", "os_code", "path_depth"))) throw new IllegalArgumentException();
+            if (!JsonTrees.fields(data, Set.of("stage", "operation", "target", "os_code", "path_depth"))) throw new IllegalArgumentException();
             return new StartupDiagnostic(text(data.get("stage")), text(data.get("operation")), text(data.get("target")),
                     integer(data.get("os_code")), integer(data.get("path_depth")));
         } catch (RuntimeException error) { throw new AgentException(AgentException.Code.INVALID_REPLY); }

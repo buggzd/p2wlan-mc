@@ -77,7 +77,7 @@ public final class WorldHost implements AutoCloseable {
         String world = RuntimeView.text(data, "world"), service = RuntimeView.text(data, "service");
         registrationId = RuntimeView.text(data, "registration");
         var port = data.get("port");
-        if (!data.keySet().equals(Set.of("registration", "world", "virtual_ip", "port", "service"))
+        if (!JsonTrees.fields(data, Set.of("registration", "world", "virtual_ip", "port", "service"))
                 || registrationId == null || !registrationId.matches("[a-f0-9]{16}") || !guard.owner().equals(world)
                 || service == null || !service.matches("[a-f0-9]{64}") || port == null || !port.isJsonPrimitive()
                 || !port.getAsJsonPrimitive().isNumber() || !port.getAsString().matches("[1-9][0-9]{0,4}")) {

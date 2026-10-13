@@ -53,12 +53,12 @@ public final class FrameCodec {
     }
 
     public static void write(DataOutputStream output, JsonObject object) throws IOException {
-        // Validate bounds before Gson traverses a caller-supplied tree.
-        validate(object, 0, new int[] {0, 0});
+        // Detach within the same bounds before Gson traverses the value.
+        JsonObject detached = copy(object);
         ByteBuffer encoded;
         try {
             encoded = StandardCharsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(GSON.toJson(object)));
+                .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(GSON.toJson(detached)));
         } catch (CharacterCodingException error) {
             throw new ProtocolException(ProtocolException.Code.INVALID_UTF8);
         }
@@ -144,20 +144,29 @@ public final class FrameCodec {
         }
     }
 
-    private static void validate(JsonElement element, int depth, int[] budget) throws ProtocolException {
+    static JsonObject copy(JsonObject value) throws ProtocolException {
+        if (value == null) throw new ProtocolException(ProtocolException.Code.INVALID_JSON);
+        return copyValue(value, 0, new int[] {0, 0}).getAsJsonObject();
+    }
+
+    private static JsonElement copyValue(JsonElement element, int depth, int[] budget) throws ProtocolException {
         if (depth > MAX_DEPTH) throw new ProtocolException(ProtocolException.Code.DEPTH);
         if (++budget[0] > 4096) throw new ProtocolException(ProtocolException.Code.CAPACITY);
         if (element.isJsonObject()) {
             if (element.getAsJsonObject().size() > MAX_ITEMS) throw new ProtocolException(ProtocolException.Code.CAPACITY);
+            JsonObject copy = new JsonObject();
             for (var entry : element.getAsJsonObject().entrySet()) {
                 checkString(entry.getKey());
                 budget[1] += entry.getKey().length();
                 if (budget[1] > MAX_FRAME_BYTES) throw new ProtocolException(ProtocolException.Code.CAPACITY);
-                validate(entry.getValue(), depth + 1, budget);
+                copy.add(entry.getKey(), copyValue(entry.getValue(), depth + 1, budget));
             }
+            return copy;
         } else if (element.isJsonArray()) {
             if (element.getAsJsonArray().size() > MAX_ITEMS) throw new ProtocolException(ProtocolException.Code.CAPACITY);
-            for (var child : element.getAsJsonArray()) validate(child, depth + 1, budget);
+            JsonArray copy = new JsonArray();
+            for (var child : element.getAsJsonArray()) copy.add(copyValue(child, depth + 1, budget));
+            return copy;
         } else if (element.isJsonPrimitive()) {
             JsonPrimitive primitive = element.getAsJsonPrimitive();
             String value = primitive.getAsString();
@@ -173,7 +182,11 @@ public final class FrameCodec {
                 } catch (NumberFormatException error) {
                     throw new ProtocolException(ProtocolException.Code.INVALID_JSON);
                 }
+                return new JsonPrimitive(new BigDecimal(value));
             }
+            return primitive.isBoolean() ? new JsonPrimitive(primitive.getAsBoolean()) : new JsonPrimitive(value);
         }
+        if (element.isJsonNull()) return JsonNull.INSTANCE;
+        throw new ProtocolException(ProtocolException.Code.INVALID_JSON);
     }
 }

@@ -31,9 +31,15 @@ public final class NetworkCatalogTests {
             reject(() -> RoomPeers.parse(reply(peers(generation, "[]")), RUNTIME));
         }
         for (String ids : new String[]{"[\"z\",\"a\"]", "[\"a\",\"a\"]", "[\"\"]", "[\"bad\\npeer\"]", "[1]", "null",
-                "[\"" + "中".repeat(86) + "\"]", "[" + String.join(",", java.util.stream.IntStream.range(0, 129).mapToObj(n -> String.format("\"p%03d\"", n)).toList()) + "]"}) {
+                "[\"" + "中".repeat(86) + "\"]"}) {
             reject(() -> RoomPeers.parse(reply(peers("\"1\"", ids)), RUNTIME));
         }
+        String maximumPeers = "[" + String.join(",", java.util.stream.IntStream.range(0, 128).mapToObj(n -> String.format("\"p%03d\"", n)).toList()) + "]";
+        check(RoomPeers.parse(reply(peers("\"1\"", maximumPeers)), RUNTIME).peers().size() == 128);
+        // Oversized trees are rejected at the bounded immutable snapshot boundary.
+        String excessPeers = "[" + String.join(",", java.util.stream.IntStream.range(0, 129).mapToObj(n -> String.format("\"p%03d\"", n)).toList()) + "]";
+        try { reply(peers("\"1\"", excessPeers)); throw new AssertionError("oversized snapshot admitted"); }
+        catch (IllegalArgumentException invalid) { check(invalid.getMessage().equals("INVALID_JSON_SNAPSHOT")); }
         reject(() -> RoomPeers.parse(reply(peers("\"1\"", "[]").replace(RUNTIME.runtime(), "c".repeat(32))), RUNTIME));
         reject(() -> RoomPeers.parse(new AgentReply("c".repeat(32), 1, roster.evidence().data()), RUNTIME));
         String first = service("1024", "d".repeat(64)), last = service("65535", "e".repeat(64));

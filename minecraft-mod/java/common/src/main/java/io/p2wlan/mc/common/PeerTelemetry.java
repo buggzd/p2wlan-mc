@@ -21,10 +21,10 @@ public record PeerTelemetry(AgentReply evidence, RuntimeView runtime, String pee
     public static PeerTelemetry parse(AgentReply reply, RuntimeView runtime, String peer, long now) throws AgentException {
         if (reply == null || runtime == null || !GameService.validPeer(peer) || !reply.owner().equals(runtime.owner())) throw invalid();
         JsonObject data = reply.data();
-        if (!data.keySet().equals(Set.of("runtime", "peer", "view")) || !runtime.runtime().equals(RuntimeView.text(data, "runtime"))
+        if (!JsonTrees.fields(data, Set.of("runtime", "peer", "view")) || !runtime.runtime().equals(RuntimeView.text(data, "runtime"))
                 || !peer.equals(RuntimeView.text(data, "peer")) || !data.get("view").isJsonObject()) throw invalid();
         JsonObject view = data.getAsJsonObject("view");
-        if (!view.keySet().equals(VIEW_FIELDS)) throw invalid();
+        if (!JsonTrees.fields(view, VIEW_FIELDS)) throw invalid();
         String generation = decimal(view, "network_generation"), session = decimal(view, "peer_session");
         for (String key : Set.of("remote_candidate_epoch", "path_revision", "udp_publication_owner")) {
             if (!view.get(key).isJsonNull()) decimal(view, key);
@@ -43,7 +43,7 @@ public record PeerTelemetry(AgentReply evidence, RuntimeView runtime, String pee
         if (raw != null && !raw.isJsonNull()) {
             if (!raw.isJsonObject()) throw invalid();
             JsonObject metrics = raw.getAsJsonObject();
-            if (!metrics.keySet().equals(Set.of("label", "virtual_ip", "latency_ms", "jitter_ms", "last_success_age_ms", "bytes_sent", "bytes_received", "latency_stats"))) throw invalid();
+            if (!JsonTrees.fields(metrics, Set.of("label", "virtual_ip", "latency_ms", "jitter_ms", "last_success_age_ms", "bytes_sent", "bytes_received", "latency_stats"))) throw invalid();
             label = text(metrics, "label", 128, true); ip = text(metrics, "virtual_ip", 15, false);
             if (!ipv4(ip)) throw invalid();
             latency = number(metrics, "latency_ms"); jitter = number(metrics, "jitter_ms"); age = number(metrics, "last_success_age_ms");
@@ -60,7 +60,7 @@ public record PeerTelemetry(AgentReply evidence, RuntimeView runtime, String pee
         if (raw != null && !raw.isJsonNull()) {
             if (!raw.isJsonObject()) throw invalid();
             JsonObject mtu = raw.getAsJsonObject();
-            if (!mtu.keySet().equals(MTU_FIELDS)) throw invalid();
+            if (!JsonTrees.fields(mtu, MTU_FIELDS)) throw invalid();
             for (String key : Set.of("network_generation", "peer_session", "remote_candidate_epoch")) {
                 if (!mtu.get(key).isJsonNull()) decimal(mtu, key);
             }

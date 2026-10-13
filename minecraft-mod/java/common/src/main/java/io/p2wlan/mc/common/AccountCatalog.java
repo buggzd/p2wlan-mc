@@ -16,14 +16,14 @@ public record AccountCatalog(AgentReply evidence, List<Room> rooms) {
     public static AccountCatalog parse(AgentReply reply) throws AgentException {
         if (reply == null) throw invalid();
         JsonObject data = reply.data();
-        if (!data.keySet().equals(Set.of("rooms")) || !data.get("rooms").isJsonArray()
+        if (!JsonTrees.fields(data, Set.of("rooms")) || !data.get("rooms").isJsonArray()
                 || data.getAsJsonArray("rooms").size() > 64) throw invalid();
         List<Room> rooms = new ArrayList<>();
         Set<String> ids = new HashSet<>();
         for (JsonElement element : data.getAsJsonArray("rooms")) {
             if (!element.isJsonObject()) throw invalid();
             JsonObject value = element.getAsJsonObject();
-            if (!value.keySet().equals(Set.of("id", "code", "name", "cidr", "role"))) throw invalid();
+            if (!JsonTrees.fields(value, Set.of("id", "code", "name", "cidr", "role"))) throw invalid();
             String id = text(value, "id", 128);
             String code = text(value, "code", 8);
             String name = text(value, "name", 256);

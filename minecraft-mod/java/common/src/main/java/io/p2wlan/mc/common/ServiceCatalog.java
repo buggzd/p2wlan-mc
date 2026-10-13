@@ -14,7 +14,7 @@ public record ServiceCatalog(AgentReply evidence, RuntimeView runtime, String pe
     public static ServiceCatalog parse(AgentReply reply, RuntimeView runtime, String peer) throws AgentException {
         if (reply == null || runtime == null || !reply.owner().equals(runtime.owner()) || !GameService.validPeer(peer)) throw invalid();
         JsonObject data = reply.data();
-        if (!data.keySet().equals(Set.of("runtime", "peer", "services"))
+        if (!JsonTrees.fields(data, Set.of("runtime", "peer", "services"))
                 || !runtime.runtime().equals(RuntimeView.text(data, "runtime")) || !peer.equals(RuntimeView.text(data, "peer"))
                 || !data.get("services").isJsonArray() || data.getAsJsonArray("services").size() > 8) throw invalid();
         List<GameService> services = new ArrayList<>();
@@ -25,7 +25,7 @@ public record ServiceCatalog(AgentReply evidence, RuntimeView runtime, String pe
             JsonObject value = element.getAsJsonObject();
             String identity = RuntimeView.text(value, "service");
             JsonElement port = value.get("port");
-            if (!value.keySet().equals(Set.of("port", "service")) || identity == null || !identity.matches("[a-f0-9]{64}")
+            if (!JsonTrees.fields(value, Set.of("port", "service")) || identity == null || !identity.matches("[a-f0-9]{64}")
                     || !identities.add(identity) || port == null || !port.isJsonPrimitive() || !port.getAsJsonPrimitive().isNumber()
                     || !port.getAsString().matches("[1-9][0-9]{0,4}")) throw invalid();
             int number = port.getAsInt();

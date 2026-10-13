@@ -4,9 +4,19 @@ plugins { id 'java-library' }
 java { toolchain.languageVersion = JavaLanguageVersion.of(17) }
 
 dependencies {
-    api 'com.google.code.gson:gson:2.10'
+    api 'com.google.code.gson:gson:2.8.0'
+    testImplementation 'com.google.code.gson:gson:2.10'
     implementation 'net.java.dev.jna:jna:5.12.1'
 }
+
+configurations { gsonFloor }
+dependencies { gsonFloor 'com.google.code.gson:gson:2.8.0' }
+tasks.register('gsonCompatibilityTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.main.output + sourceSets.test.output + configurations.gsonFloor
+    mainClass = 'io.p2wlan.mc.common.JsonCompatibilityTests'
+}
+check.dependsOn gsonCompatibilityTest
 
 tasks.withType(JavaCompile).configureEach {
     options.release = 17

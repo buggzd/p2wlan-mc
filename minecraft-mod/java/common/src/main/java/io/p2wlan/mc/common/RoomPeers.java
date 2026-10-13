@@ -16,11 +16,11 @@ public record RoomPeers(AgentReply evidence, RuntimeView runtime, String generat
     public static RoomPeers parse(AgentReply reply, RuntimeView runtime) throws AgentException {
         if (reply == null || runtime == null || !reply.owner().equals(runtime.owner())) throw invalid();
         JsonObject data = reply.data();
-        if (!data.keySet().equals(Set.of("runtime", "view")) || !runtime.runtime().equals(RuntimeView.text(data, "runtime"))
+        if (!JsonTrees.fields(data, Set.of("runtime", "view")) || !runtime.runtime().equals(RuntimeView.text(data, "runtime"))
                 || !data.get("view").isJsonObject()) throw invalid();
         JsonObject view = data.getAsJsonObject("view");
         String generation = RuntimeView.text(view, "network_generation");
-        if (!view.keySet().equals(Set.of("network_generation", "peers")) || generation == null
+        if (!JsonTrees.fields(view, Set.of("network_generation", "peers")) || generation == null
                 || !generation.matches("0|[1-9][0-9]{0,19}") || new BigInteger(generation).bitLength() > 64
                 || !view.get("peers").isJsonArray() || view.getAsJsonArray("peers").size() > 128) throw invalid();
         List<String> peers = new ArrayList<>();

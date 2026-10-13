@@ -9,7 +9,7 @@ public record AgentReply(String owner, long id, JsonObject data) {
         if (owner == null || !owner.matches("[a-f0-9]{32}") || id <= 0 || data == null) {
             throw new IllegalArgumentException("INVALID_AGENT_REPLY");
         }
-        data = data.deepCopy();
+        data = JsonTrees.copy(data);
     }
-    @Override public JsonObject data() { return data.deepCopy(); }
+    @Override public JsonObject data() { return JsonTrees.copy(data); }
 }

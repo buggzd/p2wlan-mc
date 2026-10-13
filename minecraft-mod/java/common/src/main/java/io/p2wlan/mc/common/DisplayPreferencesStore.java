@@ -34,7 +34,7 @@ public final class DisplayPreferencesStore {
             var text = StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
                     .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
             var json = FrameCodec.parse(text);
-            if (!json.keySet().equals(Set.of("schema", "hud_visible", "detail", "corner")) || !json.get("schema").isJsonPrimitive()
+            if (!JsonTrees.fields(json, Set.of("schema", "hud_visible", "detail", "corner")) || !json.get("schema").isJsonPrimitive()
                     || !json.get("schema").getAsJsonPrimitive().isNumber() || !json.get("schema").getAsString().equals("1")
                     || !json.get("hud_visible").isJsonPrimitive() || !json.get("hud_visible").getAsJsonPrimitive().isBoolean()
                     || !json.get("detail").isJsonPrimitive() || !json.get("detail").getAsJsonPrimitive().isString()

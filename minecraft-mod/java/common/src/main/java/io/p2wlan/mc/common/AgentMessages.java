@@ -28,10 +28,10 @@ final class AgentMessages {
     }
     private static JsonObject object(JsonElement value) throws AgentException {
         if (value == null || !value.isJsonObject()) throw invalid();
-        return value.getAsJsonObject().deepCopy();
+        return JsonTrees.copy(value.getAsJsonObject());
     }
     private static void fields(JsonObject message, String... expected) throws AgentException {
-        if (!message.keySet().equals(Set.of(expected))) throw invalid();
+        if (!JsonTrees.fields(message, Set.of(expected))) throw invalid();
     }
     static Message parse(JsonObject message) throws AgentException {
         if (integer(message.get("version")) != FrameCodec.VERSION) {
