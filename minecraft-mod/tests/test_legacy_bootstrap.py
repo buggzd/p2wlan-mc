@@ -35,6 +35,12 @@ class LegacyBootstrapTests(unittest.TestCase):
     def test_exact_carrier_catalog_and_spi(self):
         actual = carrier.verify(io.BytesIO(archive(self.carrier)))
         self.assertEqual(set(actual), carrier.CLASSES | {index.SERVICE})
+        self.assertEqual(len(carrier.CLASSES), 30)
+        self.assertIn(carrier.PREFIX + 'LegacySource.class', carrier.CLASSES)
+        self.assertIn(carrier.PREFIX + 'LegacyForge40Factory.class', carrier.CLASSES)
+        self.assertIn(carrier.PREFIX + 'LegacyForge47Factory.class', carrier.CLASSES)
+        self.assertIn(carrier.PREFIX + 'LegacyForge52Factory.class', carrier.CLASSES)
+        self.assertIn(carrier.PREFIX + 'LegacyForge52Factory$GameMetadata.class', carrier.CLASSES)
         self.assertEqual(index.SERVICE, 'META-INF/services/net.minecraftforge.forgespi.locating.IModLocator')
 
     def test_rejects_bundled_sdk_and_alternative_spi(self):

@@ -3,6 +3,7 @@ package io.p2wlan.mc.legacybootstrap.tests;
 import cpw.mods.modlauncher.LaunchPluginHandler;
 import cpw.mods.modlauncher.TransformStore;
 import cpw.mods.modlauncher.TransformingClassLoader;
+import cpw.mods.modlauncher.api.IEnvironment;
 import java.net.JarURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
@@ -26,14 +27,32 @@ public final class LegacySdkProbe {
         boolean legacy = args[1].equals("1.16.5");
         boolean detected = args[1].equals("1.21.1");
         boolean neo47 = args[3].equals("net.neoforged");
+        boolean modular = args.length > 4 && args[4].equals("modules");
+        if (modular) {
+            check(LegacySdkProbe.class.getModule().isNamed());
+            check(LegacySdkProbe.class.getModule().getLayer() != ModuleLayer.boot());
+            check(Thread.currentThread().getContextClassLoader() == LegacySdkProbe.class.getClassLoader());
+            for (Class<?> anchor : new Class<?>[]{IEnvironment.class,IModLocator.class,
+                    Class.forName("net.minecraftforge.fml.loading.FMLLoader",false,LegacySdkProbe.class.getClassLoader())}) {
+                check(anchor.getModule().isNamed() && anchor.getModule().getLayer() != ModuleLayer.boot());
+                check(anchor.getProtectionDomain().getCodeSource().getLocation().getProtocol().equals(detected ? "jar" : "union"));
+            }
+        }
         if (!legacy && !detected) versionFixture(args);
         var discoverer = Class.forName("net.minecraftforge.fml.loading.ModDirTransformerDiscoverer").getConstructor().newInstance();
         discoverer.getClass().getMethod("candidates",Path.class).invoke(discoverer,installed.getParent().getParent());
         var excluded = (List<?>) discoverer.getClass().getMethod("allExcluded").invoke(null);
         check(excluded.equals(List.of(installed)));
-        var providers = ServiceLoader.load(IModLocator.class).stream().filter(provider ->
+        var service = modular ? ServiceLoader.load(LegacySdkProbe.class.getModule().getLayer(),IModLocator.class) : ServiceLoader.load(IModLocator.class);
+        var providers = service.stream().filter(provider ->
                 provider.type().getName().equals("io.p2wlan.mc.legacybootstrap.LegacyModLocator")).toList();
         check(providers.size() == 1);
+        if (modular) {
+            Class<?> carrier = providers.get(0).type();
+            check(carrier.getModule().isNamed() && carrier.getModule().getLayer() == LegacySdkProbe.class.getModule().getLayer());
+            check(carrier.getClassLoader() == LegacySdkProbe.class.getClassLoader());
+            check(carrier.getProtectionDomain().getCodeSource().getLocation().getProtocol().equals(detected ? "jar" : "union"));
+        }
         Map<String,?> arguments = detected ? forge52Arguments() : neo47 ?
                 Map.of("mcVersion",args[1],"forgeVersion",args[2],"fmlVersion","47.2.2") :
                 Map.of("mcVersion",args[1],"forgeVersion",args[2],"forgeGroup",args[3]);
@@ -55,7 +74,14 @@ public final class LegacySdkProbe {
                 (IModFile)value.getClass().getMethod("file").invoke(value));
         check(files.get(0).getFilePath().equals(installed));
         check(files.get(0).getType() == IModFile.Type.MOD);
+        IModLocator fileProvider = null;
         if (!legacy) {
+            fileProvider = (IModLocator)files.get(0).getClass().getMethod(args[1].equals("1.18.2") ? "getLocator" : "getProvider")
+                    .invoke(files.get(0));
+            check(fileProvider.getClass().getName().equals("io.p2wlan.mc.legacybootstrap." +
+                    (args[1].equals("1.18.2") ? "LegacyForge40Factory" : detected ? "LegacyForge52Factory" : "LegacyForge47Factory")));
+            check(fileProvider.name().equals(locator.name()));
+            check(fileProvider.isValid(files.get(0)));
             Path metadata = (Path)files.get(0).getClass().getMethod("findResource",String[].class)
                     .invoke(files.get(0),(Object)new String[]{"META-INF","mods.toml"});
             check(Files.isRegularFile(metadata));
@@ -64,6 +90,10 @@ public final class LegacySdkProbe {
         List<Path> classes = new ArrayList<>();
         locator.scanFile(files.get(0),classes::add);
         check(classes.size() >= 100 && classes.size() <= 4096);
+        if (fileProvider != null) {
+            List<Path> delegated = new ArrayList<>(); fileProvider.scanFile(files.get(0),delegated::add);
+            check(delegated.equals(classes));
+        }
         if (legacy) legacy(installed,files,locator);
         else {
             try (var temporary = Files.list(Path.of(System.getProperty("java.io.tmpdir")))) { check(temporary.findAny().isEmpty()); }
@@ -81,6 +111,12 @@ public final class LegacySdkProbe {
         try { locator.isValid(files.get(0)); throw new AssertionError("source mutation accepted"); }
         catch (RuntimeException expected) { check(expected.getMessage().equals("P2WLAN_LEGACY_OWNER_CHANGED")); }
         finally { Files.write(installed,original); Files.setLastModifiedTime(installed,modified); }
+        if (fileProvider != null) {
+            Files.write(installed,new byte[]{1},StandardOpenOption.APPEND);
+            try { fileProvider.isValid(files.get(0)); throw new AssertionError("provider source mutation accepted"); }
+            catch (RuntimeException expected) { check(expected.getMessage().equals("P2WLAN_LEGACY_OWNER_CHANGED")); }
+            finally { Files.write(installed,original); Files.setLastModifiedTime(installed,modified); }
+        }
         System.out.println("{\"schema\":1,\"checks\":" + checks + ",\"minecraft\":\"" + args[1]
                 + "\",\"forge\":\"" + args[2] + "\",\"libraries\":" + (files.size()-1)
                 + ",\"verification\":\"official-SDK/discovery-factory-class-resource\"}");

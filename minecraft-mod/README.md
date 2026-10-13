@@ -805,6 +805,17 @@ uncertain owners retain their slots. The installed verifier binds the loaded
 classes and native resources to those exact indexed child archives. Modern
 Forge loaders use their normal nested-component loading path.
 
+The outer archive has an explicit Java-17 `p2wlan.bootstrap` SERVICE module
+with no exports. Forge 40/47 GAME discovery obtains its automatic Mod module
+through the official FML factory and its `ModJarMetadata`. Forge 52 uses the
+public SDK metadata API bound to the same FML `ModFileInfo`, including the
+complete package and service-provider graph. Thin SDK factory
+adapters forward scanning and provenance callbacks to the locator's single
+owner. This separates the SERVICE and GAME read graphs when they use the same
+physical archive. The source resolver verifies the installed filesystem
+provider, exact SDK archive and defining-loader/class-resource identities
+before resolving the public local backing path.
+
 Forge 1.20.1 uses `java/forge-legacy`; Forge 1.18.2 uses `java/forge-1182`.
 Both use Gradle 8.8, ForgeGradle 6.0.47 and Java 17. Set the absolute
 `P2WLAN_LEGACY_JAVA_HOME` or `P2WLAN_FORGE1182_JAVA_HOME` to select the compiler;

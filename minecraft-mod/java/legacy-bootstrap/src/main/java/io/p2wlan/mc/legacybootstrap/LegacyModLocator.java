@@ -35,8 +35,8 @@ public final class LegacyModLocator implements IModLocator {
         initialized = true;
         ClassLoader loader = getClass().getClassLoader();
         binding = LegacyEligibility.capture(arguments,loader);
-        Path outer = LegacyEligibility.local(getClass().getProtectionDomain().getCodeSource().getLocation());
-        source = OwnerFile.capture(outer,LegacyArchive.OUTER_MAXIMUM,null);
+        source = binding.source().snapshot(getClass(),LegacyArchive.OUTER_MAXIMUM);
+        Path outer = source.path;
         if (binding.legacy()) { owner = LegacyOwner.capture(outer); source = owner.source; }
         bridge = new LegacyFmlBridge(binding,loader);
         Runtime.getRuntime().addShutdownHook(new Thread(this::close,"p2wlan-legacy-core-cleanup"));

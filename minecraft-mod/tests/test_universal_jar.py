@@ -402,6 +402,18 @@ class UniversalJarTests(unittest.TestCase):
         with self.assertRaisesRegex(universal.VerificationError, 'universal_archive_size'):
             universal.archive_bytes({str(index): b'x' for index in range(universal.MAX_ENTRIES + 1)})
 
+    def test_service_descriptor_cannot_be_renamed_or_replaced_after_rehash(self):
+        import universal_module
+        value = self.build(); files = universal.members(value)
+        self.assertEqual(files[universal_module.NAME], universal_module.descriptor())
+        for replacement in (bytecode(universal_module.NAME),
+                            universal_module.descriptor().replace(b'p2wlan.bootstrap', b'p2wlan.broadcast')):
+            with self.subTest(replacement=replacement[:16]), self.assertRaisesRegex(
+                    universal.VerificationError, 'universal_service_module'):
+                self.check(self.mutate(value, lambda files: files.update({universal_module.NAME: replacement}), True))
+        with self.assertRaisesRegex(universal.VerificationError, 'universal_loader_class_catalog'):
+            self.check(self.mutate(value, lambda files: files.pop(universal_module.NAME), True))
+
     def test_fabric20_login_mixin_is_required_only_in_its_exact_source_profile(self):
         name = universal.LEGACY_FABRIC_LOGIN_MIXIN
         self.assertEqual(universal.LEGACY_FABRIC_GAME_EXTRAS, {name})

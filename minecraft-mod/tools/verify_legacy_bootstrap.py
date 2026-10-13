@@ -13,6 +13,7 @@ CLASSES = frozenset(PREFIX + name + '.class' for name in (
     'LegacyCache', 'LegacyCache$Reason', 'LegacyCache$Lease', 'LegacyCache$Observed', 'LegacyCache$Delete', 'LegacyCache$Snapshot',
     'LegacyFmlBridge', 'LegacyIndex', 'LegacyInventory', 'LegacyModLocator', 'LegacyOwner',
     'LegacyResourceVerifier', 'LegacyResourceVerifier$Provenance', 'LegacyResourceVerifier$Resource', 'LegacyResourceVerifier$Resources',
+    'LegacySource', 'LegacyForge40Factory', 'LegacyForge47Factory', 'LegacyForge52Factory', 'LegacyForge52Factory$GameMetadata',
     'OwnerFile', 'VerifiedJar', 'VerifiedJar$1', 'VerifiedJar$VerifiedConnection', 'VerifiedJar$VerifiedConnection$1'))
 SERVICE_BYTES = (SERVICE_CLASS + '\n').encode('ascii')
 FORBIDDEN = (b'net/minecraft/', b'io/p2wlan/mc/common/', b'io/p2wlan/mc/transport/', b'com/sun/jna/Native',

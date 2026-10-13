@@ -29,16 +29,20 @@ final class LegacyFmlBridge {
     IModFile create(Path path, IModLocator locator) {
         binding.requireCurrent();
         try {
+            if (!binding.legacy()) {
+                String helper = "io.p2wlan.mc.legacybootstrap." + binding.factory();
+                Class<?> factory = Class.forName(helper,true,loader);
+                Object instance = factory.getConstructor(IModLocator.class).newInstance(locator);
+                IModFile file = (IModFile)factory.getMethod("create",Path.class).invoke(instance,path);
+                binding.requireCurrent();
+                return file;
+            }
             Class<?> type = Class.forName(DISCOVERY + "ModFile",true,loader);
             Class<?> parser = Class.forName(DISCOVERY + "ModFileParser",true,loader);
             Method parse = parser.getMethod("modsTomlParser",IModFile.class);
             ModFileFactory.ModFileInfoParser info = file -> (IModFileInfo) invoke(parse,null,file);
-            if (binding.legacy()) return (IModFile) type.getConstructor(Path.class,IModLocator.class,ModFileFactory.ModFileInfoParser.class)
+            return (IModFile) type.getConstructor(Path.class,IModLocator.class,ModFileFactory.ModFileInfoParser.class)
                     .newInstance(path,locator,info);
-            Class<?> secure = Class.forName("cpw.mods.jarhandling.SecureJar",true,loader);
-            Object jar = secure.getMethod("from",Path[].class).invoke(null,(Object)new Path[]{path});
-            Class<?> provider = binding.wrapped() ? Class.forName("net.minecraftforge.forgespi.locating.IModProvider",false,loader) : IModLocator.class;
-            return (IModFile) type.getConstructor(secure,provider,ModFileFactory.ModFileInfoParser.class).newInstance(jar,locator,info);
         } catch (ReflectiveOperationException failure) { throw failure(failure); }
     }
     Object discoveryValue(IModFile file) {

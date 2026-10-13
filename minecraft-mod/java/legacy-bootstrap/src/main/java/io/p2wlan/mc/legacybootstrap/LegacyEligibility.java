@@ -1,10 +1,7 @@
 package io.p2wlan.mc.legacybootstrap;
 
 import cpw.mods.modlauncher.api.IEnvironment;
-import java.net.URL;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import net.minecraftforge.forgespi.locating.IModLocator;
@@ -13,9 +10,9 @@ import static io.p2wlan.mc.legacybootstrap.LegacyFailure.Code;
 /** Exact SDK byte identities; only Forge52's pinned version authority initializes. */
 final class LegacyEligibility {
     private static final String FORGE52_FML = "e487fefaa21789cfe0e0fcc2f1b0b7a940a52fb4";
-    record Binding(boolean legacy, boolean wrapped, List<OwnerFile> sdk) {
+    record Binding(boolean legacy, boolean wrapped, List<OwnerFile> sdk, LegacySource source, String factory) {
         Binding { sdk = List.copyOf(sdk); }
-        void requireCurrent() { sdk.forEach(file -> file.requireCurrent(true)); }
+        void requireCurrent() { source.requireCurrent(); sdk.forEach(file -> file.requireCurrent(true)); }
     }
     static Binding capture(Map<String,?> arguments, ClassLoader loader) {
         if ("21".equals(System.getProperty("java.specification.version"))) return forge52(arguments,loader);
@@ -48,24 +45,26 @@ final class LegacyEligibility {
             secure = "51e6a22c6c716beb11e244bf5b8be480f51dd6b5";
         } else throw new LegacyFailure(Code.RUNTIME_PROFILE);
         try {
+            LegacySource source = LegacySource.capture(secure);
             List<OwnerFile> sdk = new ArrayList<>();
-            sdk.add(pinned(Class.forName("net.minecraftforge.fml.loading.FMLLoader",false,loader),fml));
-            sdk.add(pinned(IEnvironment.class,launcher));
-            sdk.add(pinned(IModLocator.class,spi));
-            if (secure != null) sdk.add(pinned(Class.forName("cpw.mods.jarhandling.SecureJar",false,loader),secure));
-            return new Binding(legacy,wrapped,sdk);
+            sdk.add(source.pinned(Class.forName("net.minecraftforge.fml.loading.FMLLoader",false,loader),fml));
+            sdk.add(source.pinned(IEnvironment.class,launcher));
+            sdk.add(source.pinned(IModLocator.class,spi));
+            if (secure != null) sdk.add(source.pinned(Class.forName("cpw.mods.jarhandling.SecureJar",false,loader),secure));
+            return new Binding(legacy,wrapped,sdk,source,legacy ? "" : wrapped ? "LegacyForge47Factory" : "LegacyForge40Factory");
         } catch (ClassNotFoundException failure) { throw new LegacyFailure(Code.RUNTIME_PROFILE); }
     }
     private static Binding forge52(Map<String,?> arguments, ClassLoader loader) {
         try {
             Class<?> fml = Class.forName("net.minecraftforge.fml.loading.FMLLoader",false,loader);
+            LegacySource source = LegacySource.capture("d8402fa81935b1a6440240f98079b14d0462ccac");
             List<OwnerFile> sdk = new ArrayList<>();
-            sdk.add(pinned(fml,FORGE52_FML));
-            sdk.add(pinned(IEnvironment.class,"781dde4dcb54a7bd4f66b256d47e82710939b1bf"));
-            sdk.add(pinned(IModLocator.class,"c01beea469b66cf787614239b7e0f791329b3816"));
-            sdk.add(pinned(Class.forName("cpw.mods.jarhandling.SecureJar",false,loader),"d8402fa81935b1a6440240f98079b14d0462ccac"));
+            sdk.add(source.pinned(fml,FORGE52_FML));
+            sdk.add(source.pinned(IEnvironment.class,"781dde4dcb54a7bd4f66b256d47e82710939b1bf"));
+            sdk.add(source.pinned(IModLocator.class,"c01beea469b66cf787614239b7e0f791329b3816"));
+            sdk.add(source.pinned(Class.forName("cpw.mods.jarhandling.SecureJar",false,loader),"d8402fa81935b1a6440240f98079b14d0462ccac"));
             Class<?> info = Class.forName("net.minecraftforge.fml.loading.VersionInfo",false,loader);
-            OwnerFile versionOwner = pinned(info,FORGE52_FML);
+            OwnerFile versionOwner = source.pinned(info,FORGE52_FML);
             if (!versionOwner.path.equals(sdk.get(0).path) || info.getClassLoader() != fml.getClassLoader()) throw new LegacyFailure(Code.RUNTIME_PROFILE);
             sdk.forEach(file -> file.requireCurrent(true));
             // Forge52 supplies no version arguments. Its public, immutable
@@ -77,32 +76,12 @@ final class LegacyEligibility {
                 if (arguments.containsKey(expected.getKey()) && !expected.getValue().equals(arguments.get(expected.getKey()))) throw new LegacyFailure(Code.RUNTIME_PROFILE);
             }
             sdk.forEach(file -> file.requireCurrent(true));
-            return new Binding(false,true,sdk);
+            return new Binding(false,true,sdk,source,"LegacyForge52Factory");
         } catch (ReflectiveOperationException failure) { throw new LegacyFailure(Code.RUNTIME_PROFILE); }
     }
     private static String string(Map<String,?> arguments, String key) {
         Object value = arguments.get(key);
         if (!(value instanceof String text)) throw new LegacyFailure(Code.RUNTIME_PROFILE);
         return text;
-    }
-    private static OwnerFile pinned(Class<?> anchor, String expectedSha1) {
-        var code = anchor.getProtectionDomain().getCodeSource();
-        if (code == null) throw new LegacyFailure(Code.RUNTIME_PROFILE);
-        URL location = code.getLocation();
-        OwnerFile file = OwnerFile.capture(local(location),512 * 1024,null);
-        if (!OwnerFile.digest(file.bytes,"SHA-1").equals(expectedSha1)) throw new LegacyFailure(Code.RUNTIME_PROFILE);
-        String resource = anchor.getName().replace('.','/') + ".class";
-        byte[] expected = LegacyArchive.required(LegacyArchive.read(file.bytes,2 * 1024 * 1024),resource);
-        try (var input = anchor.getResourceAsStream("/" + resource)) {
-            if (input == null || !Arrays.equals(expected,input.readNBytes(expected.length + 1))) throw new LegacyFailure(Code.RUNTIME_PROFILE);
-        } catch (java.io.IOException failure) { throw new LegacyFailure(Code.RUNTIME_PROFILE); }
-        file.requireCurrent(true);
-        return file;
-    }
-    static Path local(URL location) {
-        try {
-            if (location == null || !"file".equals(location.getProtocol())) throw new LegacyFailure(Code.SOURCE_NOT_LOCAL);
-            return OwnerFile.local(Path.of(location.toURI()));
-        } catch (java.net.URISyntaxException | IllegalArgumentException failure) { throw new LegacyFailure(Code.SOURCE_NOT_LOCAL); }
     }
 }

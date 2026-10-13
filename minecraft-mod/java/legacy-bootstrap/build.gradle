@@ -20,7 +20,58 @@ def generateInventory = tasks.register('generateLegacyInventory', Exec) {
 }
 sourceSets.main.java.srcDir(generated)
 tasks.named('compileJava') { dependsOn generateInventory }
-sourceSets { sdkTest { java.srcDir 'src/sdkTest/java' } }
+sourceSets {
+    sdk40Factory { java.srcDir 'src/sdk40/java' }
+    sdk47Factory { java.srcDir 'src/sdk47/java' }
+    sdk52Factory { java.srcDir 'src/sdk52/java' }
+    sdkTest {
+        java.srcDir 'src/sdkTest/java'
+        java.exclude 'io/p2wlan/mc/legacybootstrap/bootstrapharness/**'
+        java.exclude 'io/p2wlan/mc/legacybootstrap/forge52harness/**'
+    }
+    sdkBootstrap {
+        java.srcDir 'src/sdkTest/java'
+        java.include 'io/p2wlan/mc/legacybootstrap/bootstrapharness/**'
+    }
+    sdkForge52 {
+        java.srcDir 'src/sdkTest/java'
+        java.include 'io/p2wlan/mc/legacybootstrap/forge52harness/**'
+    }
+}
+dependencies {
+    sdk40FactoryCompileOnly('net.minecraftforge:fmlloader:1.18.2-40.3.12') { transitive = false }
+    sdk40FactoryCompileOnly('net.minecraftforge:forgespi:4.0.15-4.x') { transitive = false }
+    sdk40FactoryCompileOnly('cpw.mods:securejarhandler:1.0.8') { transitive = false }
+    sdk47FactoryCompileOnly('net.minecraftforge:fmlloader:1.20.1-47.3.2') { transitive = false }
+    sdk47FactoryCompileOnly('net.minecraftforge:forgespi:7.0.1') { transitive = false }
+    sdk47FactoryCompileOnly('cpw.mods:securejarhandler:2.1.10') { transitive = false }
+    sdk52FactoryCompileOnly('net.minecraftforge:fmlloader:1.21.1-52.1.16') { transitive = false }
+    sdk52FactoryCompileOnly('net.minecraftforge:forgespi:7.1.5') { transitive = false }
+    sdk52FactoryCompileOnly('net.minecraftforge:securemodules:2.2.24') { transitive = false }
+    sdkForge52CompileOnly('net.minecraftforge:bootstrap-api:2.1.8') { transitive = false }
+    sdkForge52CompileOnly('net.minecraftforge:securemodules:2.2.24') { transitive = false }
+}
+sourceSets.sdk40Factory.compileClasspath += sourceSets.main.output
+sourceSets.sdk47Factory.compileClasspath += sourceSets.main.output
+sourceSets.sdk52Factory.compileClasspath += sourceSets.main.output
+configurations.sdk52FactoryCompileClasspath.attributes {
+    attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 21)
+}
+tasks.named('compileSdk40FactoryJava') { dependsOn tasks.named('classes') }
+tasks.named('compileSdk47FactoryJava') { dependsOn tasks.named('classes') }
+tasks.named('compileSdk52FactoryJava', JavaCompile) {
+    dependsOn tasks.named('classes')
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(21) }
+}
+tasks.named('jar') {
+    dependsOn tasks.named('compileSdk40FactoryJava'), tasks.named('compileSdk47FactoryJava'), tasks.named('compileSdk52FactoryJava')
+    from sourceSets.sdk40Factory.output
+    from sourceSets.sdk47Factory.output
+    from sourceSets.sdk52Factory.output
+}
+tasks.named('compileSdkForge52Java', JavaCompile) {
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(21) }
+}
 configurations.sdkTestCompileOnly.extendsFrom configurations.compileOnly
 sourceSets.sdkTest.compileClasspath += files(tasks.named('jar').flatMap { it.archiveFile })
 tasks.named('compileSdkTestJava') { dependsOn tasks.named('jar') }
@@ -28,4 +79,42 @@ tasks.register('sdkTestJar', Jar) {
     dependsOn tasks.named('compileSdkTestJava')
     archiveClassifier = 'sdk-tests'
     from sourceSets.sdkTest.output
+}
+tasks.register('sdkLayerProbeJar', Jar) {
+    dependsOn tasks.named('compileSdkTestJava')
+    archiveClassifier = 'sdk-layer-probe'
+    from(sourceSets.sdkTest.output) { include 'io/p2wlan/mc/legacybootstrap/tests/**' }
+    manifest { attributes 'Automatic-Module-Name': 'p2wlan_sdk_probe' }
+}
+def bootstrapService = layout.buildDirectory.dir('generated/bootstrapSdkService')
+def bootstrapServiceTask = tasks.register('generateBootstrapSdkService') {
+    outputs.dir(bootstrapService)
+    doLast {
+        def file = bootstrapService.get().file('META-INF/services/java.util.function.Consumer').asFile
+        file.parentFile.mkdirs()
+        file.text = 'io.p2wlan.mc.legacybootstrap.bootstrapharness.LegacyBootstrapConsumer\n'
+    }
+}
+tasks.register('bootstrapSdkHarnessJar', Jar) {
+    dependsOn tasks.named('compileSdkBootstrapJava'), bootstrapServiceTask
+    archiveClassifier = 'bootstrap-sdk-harness'
+    from sourceSets.sdkBootstrap.output
+    from bootstrapService
+    manifest { attributes 'Automatic-Module-Name': 'p2wlan_bootstrap_sdk_harness' }
+}
+def forge52Service = layout.buildDirectory.dir('generated/forge52SdkService')
+def forge52ServiceTask = tasks.register('generateForge52SdkService') {
+    outputs.dir(forge52Service)
+    doLast {
+        def file = forge52Service.get().file('META-INF/services/net.minecraftforge.bootstrap.api.BootstrapEntryPoint').asFile
+        file.parentFile.mkdirs()
+        file.text = 'io.p2wlan.mc.legacybootstrap.forge52harness.Forge52BootstrapEntry\n'
+    }
+}
+tasks.register('forge52SdkHarnessJar', Jar) {
+    dependsOn tasks.named('compileSdkForge52Java'), forge52ServiceTask
+    archiveClassifier = 'forge52-bootstrap-sdk-harness'
+    from sourceSets.sdkForge52.output
+    from forge52Service
+    manifest { attributes 'Automatic-Module-Name': 'p2wlan_forge52_bootstrap_sdk_harness' }
 }

@@ -706,6 +706,8 @@ def assemble_roles(sources, relocated_fabric, bootstrap, development=False, *, l
     if carrier:
         files[JNA] = universal_jna.isolate(files[JNA])
         add_classes(files, carrier)
+        from universal_module import NAME, descriptor
+        files[NAME] = descriptor()
         files[legacy_core_index.INDEX] = legacy_core_index.index_bytes(
             files, native_sets[0][0]['source-revision'], native_sets[0][0]['source-sha256'])
     summary = {"schema": 2, "minecraft": MINECRAFT, "version": VERSION, "loaders": PINS,
@@ -766,13 +768,18 @@ def verify(source, development=False):
             raise VerificationError("universal_game_layout")
         for name in names:
             if name.endswith(".class"):
+                if name == 'module-info.class' and legacy_enabled():
+                    from universal_module import descriptor
+                    if read(archive, name, 4096) != descriptor():
+                        raise VerificationError('universal_service_module')
+                    continue
                 if not name.startswith((GAME, "io/p2wlan/mc/fabric/", "io/p2wlan/mc/neoforge/", "io/p2wlan/mc/forge/", BOOTSTRAP,
                                         *((verify_legacy_bootstrap.PREFIX,) if legacy_enabled() else ()))):
                     raise VerificationError("universal_class_owner")
                 classfile(archive, name, 61)
         non_game = {name for name in names if name.endswith(".class") and not name.startswith((GAME, FABRIC_GAME))}
         admitted = BOOTSTRAP_CLASSES | frozenset().union(*(role_loader_classes(role) for role in sdk_inputs())) \
-            | (verify_legacy_bootstrap.CLASSES if legacy_enabled() else frozenset())
+            | (verify_legacy_bootstrap.CLASSES | {'module-info.class'} if legacy_enabled() else frozenset())
         if non_game != admitted:
             raise VerificationError("universal_loader_class_catalog")
         if set(classes(files, BOOTSTRAP)) != BOOTSTRAP_CLASSES: raise VerificationError("universal_bootstrap_layout")
