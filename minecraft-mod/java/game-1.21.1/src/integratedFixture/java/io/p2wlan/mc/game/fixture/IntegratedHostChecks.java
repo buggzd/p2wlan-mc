@@ -12,13 +12,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.world.Difficulty;
-import net.minecraft.world.level.*;
-import net.minecraft.world.level.levelgen.WorldOptions;
-import net.minecraft.world.level.levelgen.presets.WorldPresets;
-import net.minecraft.core.registries.Registries;
 
 /** Test-only real integrated host. Client UI and server commands retain their
  * original game-thread ownership; no production world/profile is opened. */
@@ -43,7 +37,7 @@ public final class IntegratedHostChecks {
                     data.check("PLAY".equals(data.stage)&&next==rounds+1&&joins==1&&disconnects==0,"COMMAND_ORDER");
                     data.check(runtime!=null&&runtime.isCurrent(helper)&&world.isCurrent()&&world.hosted(),"COMMAND_OWNER");
                     rounds=next;player.setExperienceLevels(next);
-                    player.connection.send(new ClientboundSystemChatPacket(Component.literal("P2WLAN-fixture:"+data.run+":"+next),false));return 1;
+                    GameFixtureServerApi.message(player,Component.literal("P2WLAN-fixture:"+data.run+":"+next));return 1;
                 }))));
     }
     public void joined(String name) { if(!name.equals("IntegratedHost")) { joins++; if(joins==1) startedPlay=System.nanoTime(); } }
@@ -61,7 +55,7 @@ public final class IntegratedHostChecks {
             data.withinDeadline();var server=client.getSingleplayerServer();
             switch(data.stage) {
                 case "AGENT" -> {
-                    if(client.screen instanceof net.minecraft.client.gui.screens.AccessibilityOnboardingScreen) { client.screen.onClose();return; }
+                    if(GameFixtureApi.completeOnboarding(client)) return;
                     if(!ClientPlatform.agent().ready().isDone()||client.getOverlay()!=null||!(client.screen instanceof net.minecraft.client.gui.screens.TitleScreen)) return;
                     helper=ClientPlatform.agent().ready().join();
                     data.check(ClientPlatform.agent().isCurrent(helper)&&client.level==null,"HOST_APPLICATION_OWNER");
@@ -72,9 +66,7 @@ public final class IntegratedHostChecks {
                 }
                 case "RUNTIME" -> {
                     if(!runtime.isCurrent(helper)) return;
-                    var settings=new LevelSettings("Integrated fixture",GameType.CREATIVE,false,Difficulty.PEACEFUL,false,new GameRules(),WorldDataConfiguration.DEFAULT);
-                    GameFixtureApi.createFreshLevel(client,"p2wlan-integrated-fixture",settings,new WorldOptions(1L,false,false),
-                            registries->registries.registryOrThrow(Registries.WORLD_PRESET).getHolderOrThrow(WorldPresets.FLAT).value().createWorldDimensions());
+                    GameFixtureApi.createFreshLevel(client,"p2wlan-integrated-fixture");
                     data.advance("WORLD",90);
                 }
                 case "WORLD" -> {

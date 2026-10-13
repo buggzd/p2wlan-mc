@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Assemble/check one source-bound loader archive for Minecraft 1.20.1/1.21.1."""
+"""Assemble/check one source-bound archive from exact Minecraft SDK inputs."""
 from __future__ import annotations
 
 import argparse
 import hashlib
 import io
+import importlib
 import json
 import os
 from pathlib import Path
@@ -21,10 +22,17 @@ import verify_forge_jar as forge_contract
 import legacy_gradle as legacy_forge_contract
 from class_relocation import LEGACY, FABRIC_LEGACY, relocate_class, relocate_name
 from universal_manifest import mixin_manifest
+from minecraft_profiles import MINECRAFT_VERSIONS, PROFILES, SDK_INPUTS, sdk_inputs, forge_profiles, forge_range, fml_range, game_range
+from universal_profile_sources import bindings, dispatch_configs
+import legacy_core_index
+import verify_legacy_bootstrap
+import universal_jna
 
-MINECRAFT = ["1.20.1", "1.21.1"]
+MINECRAFT = list(MINECRAFT_VERSIONS)
 VERSION = "0.1.0"
 MAX_ARCHIVE = MAX_BINARY + 16 * 1024 * 1024
+MAX_INDEX = 128 * 1024
+MAX_ENTRIES = 1024
 GAME = "io/p2wlan/mc/game/"
 FABRIC_GAME = "io/p2wlan/mc/fabric/game/"
 BOOTSTRAP = "io/p2wlan/mc/bootstrap/"
@@ -72,11 +80,17 @@ GAME_TYPES = ('client/ClientDisplaySettings',
  'mixin/MultiplayerListMixin',
  'mixin/MultiplayerScreenMixin',
  'server/WorldCommands',
+ 'server/GameCommandApi',
  'server/mixin/ServerConnectionMixin',
  'server/mixin/ServerLoginConnectionMixin',
  'server/mixin/ServerLoginMixin')
 GAME_CLASSES = frozenset(GAME + name + ".class" for name in GAME_TYPES)
 GAME_COUNT = len(GAME_CLASSES)
+GAME_1182_EXTRAS = frozenset(GAME + name + '.class' for name in
+                            ('GameText', 'client/GameUi$TooltipButton', 'client/connect/MinecraftConnect$1'))
+GAME_1165_EXTRAS = GAME_1182_EXTRAS | {GAME + 'mixin/LanNarrationMixin.class'}
+FORGE_1182_GAME = SDK_INPUTS['forge_1182'].binding.class_prefix
+FABRIC_1182_GAME = SDK_INPUTS['fabric_1182'].binding.class_prefix
 MODERN_GAME_EXTRAS = frozenset({GAME + 'server/mixin/ServerConfigurationMixin.class'})
 from verify_fabric_legacy_jar import LOGIN_MIXIN as LEGACY_FABRIC_LOGIN_MIXIN
 LEGACY_FABRIC_GAME_EXTRAS = frozenset({LEGACY_FABRIC_LOGIN_MIXIN})
@@ -104,25 +118,27 @@ RESOURCES = {"fabric.mod.json", "META-INF/neoforge.mods.toml", "META-INF/mods.to
              FABRIC_SERVER_CONFIG, FABRIC_CLIENT_CONFIG, LEGACY_SERVER_CONFIG, LEGACY_CLIENT_CONFIG,
              LEGACY_FABRIC_SERVER_CONFIG, LEGACY_FABRIC_CLIENT_CONFIG, SERVER_REFMAP, CLIENT_REFMAP,
              LEGACY_FABRIC_SERVER_REFMAP, LEGACY_FABRIC_CLIENT_REFMAP, LEGACY_FORGE_SERVER_REFMAP,
-             LEGACY_FORGE_CLIENT_REFMAP, *CORE_PATHS.values(), JNA}
-PINS = {"1.20.1": {"fabric": "0.16.14", "neoforge": "47.1.106", "forge": "47.3.2"},
-        "1.21.1": {"fabric": "0.16.14", "neoforge": "21.1.256", "forge": "52.1.16"}}
-FORGE_RANGE = "[47.1.106],[47.3.2],[52.1.16]"
-FML_RANGE = "[47,48),[52,53)"
-GAME_RANGE = "[1.20.1],[1.21.1]"
-FABRIC_MIXINS = [FABRIC_SERVER_CONFIG, {"config": FABRIC_CLIENT_CONFIG, "environment": "client"},
-                LEGACY_FABRIC_SERVER_CONFIG, {"config": LEGACY_FABRIC_CLIENT_CONFIG, "environment": "client"}]
-FML_CONFIGS = (SERVER_CONFIG, CLIENT_CONFIG, LEGACY_SERVER_CONFIG, LEGACY_CLIENT_CONFIG)
-CONFIG_BASE = {"required": True, "minVersion": "0.8.5",
-               "compatibilityLevel": "JAVA_17", "mixins": [], "injectors": {"defaultRequire": 1}}
-CONFIGS = {SERVER_CONFIG: CONFIG_BASE | {"package": "io.p2wlan.mc.game.server.mixin", "plugin": "io.p2wlan.mc.bootstrap.ServerMixinPlugin"},
-           CLIENT_CONFIG: CONFIG_BASE | {"package": "io.p2wlan.mc.game.mixin", "plugin": "io.p2wlan.mc.bootstrap.ClientMixinPlugin"},
-           FABRIC_SERVER_CONFIG: CONFIG_BASE | {"package": "io.p2wlan.mc.fabric.game.server.mixin", "plugin": "io.p2wlan.mc.bootstrap.ServerMixinPlugin"},
-           FABRIC_CLIENT_CONFIG: CONFIG_BASE | {"package": "io.p2wlan.mc.fabric.game.mixin", "plugin": "io.p2wlan.mc.bootstrap.ClientMixinPlugin"},
-           LEGACY_SERVER_CONFIG: CONFIG_BASE | {"package": "io.p2wlan.mc.game.v1_20_1.server.mixin", "plugin": "io.p2wlan.mc.bootstrap.ServerMixinPlugin"},
-           LEGACY_CLIENT_CONFIG: CONFIG_BASE | {"package": "io.p2wlan.mc.game.v1_20_1.mixin", "plugin": "io.p2wlan.mc.bootstrap.ClientMixinPlugin"},
-           LEGACY_FABRIC_SERVER_CONFIG: CONFIG_BASE | {"package": "io.p2wlan.mc.fabric.game.v1_20_1.server.mixin", "plugin": "io.p2wlan.mc.bootstrap.ServerMixinPlugin"},
-           LEGACY_FABRIC_CLIENT_CONFIG: CONFIG_BASE | {"package": "io.p2wlan.mc.fabric.game.v1_20_1.mixin", "plugin": "io.p2wlan.mc.bootstrap.ClientMixinPlugin"}}
+             LEGACY_FORGE_CLIENT_REFMAP, *CORE_PATHS.values(), JNA,
+             *dispatch_configs(), *[refmap for item in bindings()
+                                    for refmap in (item.mixins.server_refmap, item.mixins.client_refmap) if refmap]}
+PINS = {version: {item.loader: item.version for item in PROFILES.values() if item.minecraft == version}
+        for version in MINECRAFT}
+FORGE_RANGE = forge_range()
+FML_RANGE = fml_range()
+GAME_RANGE = game_range()
+_BINDINGS = sorted(bindings(), key=lambda item: tuple(map(int, item.minecraft.split('.'))), reverse=True)
+FABRIC_MIXINS = [config for item in _BINDINGS if item.family == 'fabric'
+                 for config in (item.server_config, {'config': item.client_config, 'environment': 'client'})]
+FML_CONFIGS = tuple(config for item in _BINDINGS if item.family == 'fml'
+                    for config in (item.server_config, item.client_config))
+FABRIC_DEPENDS = {'fabricloader': '=' + PROFILES[('1.21.1', 'fabric')].version,
+                  'minecraft': [version for version in MINECRAFT if (version, 'fabric') in PROFILES], 'java': '>=17',
+                  'fabric': ['=' + PROFILES[(version, 'fabric')].api_version for version in MINECRAFT if (version, 'fabric') in PROFILES]}
+PACK_METADATA = {'pack': {'description': 'P2WLAN', 'pack_format': min(
+    source.fixture_pack_format for source in sdk_inputs().values() if source.fixture_pack_format is not None),
+    'supported_formats': {'min_inclusive': min(source.fixture_pack_format for source in sdk_inputs().values()
+                                               if source.fixture_pack_format is not None), 'max_inclusive': 48}}}
+CONFIGS = dispatch_configs()
 PLUGIN_CLASSES = {value["plugin"].replace(".", "/") + ".class" for value in CONFIGS.values()}
 FABRIC_NEUTRAL = frozenset(("io/p2wlan/mc/fabric/FabricP2wlan.class", "io/p2wlan/mc/fabric/FabricP2wlan$ServerEvents.class",
                             "io/p2wlan/mc/fabric/FabricP2wlan$Binding.class", "io/p2wlan/mc/fabric/client/FabricP2wlanClient.class",
@@ -143,12 +159,56 @@ LEGACY_LOADER_CLASSES = {
     "forge": FORGE_NEUTRAL | frozenset("io/p2wlan/mc/forge/legacy/" + name + ".class" for name in
                                      ("LocalNativeResources", "ForgeServerEvents", "ForgeClientEvents")),
 }
+OLDER_LOADER_CLASSES = {
+    'fabric_1182': FABRIC_NEUTRAL | frozenset('io/p2wlan/mc/fabric/v1_18_2/' + name + '.class'
+                                             for name in ('FabricServerEvents', 'FabricClientEvents')),
+    'forge_1182': FORGE_NEUTRAL | frozenset('io/p2wlan/mc/forge/v1182/' + name + '.class'
+                                          for name in ('LocalNativeResources', 'ForgeServerEvents', 'ForgeClientEvents')),
+    'fabric_1165': FABRIC_NEUTRAL | frozenset('io/p2wlan/mc/fabric/v1_16_5/' + name + '.class'
+                                             for name in ('FabricServerEvents', 'FabricClientEvents')),
+    'forge_1165': FORGE_NEUTRAL | frozenset('io/p2wlan/mc/forge/v1165/' + name + '.class'
+                                          for name in ('LocalNativeResources', 'ForgeServerEvents', 'ForgeClientEvents')),
+}
 BOOTSTRAP_CLASSES = frozenset(BOOTSTRAP + name + ".class" for name in (
     "BootstrapFailure", "BootstrapFailure$Code", "ServerMixinPlugin", "ClientMixinPlugin", "ClientMixinPlugin$1",
-    "UniversalEnvironment", "UniversalEnvironment$Loader", "UniversalEnvironment$Family", "UniversalEnvironment$Side",
+    "UniversalEnvironment", "UniversalProfiles", "UniversalEnvironment$Loader", "UniversalEnvironment$Family", "UniversalEnvironment$Side",
     "UniversalEnvironment$2",
     "UniversalEnvironment$Selection", "UniversalEnvironment$Binding", "UniversalEnvironment$ResourceLookup", "UniversalEnvironment$1"))
 NATIVE_FIELDS = {"source-revision", "source-sha256", "build-kind", "version"}
+
+
+def legacy_enabled():
+    return ('1.16.5', 'forge') in PROFILES
+
+
+def carrier_members(source):
+    if not legacy_enabled():
+        if source is not None: raise VerificationError('universal_legacy_bootstrap_unexpected')
+        return {}
+    if not isinstance(source, bytes) or not 0 < len(source) <= 1024 * 1024:
+        raise VerificationError('universal_legacy_bootstrap_required')
+    return verify_legacy_bootstrap.verify(io.BytesIO(source))
+
+
+def role_game_classes(role):
+    selected = SDK_INPUTS[role]
+    if selected.minecraft in ('1.16.5', '1.18.2'):
+        extra = GAME + 'mixin/' + ('FabricLoginNetworkingMixin' if selected.loader == 'fabric' else 'ClientShutdownMixin') + '.class'
+        return GAME_CLASSES | (GAME_1165_EXTRAS if selected.minecraft == '1.16.5' else GAME_1182_EXTRAS) | {extra}
+    return GAME_CLASSES | (LEGACY_FABRIC_GAME_EXTRAS if role == 'legacy_fabric'
+                           else frozenset() if selected.minecraft == '1.20.1' else MODERN_GAME_EXTRAS)
+
+
+def role_loader_classes(role):
+    if role in OLDER_LOADER_CLASSES:
+        return OLDER_LOADER_CLASSES[role]
+    selected = SDK_INPUTS[role]
+    return (LEGACY_LOADER_CLASSES if selected.minecraft == '1.20.1' else LOADER_CLASSES)[selected.loader]
+
+
+def game_catalog():
+    return frozenset(relocate_name(name, source.binding.class_prefix) if source.binding.class_prefix != GAME else name
+                     for role, source in sdk_inputs().items() for name in role_game_classes(role))
 
 
 def encoded(value):
@@ -163,7 +223,7 @@ def members(value):
     if not isinstance(value, bytes) or not 0 < len(value) <= MAX_ARCHIVE:
         raise VerificationError("universal_archive_size")
     with zipfile.ZipFile(io.BytesIO(value)) as archive:
-        names = entries(archive)
+        names = entries(archive, maximum=MAX_ENTRIES)
         if sum(item.file_size for item in archive.infolist()) > MAX_ARCHIVE:
             raise VerificationError("universal_archive_size")
         if any(item.flag_bits & 1 or item.external_attr >> 16 & 0o170000 not in {0, stat.S_IFREG, stat.S_IFDIR}
@@ -173,7 +233,7 @@ def members(value):
 
 
 def archive_bytes(files):
-    if len(files) > 512 or sum(map(len, files.values())) > MAX_ARCHIVE:
+    if len(files) > MAX_ENTRIES or sum(map(len, files.values())) > MAX_ARCHIVE:
         raise VerificationError("universal_archive_size")
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
@@ -212,13 +272,13 @@ def changed_keys(value, destination=FABRIC_GAME):
     return value
 
 
-def expected_relocation(source, legacy=False):
+def expected_relocation(source, legacy=False, *, destination=None, refmaps=None):
     result = {}
-    destination = FABRIC_LEGACY if legacy else FABRIC_GAME
-    refmaps = {"p2wlan-fabric-1.20.1-refmap.json": LEGACY_FABRIC_SERVER_REFMAP,
+    destination = destination or (FABRIC_LEGACY if legacy else FABRIC_GAME)
+    refmaps = refmaps or ({"p2wlan-fabric-1.20.1-refmap.json": LEGACY_FABRIC_SERVER_REFMAP,
                "client-p2wlan-fabric-1.20.1-refmap.json": LEGACY_FABRIC_CLIENT_REFMAP} if legacy else {
                    fabric_contract.MIXIN_CONFIG["refmap"]: SERVER_REFMAP,
-                   fabric_contract.CLIENT_MIXIN_CONFIG["refmap"]: CLIENT_REFMAP}
+                   fabric_contract.CLIENT_MIXIN_CONFIG["refmap"]: CLIENT_REFMAP})
     for name, value in source.items():
         target = changed_name(name, destination) if name.endswith(".class") else refmaps.get(name, name)
         if target in result:
@@ -249,8 +309,10 @@ def match_relocation(source, relocated):
 
 
 def classes(files, prefix):
+    embedded = tuple(source.binding.class_prefix for source in SDK_INPUTS.values()
+                     if source.binding.class_prefix not in {GAME, FABRIC_GAME})
     return {name: value for name, value in files.items() if name.startswith(prefix) and name.endswith(".class")
-            and not (prefix in {GAME, FABRIC_GAME} and name.startswith((LEGACY, FABRIC_LEGACY)))}
+            and not (prefix in {GAME, FABRIC_GAME} and name.startswith(embedded))}
 
 
 def reject_test(name):
@@ -260,9 +322,9 @@ def reject_test(name):
         raise VerificationError("universal_test_payload")
 
 
-def loader_classes(files, loader, legacy=False):
+def loader_classes(files, loader, legacy=False, role=None):
     prefix = f"io/p2wlan/mc/{loader}/"
-    catalog = (LEGACY_LOADER_CLASSES if legacy else LOADER_CLASSES)[loader]
+    catalog = role_loader_classes(role) if role else (LEGACY_LOADER_CLASSES if legacy else LOADER_CLASSES)[loader]
     result = {}
     for name, value in files.items():
         reject_test(name)
@@ -315,8 +377,7 @@ def nested_descriptor(component):
 
 def fabric_descriptor(source):
     value = json_value(source["fabric.mod.json"])
-    value["depends"] = {"fabricloader": "=0.16.14", "minecraft": MINECRAFT, "java": ">=17",
-                        "fabric-api": ["=0.92.12+1.20.1", "=0.116.7+1.21.1"]}
+    value["depends"] = FABRIC_DEPENDS
     value["mixins"] = FABRIC_MIXINS
     value["jars"] = [{"file": name} for name in (*CORE_PATHS.values(), JNA)]
     return value
@@ -347,6 +408,30 @@ def legacy_forge_files(source):
                           (legacy_forge_contract.CLIENT_REFMAP, LEGACY_FORGE_CLIENT_REFMAP)):
         files[after] = encoded(changed_keys(json_value(source[before]), LEGACY))
     return files
+
+
+def older_files(source, role):
+    selected = SDK_INPUTS[role]
+    contract = older_contract(role)
+    destination = selected.binding.class_prefix
+    if selected.loader == 'fabric':
+        return expected_relocation(source, destination=destination,
+                                   refmaps={contract.SERVER_REFMAP: selected.binding.mixins.server_refmap,
+                                            contract.CLIENT_REFMAP: selected.binding.mixins.client_refmap})
+    files = {relocate_name(name, destination): value if name.startswith(BOOTSTRAP) else relocate_class(value, destination)
+             for name, value in source.items() if name.endswith('.class')}
+    for before, after in ((contract.SERVER_REFMAP, selected.binding.mixins.server_refmap),
+                          (contract.CLIENT_REFMAP, selected.binding.mixins.client_refmap)):
+        files[after] = encoded(changed_keys(json_value(source[before]), destination))
+    return files
+
+
+def older_contract(role):
+    selected = SDK_INPUTS[role]
+    if role not in OLDER_LOADER_CLASSES:
+        raise VerificationError('universal_input_identity')
+    version = selected.minecraft.replace('.', '')
+    return importlib.import_module(f'verify_{selected.loader}_{version}_jar')
 
 
 def add_classes(files, additions):
@@ -496,25 +581,57 @@ def native_summary(natives):
                                             for item in sorted(natives, key=lambda item: item["verification-platform"])]}
 
 
-def build_bytes(fabric, neoforge, forge, relocated_fabric, bootstrap, development=False, *, legacy_forge, legacy_fabric):
+def build_inputs(sources, bootstrap, development=False, *, legacy_bootstrap=None):
+    """Accept exact SDK roles; one role can serve multiple installed loaders."""
+    required = set(sdk_inputs())
+    if not isinstance(sources, dict) or set(sources) != required:
+        raise VerificationError('universal_input_identity')
+    if any(not isinstance(value, bytes) or not 0 < len(value) <= MAX_ARCHIVE for value in sources.values()):
+        raise VerificationError('universal_archive_size')
+    from class_relocation import relocate_fabric
+    parent = Path(__file__).resolve().parents[1] / 'java/universal-bootstrap/build'
+    parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='fabric-input-', dir=parent) as directory:
+        source = Path(directory) / 'fabric.jar'
+        source.write_bytes(sources['fabric'])
+        relocated = relocate_fabric(source, development)
+    return assemble_roles(sources, relocated, bootstrap, development, legacy_bootstrap=legacy_bootstrap)
+
+
+def build_bytes(fabric, neoforge, forge, relocated_fabric, bootstrap, development=False, *, legacy_forge, legacy_fabric,
+                forge_1182=None, fabric_1182=None, forge_1165=None, fabric_1165=None, legacy_bootstrap=None):
+    sources = {'fabric': fabric, 'neoforge': neoforge, 'forge': forge,
+               'legacy_forge': legacy_forge, 'legacy_fabric': legacy_fabric}
+    if forge_1182 is not None: sources['forge_1182'] = forge_1182
+    if fabric_1182 is not None: sources['fabric_1182'] = fabric_1182
+    if forge_1165 is not None: sources['forge_1165'] = forge_1165
+    if fabric_1165 is not None: sources['fabric_1165'] = fabric_1165
+    return assemble_roles(sources, relocated_fabric, bootstrap, development, legacy_bootstrap=legacy_bootstrap)
+
+
+def assemble_roles(sources, relocated_fabric, bootstrap, development=False, *, legacy_bootstrap=None):
     import verify_fabric_legacy_jar as legacy_fabric_contract
-    inputs = {"fabric": fabric, "neoforge": neoforge, "forge": forge,
-              "relocated_fabric": relocated_fabric, "bootstrap": bootstrap,
-              "legacy_forge": legacy_forge, "legacy_fabric": legacy_fabric}
+    if set(sources) != set(sdk_inputs()):
+        raise VerificationError('universal_input_identity')
+    inputs = dict(sources) | {"relocated_fabric": relocated_fabric, "bootstrap": bootstrap}
+    carrier = carrier_members(legacy_bootstrap)
+    if carrier: inputs['legacy_bootstrap'] = legacy_bootstrap
     source = {}
     verifiers = {"fabric": (fabric_contract.verify, "fabric", False), "neoforge": (neo_contract.verify, "neoforge", False),
                  "forge": (forge_contract.verify, "forge", False), "legacy_forge": (legacy_forge_contract.verify, "forge", True),
                  "legacy_fabric": (legacy_fabric_contract.verify, "fabric", True)}
+    verifiers.update({role: (older_contract(role).verify, SDK_INPUTS[role].loader, True)
+                      for role in sources if role in OLDER_LOADER_CLASSES})
     native_sets = []
-    for key, (verifier, loader, legacy) in verifiers.items():
+    for key in sources:
+        verifier, loader, legacy = verifiers[key]
         natives = verifier(io.BytesIO(inputs[key]), development)
-        bind_sources(natives, development)
-        native_sets.append(natives)
+        if key != 'forge_1165':
+            bind_sources(natives, development)
+            native_sets.append(natives)
         source[key] = members(inputs[key])
-        loader_classes(source[key], loader, legacy)
-        expected_game = GAME_CLASSES | (LEGACY_FABRIC_GAME_EXTRAS if key == 'legacy_fabric'
-                                        else frozenset() if legacy else MODERN_GAME_EXTRAS)
-        if set(classes(source[key], GAME)) != expected_game:
+        loader_classes(source[key], loader, legacy, key)
+        if {name for name in source[key] if name.startswith(GAME) and name.endswith('.class')} != role_game_classes(key):
             raise VerificationError("universal_game_changed")
     if any(value != native_sets[0] for value in native_sets[1:]):
         raise VerificationError("universal_native_identity")
@@ -524,7 +641,8 @@ def build_bytes(fabric, neoforge, forge, relocated_fabric, bootstrap, developmen
     relocated = match_relocation(source["fabric"], members(relocated_fabric))
     old_forge = legacy_forge_files(source["legacy_forge"])
     old_fabric = expected_relocation(source["legacy_fabric"], legacy=True)
-    all_components = {key: components(files, verifiers[key][1]) for key, files in source.items()}
+    older = {role: older_files(source[role], role) for role in OLDER_LOADER_CLASSES if role in source}
+    all_components = {key: components(files, verifiers[key][1]) for key, files in source.items() if key != 'forge_1165'}
     compare_components(all_components)
     boot = members(bootstrap)
     if set(boot) - {"META-INF/MANIFEST.MF", *CONFIGS} != BOOTSTRAP_CLASSES:
@@ -541,6 +659,10 @@ def build_bytes(fabric, neoforge, forge, relocated_fabric, bootstrap, developmen
     for name in FABRIC_NEUTRAL:
         if relocated[name] != old_fabric[name]:
             raise VerificationError('universal_neutral_entry_changed')
+    for role, mapped in older.items():
+        for name in FORGE_NEUTRAL if SDK_INPUTS[role].loader == 'forge' else FABRIC_NEUTRAL:
+            if SDK_INPUTS[role].loader == 'forge': neutral_equivalent(name, source['forge'][name], mapped[name])
+            elif relocated[name] != mapped[name]: raise VerificationError('universal_neutral_entry_changed')
     files = dict(game)
     for loader in ("forge", "neoforge"):
         files.update(loader_classes(source[loader], loader))
@@ -549,6 +671,10 @@ def build_bytes(fabric, neoforge, forge, relocated_fabric, bootstrap, developmen
     files.update(classes(relocated, "io/p2wlan/mc/fabric/"))
     add_classes(files, {name: value for name, value in old_forge.items() if name.endswith('.class') and name not in FORGE_NEUTRAL and not name.startswith(BOOTSTRAP)})
     add_classes(files, {name: value for name, value in old_fabric.items() if name.endswith('.class') and name not in FABRIC_NEUTRAL and not name.startswith(BOOTSTRAP)})
+    for role, mapped in older.items():
+        neutral = FORGE_NEUTRAL if SDK_INPUTS[role].loader == 'forge' else FABRIC_NEUTRAL
+        add_classes(files, {name: value for name, value in mapped.items()
+                            if name.endswith('.class') and name not in neutral and not name.startswith(BOOTSTRAP)})
     for name, value in boot.items():
         reject_test(name)
         if name.endswith(".class"):
@@ -559,11 +685,13 @@ def build_bytes(fabric, neoforge, forge, relocated_fabric, bootstrap, developmen
     for name in (SERVER_REFMAP, CLIENT_REFMAP): files[name] = relocated[name]
     for name in (LEGACY_FORGE_SERVER_REFMAP, LEGACY_FORGE_CLIENT_REFMAP): files[name] = old_forge[name]
     for name in (LEGACY_FABRIC_SERVER_REFMAP, LEGACY_FABRIC_CLIENT_REFMAP): files[name] = old_fabric[name]
+    for role, mapped in older.items():
+        for name in (SDK_INPUTS[role].binding.mixins.server_refmap, SDK_INPUTS[role].binding.mixins.client_refmap):
+            files[name] = mapped[name]
     files["fabric.mod.json"] = encoded(fabric_descriptor(source["fabric"]))
     files["META-INF/neoforge.mods.toml"] = neo_descriptor(source["neoforge"]["META-INF/neoforge.mods.toml"])
     files["META-INF/mods.toml"] = forge_descriptor(source["forge"]["META-INF/mods.toml"])
-    files["pack.mcmeta"] = encoded({"pack": {"description": "P2WLAN", "pack_format": 15,
-                                            "supported_formats": {"min_inclusive": 15, "max_inclusive": 48}}})
+    files["pack.mcmeta"] = encoded(PACK_METADATA)
     files["META-INF/MANIFEST.MF"] = mixin_manifest(FML_CONFIGS)
     jarjar = json_value(source["forge"]["META-INF/jarjar/metadata.json"])
     names = {"common": "common", "netty-transport": "transport", "native-bundle": "native"}
@@ -575,6 +703,11 @@ def build_bytes(fabric, neoforge, forge, relocated_fabric, bootstrap, developmen
         child["fabric.mod.json"] = encoded(nested_descriptor(component))
         files[path] = archive_bytes(child)
     files[JNA] = all_components["fabric"]["jna"][0]
+    if carrier:
+        files[JNA] = universal_jna.isolate(files[JNA])
+        add_classes(files, carrier)
+        files[legacy_core_index.INDEX] = legacy_core_index.index_bytes(
+            files, native_sets[0][0]['source-revision'], native_sets[0][0]['source-sha256'])
     summary = {"schema": 2, "minecraft": MINECRAFT, "version": VERSION, "loaders": PINS,
                "build_mode": "development" if development else "release", **native_summary(native_sets[0]),
                "inputs": {name: {"size": len(value), "sha256": digest(value)} for name, value in sorted(inputs.items())},
@@ -594,20 +727,25 @@ def verify(source, development=False):
         if not isinstance(value, bytes) or not 0 < len(value) <= MAX_ARCHIVE:
             raise VerificationError("universal_archive_size")
     with zipfile.ZipFile(io.BytesIO(value)) as archive:
-        names = entries(archive)
+        names = entries(archive, maximum=MAX_ENTRIES)
         if INDEX not in names or sum(item.file_size for item in archive.infolist()) > MAX_ARCHIVE:
             raise VerificationError("universal_archive_layout")
         if any(item.is_dir() or item.flag_bits & 1 or item.external_attr >> 16 & 0o170000 not in {0, stat.S_IFREG} for item in archive.infolist()):
             raise VerificationError("universal_archive_file_type")
-        info = metadata(archive, INDEX)
+        try:
+            info = json_value(read(archive, INDEX, MAX_INDEX))
+        except (ValueError, UnicodeError) as failure:
+            if isinstance(failure, VerificationError): raise
+            raise VerificationError('universal_index_invalid') from failure
         fields = {"schema", "minecraft", "version", "loaders", "build_mode", "source_revision", "native_source_sha256",
                   "native_targets", "native_verification_methods", "inputs", "files", "verification"}
-        if set(info) != fields or encoded(info.get("schema")) != encoded(2) or info["minecraft"] != MINECRAFT \
+        if not isinstance(info, dict) or set(info) != fields or encoded(info.get("schema")) != encoded(2) or info["minecraft"] != MINECRAFT \
                 or info["version"] != VERSION or info["loaders"] != PINS or info["verification"] != "archive-structure/source-binding" \
                 or info["build_mode"] != ("development" if development else "release"):
             raise VerificationError("universal_index_contract")
         sources = info["inputs"]
-        if not isinstance(sources, dict) or set(sources) != {"fabric", "neoforge", "forge", "relocated_fabric", "bootstrap", "legacy_forge", "legacy_fabric"}:
+        if not isinstance(sources, dict) or set(sources) != set(sdk_inputs()) | {'relocated_fabric', 'bootstrap'} \
+                | ({'legacy_bootstrap'} if legacy_enabled() else set()):
             raise VerificationError("universal_input_identity")
         import re
         for identity in sources.values():
@@ -616,25 +754,25 @@ def verify(source, development=False):
                     or re.fullmatch("[a-f0-9]{64}", identity["sha256"]) is None:
                 raise VerificationError("universal_input_identity")
         files = {name: read(archive, name, MAX_BINARY) for name in names if name != INDEX}
-        if {name for name in files if not name.endswith(".class")} != RESOURCES:
+        resources = RESOURCES | ({legacy_core_index.INDEX, legacy_core_index.SERVICE} if legacy_enabled() else set())
+        if {name for name in files if not name.endswith(".class")} != resources:
             raise VerificationError("universal_archive_layout")
         if encoded(info["files"]) != encoded(records(files)):
             raise VerificationError("universal_payload_changed")
         for name in names: reject_test(name)
-        game_catalog = GAME_CLASSES | MODERN_GAME_EXTRAS \
-            | frozenset(relocate_name(name, FABRIC_GAME) for name in GAME_CLASSES | MODERN_GAME_EXTRAS) \
-            | frozenset(relocate_name(name, LEGACY) for name in GAME_CLASSES) \
-            | frozenset(relocate_name(name, FABRIC_LEGACY) for name in GAME_CLASSES | LEGACY_FABRIC_GAME_EXTRAS)
+        expected_game = game_catalog()
         actual_game = {name for name in names if name.endswith('.class') and name.startswith((GAME, FABRIC_GAME))}
-        if actual_game != game_catalog:
+        if actual_game != expected_game:
             raise VerificationError("universal_game_layout")
         for name in names:
             if name.endswith(".class"):
-                if not name.startswith((GAME, "io/p2wlan/mc/fabric/", "io/p2wlan/mc/neoforge/", "io/p2wlan/mc/forge/", BOOTSTRAP)):
+                if not name.startswith((GAME, "io/p2wlan/mc/fabric/", "io/p2wlan/mc/neoforge/", "io/p2wlan/mc/forge/", BOOTSTRAP,
+                                        *((verify_legacy_bootstrap.PREFIX,) if legacy_enabled() else ()))):
                     raise VerificationError("universal_class_owner")
                 classfile(archive, name, 61)
         non_game = {name for name in names if name.endswith(".class") and not name.startswith((GAME, FABRIC_GAME))}
-        admitted = BOOTSTRAP_CLASSES | frozenset().union(*LOADER_CLASSES.values(), *LEGACY_LOADER_CLASSES.values())
+        admitted = BOOTSTRAP_CLASSES | frozenset().union(*(role_loader_classes(role) for role in sdk_inputs())) \
+            | (verify_legacy_bootstrap.CLASSES if legacy_enabled() else frozenset())
         if non_game != admitted:
             raise VerificationError("universal_loader_class_catalog")
         if set(classes(files, BOOTSTRAP)) != BOOTSTRAP_CLASSES: raise VerificationError("universal_bootstrap_layout")
@@ -669,8 +807,7 @@ def verify(source, development=False):
         if read(archive, "META-INF/MANIFEST.MF", 8192) != expected_mf: raise VerificationError("universal_mixin_manifest")
         fabric = metadata(archive, "fabric.mod.json")
         if type(fabric.get("schemaVersion")) is not int or fabric.get("schemaVersion") != 1 or fabric.get("environment") != "*" \
-                or fabric.get("id") != "p2wlan" or fabric.get("version") != VERSION or fabric.get("depends") != {
-                "fabricloader": "=0.16.14", "minecraft": MINECRAFT, "java": ">=17", "fabric-api": ["=0.92.12+1.20.1", "=0.116.7+1.21.1"]} \
+                or fabric.get("id") != "p2wlan" or fabric.get("version") != VERSION or fabric.get("depends") != FABRIC_DEPENDS \
                 or fabric.get("entrypoints") != {"main": ["io.p2wlan.mc.fabric.FabricP2wlan"], "client": ["io.p2wlan.mc.fabric.client.FabricP2wlanClient"]} \
                 or fabric.get("mixins") != FABRIC_MIXINS \
                 or fabric.get("jars") != [{"file": name} for name in (*CORE_PATHS.values(), JNA)]:
@@ -688,8 +825,7 @@ def verify(source, development=False):
                         {"modId": "minecraft", "versionRange": "[1.21.1]" if loader == 'neoforge' else GAME_RANGE, "ordering": "NONE", "side": "BOTH",
                          **({"type": "required"} if loader == "neoforge" else {"mandatory": True})}]
             if encoded(dependencies) != encoded(expected): raise VerificationError("universal_dependency_contract")
-        if encoded(metadata(archive, "pack.mcmeta")) != encoded({"pack": {"description": "P2WLAN", "pack_format": 15,
-                                                                       "supported_formats": {"min_inclusive": 15, "max_inclusive": 48}}}):
+        if encoded(metadata(archive, "pack.mcmeta")) != encoded(PACK_METADATA):
             raise VerificationError("universal_pack_metadata")
         for name, expected in ((SERVER_REFMAP, fabric_contract.REFMAP), (CLIENT_REFMAP, fabric_contract.CLIENT_REFMAP)):
             if encoded(metadata(archive, name)) != encoded(changed_keys(expected)): raise VerificationError("universal_refmap_contract")
@@ -706,6 +842,41 @@ def verify(source, development=False):
             declared = legacy_forge_contract.field_names(classfile(archive, LEGACY + 'mixin/' + owner + '.class', 61))
             if field not in declared or original in declared:
                 raise VerificationError('universal_legacy_forge_shadow_srg')
+        declared = legacy_forge_contract.field_names(classfile(archive, LEGACY + 'server/mixin/ServerLoginMixin.class', 61))
+        if b'f_10013_' not in declared or b'connection' in declared:
+            raise VerificationError('universal_legacy_forge_shadow_srg')
+        for role in sdk_inputs():
+            if role not in OLDER_LOADER_CLASSES: continue
+            contract = older_contract(role)
+            selected = SDK_INPUTS[role]
+            destination = selected.binding.class_prefix
+            for refmap, expected in ((selected.binding.mixins.server_refmap,
+                                     contract.REFMAP if selected.loader == 'fabric' else contract.SERVER_TARGETS),
+                                    (selected.binding.mixins.client_refmap,
+                                     contract.CLIENT_REFMAP_VALUE if selected.loader == 'fabric' else contract.CLIENT_TARGETS)):
+                refmap_value = metadata(archive, refmap)
+                expected = changed_keys(expected, destination)
+                if selected.loader == 'forge': contract.refmap(refmap_value, expected)
+                elif encoded(refmap_value) != encoded(expected):
+                    raise VerificationError('universal_fabric' + selected.minecraft.replace('.', '') + '_refmap_contract')
+            for owner, field, original in contract.SHADOW_FIELDS:
+                declared = legacy_forge_contract.field_names(classfile(archive, destination + owner + '.class', 61))
+                if field not in declared or original in declared:
+                    raise VerificationError('universal_' + selected.minecraft.replace('.', '') + '_shadow_contract')
+            if selected.loader == 'forge':
+                contract.client_activation(classfile(archive, destination + 'mixin/ClientConnectionMixin.class', 61))
+            for name in role_game_classes(role):
+                if name == GAME + 'GameText.class' or name.startswith(GAME + 'server/'):
+                    body = classfile(archive, relocate_name(name, destination), 61)
+                    if any(prefix in body for prefix in (b'net/minecraft/client/', b'net/minecraftforge/client/',
+                                                         (destination + 'client/').encode())):
+                        raise VerificationError('universal_dedicated_client_reference')
+            for name in role_loader_classes(role) - FABRIC_NEUTRAL - FORGE_NEUTRAL:
+                if name.rsplit('/', 1)[-1] == 'ForgeClientEvents.class' or name.rsplit('/', 1)[-1] == 'FabricClientEvents.class': continue
+                body = classfile(archive, name, 61)
+                if any(prefix in body for prefix in (b'net/minecraft/client/', b'net/minecraftforge/client/',
+                                                     (destination + 'client/').encode())):
+                    raise VerificationError('universal_dedicated_client_reference')
         jarjar = metadata(archive, "META-INF/jarjar/metadata.json")
         expected_paths = set(CORE_PATHS.values())
         if {item.get("path") for item in jarjar.get("jars", [])} != expected_paths:
@@ -721,7 +892,18 @@ def verify(source, development=False):
                 if encoded(metadata(child)) != encoded(nested_descriptor(component)):
                     raise VerificationError("universal_nested_fabric_contract")
                 for name in entries(child): reject_test(name)
-        with zipfile.ZipFile(io.BytesIO(read(archive, JNA, MAX_BINARY))) as child: jna_payloads(child)
+        jna = read(archive, JNA, MAX_BINARY)
+        if legacy_enabled():
+            universal_jna.verify(jna)
+            carried = {name: files[name] for name in verify_legacy_bootstrap.CLASSES | {legacy_core_index.SERVICE}}
+            carried['META-INF/MANIFEST.MF'] = files['META-INF/MANIFEST.MF']
+            verify_legacy_bootstrap.verify(io.BytesIO(archive_bytes(carried)))
+            index = read(archive, legacy_core_index.INDEX, legacy_core_index.MAX_INDEX)
+            legacy_core_index.index_values(index)
+            if index != legacy_core_index.index_bytes(files, info['source_revision'], info['native_source_sha256']):
+                raise VerificationError('universal_legacy_core_identity')
+        else:
+            with zipfile.ZipFile(io.BytesIO(jna)) as child: jna_payloads(child)
         expected = native_summary(natives)
         if any(encoded(info[key]) != encoded(value) for key, value in expected.items()): raise VerificationError("universal_native_identity")
         bind_sources(natives, development)
@@ -766,21 +948,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     build = commands.add_parser("build")
-    for name in ("fabric", "neoforge", "forge", "relocated-fabric", "bootstrap", "legacy-forge", "legacy-fabric", "output"):
+    for name in (*[role.replace('_', '-') for role in sdk_inputs()], "relocated-fabric", "bootstrap", "output"):
         build.add_argument("--" + name, type=Path, required=True)
+    build.add_argument('--legacy-bootstrap', type=Path, required=legacy_enabled())
     check = commands.add_parser("verify"); check.add_argument("archive", type=Path)
     for command in (build, check): command.add_argument("--development", action="store_true")
     args = parser.parse_args()
     try:
         if args.command == "build":
-            value = build_bytes(*(regular_bytes(getattr(args, name)) for name in ("fabric", "neoforge", "forge", "relocated_fabric", "bootstrap")),
-                                args.development, legacy_forge=regular_bytes(args.legacy_forge), legacy_fabric=regular_bytes(args.legacy_fabric))
+            value = assemble_roles({role: regular_bytes(getattr(args, role)) for role in sdk_inputs()},
+                                   regular_bytes(args.relocated_fabric), regular_bytes(args.bootstrap), args.development,
+                                   legacy_bootstrap=regular_bytes(args.legacy_bootstrap) if args.legacy_bootstrap is not None else None)
             publish(args.output, value)
         else: value = regular_bytes(args.archive)
         result = verify(io.BytesIO(value), args.development)
     except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, subprocess.SubprocessError) as error:
         parser.exit(1, "Universal archive failed: " + (str(error) if isinstance(error, VerificationError) else "UNIVERSAL_IO") + "\n")
-    print("PASS Universal archive structure/source binding: Minecraft 1.20.1/1.21.1 with version-selected Fabric/NeoForge/Forge adapters")
+    print("PASS Universal archive structure/source binding: Minecraft " + '/'.join(MINECRAFT) + " with exact loader/version adapters")
     print(json.dumps(result | {"artifact_sha256": digest(value)}, ensure_ascii=False, sort_keys=True))
 
 

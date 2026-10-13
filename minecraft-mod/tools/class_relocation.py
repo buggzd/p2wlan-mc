@@ -8,6 +8,7 @@ import zipfile
 
 from artifact_checks import MAX_BINARY, VerificationError, entries, read
 from native_bundle import strict_object
+from minecraft_profiles import SDK_INPUTS
 
 OLD = "io/p2wlan/mc/game/"
 NEW = "io/p2wlan/mc/fabric/game/"
@@ -22,7 +23,8 @@ MAX_CLASS = 1024 * 1024
 
 
 def _target(destination):
-    if destination not in {NEW, LEGACY, FABRIC_LEGACY}:
+    destinations = {source.binding.class_prefix for source in SDK_INPUTS.values()} - {OLD}
+    if destination not in destinations:
         raise VerificationError("relocation_namespace")
     return destination
 

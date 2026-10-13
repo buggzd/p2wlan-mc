@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Checked official 1.20.1 production installations for local game fixtures."""
+"""Checked exact official production installations for local game fixtures."""
+from dataclasses import dataclass
 import hashlib
 import io
 import json
@@ -13,12 +14,15 @@ import subprocess
 import urllib.error
 import urllib.request
 import zipfile
+from types import MappingProxyType
 
 from legacy_gradle import java17
 from fixture_relocation import regular_bytes
 from game_fixture_process import FixtureProcess
 from hmcl_pack import publish
 from native_bundle import strict_object
+from minecraft_profiles import profile as installed_profile, sdk_input
+import fixture_lwjgl
 
 PROJECT = Path(__file__).resolve().parents[1]
 MAIN = 'cpw.mods.bootstraplauncher.BootstrapLauncher'
@@ -35,6 +39,68 @@ INSTALLERS = {
                  'url': 'https://maven.neoforged.net/releases/net/neoforged/forge/1.20.1-47.1.106/forge-1.20.1-47.1.106-installer.jar'},
 }
 MAX_FILE = 128 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class RuntimeProfile:
+    minecraft: str
+    loader: str
+    mcp: str
+    version: MappingProxyType
+    installer: MappingProxyType
+    layers_fixture: bool
+    launcher: str = MAIN
+
+    @property
+    def game_prefix(self):
+        return sdk_input(self.minecraft, self.loader).binding.class_prefix
+
+
+VERSION = MappingProxyType(VERSION)
+INSTALLERS = MappingProxyType({loader: MappingProxyType(pin) for loader, pin in INSTALLERS.items()})
+_VERSION_1182 = MappingProxyType({
+    'url': 'https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json',
+    'size': 30469, 'sha1': '334b33fcba3c9be4b7514624c965256535bd7eba'})
+_FORGE_1182 = MappingProxyType({
+    'version': '40.3.12', 'group': 'net/minecraftforge', 'size': 5051601,
+    'sha256': 'dcff493f6c2212bdf6ae087f98029cd317a79759ab1009dce23e63e7dba0e216',
+    'url': 'https://maven.minecraftforge.net/net/minecraftforge/forge/1.18.2-40.3.12/forge-1.18.2-40.3.12-installer.jar'})
+_VERSION_1165 = MappingProxyType({
+    'url': 'https://piston-meta.mojang.com/v1/packages/fba9f7833e858a1257d810d21a3a9e3c967f9077/1.16.5.json',
+    'size': 29287, 'sha1': 'fba9f7833e858a1257d810d21a3a9e3c967f9077'})
+_FORGE_1165 = MappingProxyType({
+    'version': '36.2.42', 'group': 'net/minecraftforge', 'size': 7543237,
+    'sha256': 'dfa90c681f30be2406548b6429bccb68d95af4f64ab19b8c58f6128fd50ff857',
+    'url': 'https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.42/forge-1.16.5-36.2.42-installer.jar'})
+RUNTIME_PROFILES = MappingProxyType({
+    **{(MC, loader): RuntimeProfile(MC, loader, MCP, VERSION, pin, True) for loader, pin in INSTALLERS.items()},
+    ('1.18.2', 'forge'): RuntimeProfile('1.18.2', 'forge', '1.18.2-20220404.173914',
+                                      _VERSION_1182, _FORGE_1182, False),
+    ('1.16.5', 'forge'): RuntimeProfile('1.16.5', 'forge', '1.16.5-20210115.111550',
+                                      _VERSION_1165, _FORGE_1165, False, 'cpw.mods.modlauncher.Launcher'),
+})
+
+
+def runtime_profile(minecraft=MC, loader='forge'):
+    if not isinstance(minecraft, str) or not isinstance(loader, str):
+        raise ValueError('LEGACY_RUNTIME_PROFILE_INVALID')
+    selected = RUNTIME_PROFILES.get((minecraft, loader))
+    # The SDK fixture can compile and install a candidate before publication.
+    # local_game independently requires a verified Universal installation pair.
+    if selected is None:
+        raise ValueError('LEGACY_RUNTIME_PROFILE_INVALID')
+    pin = sdk_input(minecraft, loader).loader_pin.version if minecraft == '1.16.5' else installed_profile(minecraft, loader).version
+    if pin != selected.installer['version']:
+        raise ValueError('LEGACY_RUNTIME_PROFILE_INVALID')
+    return selected
+
+
+def runtime_java(env, minecraft):
+    if minecraft == '1.18.2' and env.get('P2WLAN_FORGE1182_JAVA_HOME'):
+        env = env | {'P2WLAN_LEGACY_JAVA_HOME': env['P2WLAN_FORGE1182_JAVA_HOME']}
+    if minecraft == '1.16.5' and env.get('P2WLAN_FORGE1165_JAVA_HOME'):
+        env = env | {'P2WLAN_LEGACY_JAVA_HOME': env['P2WLAN_FORGE1165_JAVA_HOME']}
+    return java17(env)
 
 
 def digest(path, algorithm='sha1'):
@@ -114,7 +180,9 @@ def ensure(path, record, indexed, offline, aliases=()):
     try:
         for source in urls:
             try:
-                with urllib.request.urlopen(source, timeout=30) as response, temporary.open('wb') as output:
+                request = urllib.request.Request(source, headers={'User-Agent': 'P2WLAN-local-fixture/0.1.0',
+                                                                 'Accept': 'application/octet-stream'})
+                with urllib.request.urlopen(request, timeout=30) as response, temporary.open('wb') as output:
                     count = 0
                     while chunk := response.read(65536):
                         count += len(chunk)
@@ -152,8 +220,8 @@ def allowed(value):
     return result
 
 
-def selected_libraries(metadata):
-    _, arch = host()
+def selected_libraries(metadata, minecraft=MC):
+    system, arch = host()
     result = {}
     for library in metadata['libraries']:
         if not allowed(library): continue
@@ -162,38 +230,76 @@ def selected_libraries(metadata):
         if name.endswith(':natives-windows-x86'): continue
         record = library['downloads']['artifact']
         result[name] = record
-    return result
+        classifier = library.get('natives', {}).get(system)
+        if classifier is not None:
+            classifier = classifier.replace('${arch}', '64' if arch in ('x86_64', 'arm64') else '32')
+            native = library['downloads'].get('classifiers', {}).get(classifier)
+            if native is None:
+                raise ValueError('LEGACY_RUNTIME_NATIVE_CLASSIFIER')
+            result[name + ':' + classifier] = native
+    return fixture_lwjgl.libraries(minecraft, (system, arch), result)
 
 
-def metadata(sdk, loader):
-    pin = INSTALLERS[loader]
+def metadata(sdk, loader, minecraft=MC):
+    selected = runtime_profile(minecraft, loader)
+    pin = selected.installer
     installer = sdk / 'installer.jar'
-    if not checked(installer, pin) or not checked(sdk / 'minecraft.json', VERSION):
+    if not checked(installer, pin) or not checked(sdk / 'minecraft.json', selected.version):
         raise ValueError('LEGACY_RUNTIME_METADATA_IDENTITY')
     with zipfile.ZipFile(installer) as archive:
         profile = json.loads(archive.read('install_profile.json'))
         version = json.loads(archive.read('version.json'))
-        args = shlex.split(archive.read('data/unix_args.txt').decode())
+        args = shlex.split(archive.read('data/unix_args.txt').decode()) if selected.launcher == MAIN else []
     vanilla = json.loads((sdk / 'minecraft.json').read_text())
-    if version['inheritsFrom'] != MC or version['mainClass'] != MAIN:
+    if version['inheritsFrom'] != minecraft or version['mainClass'] != selected.launcher:
         raise ValueError('LEGACY_RUNTIME_PROFILE_INVALID')
     return profile, version, vanilla, args
 
 
-def inputs(sdk, profile, version, vanilla):
+def inputs(sdk, profile, version, vanilla, minecraft=MC):
+    selected = runtime_profile(minecraft)
     records = {}
     for library in profile['libraries'] + version['libraries']:
         record = library['downloads']['artifact']
         if record.get('url') and record.get('size'): records['libraries/' + record['path']] = record
-    for record in selected_libraries(vanilla).values(): records['libraries/' + record['path']] = record
+    for record in selected_libraries(vanilla, minecraft).values(): records['libraries/' + record['path']] = record
     for side in ('client', 'server'):
-        records[f'libraries/net/minecraft/{side}/{MCP}/{side}-{MCP}-mappings.txt'] = vanilla['downloads'][side + '_mappings']
-    records['versions/1.20.1/1.20.1.jar'] = vanilla['downloads']['client']
-    records['libraries/net/minecraft/server/1.20.1/server-1.20.1.jar'] = vanilla['downloads']['server']
+        records[f'libraries/net/minecraft/{side}/{selected.mcp}/{side}-{selected.mcp}-mappings.txt'] = vanilla['downloads'][side + '_mappings']
+    records[f'versions/{minecraft}/{minecraft}.jar'] = vanilla['downloads']['client']
+    records[f'libraries/net/minecraft/server/{minecraft}/server-{minecraft}.jar'] = vanilla['downloads']['server']
     records['assets/indexes/' + vanilla['assetIndex']['id'] + '.json'] = vanilla['assetIndex']
     logging = vanilla['logging']['client']['file']
     records['assets/log_configs/' + logging['id']] = logging
     return [(relative(sdk, path), record) for path, record in records.items()]
+
+
+def generated_runtime_inputs(sdk, version):
+    """Installer-generated launcher bytes still have official size/SHA1 pins."""
+    records = []
+    for library in version['libraries']:
+        record = library['downloads']['artifact']
+        if record.get('url') or not record.get('size'): continue
+        if type(record['size']) is not int or not 0 < record['size'] <= MAX_FILE \
+                or not isinstance(record.get('sha1'), str) or re.fullmatch('[0-9a-f]{40}', record['sha1']) is None:
+            raise ValueError('LEGACY_RUNTIME_GENERATED_RECORD')
+        records.append((relative(sdk, 'libraries/' + record['path']), record))
+    return records
+
+
+def runtime_libraries(vanilla, version, minecraft=MC):
+    # Loader overrides replace inherited versions of the same Maven component.
+    # Classifiers remain distinct; Java bindings and natives are never merged.
+    merged = {}
+    layers = (selected_libraries(vanilla, minecraft),
+              {library['name']: library['downloads']['artifact'] for library in version['libraries']})
+    for layer in layers:
+        for coordinate, record in layer.items():
+            parts = coordinate.split(':')
+            if len(parts) not in (3, 4) or any(not part or re.fullmatch('[A-Za-z0-9_.+\\-]+', part) is None for part in parts):
+                raise ValueError('LEGACY_RUNTIME_LIBRARY_IDENTITY')
+            key = (parts[0], parts[1], parts[3] if len(parts) == 4 else '')
+            merged[key] = (coordinate, record)
+    return dict(merged.values())
 
 
 def asset_inputs(sdk, vanilla):
@@ -221,11 +327,11 @@ def outputs(sdk, profile):
     return result
 
 
-def natives(sdk, vanilla, verify=False):
+def natives(sdk, vanilla, verify=False, minecraft=MC):
     destination = sdk / 'natives'
     destination.mkdir(exist_ok=True)
     names = set()
-    for name, record in selected_libraries(vanilla).items():
+    for name, record in selected_libraries(vanilla, minecraft).items():
         if ':natives-' not in name: continue
         with zipfile.ZipFile(relative(sdk, 'libraries/' + record['path'])) as archive:
             for member in archive.infolist():
@@ -266,17 +372,21 @@ def class_owner(value):
     except (KeyError, AttributeError, UnicodeError): raise ValueError('LEGACY_RUNTIME_FIXTURE_CLASS') from None
 
 
-def fixture_snapshot(job, label):
+def fixture_snapshot(job, label, minecraft=MC):
+    selected = runtime_profile(minecraft)
     path = relative(job, 'build/forge/installed-fixtures/' + label + '-srg.jar')
     value = regular_bytes(path, 32 * 1024 * 1024)
     source = 'integratedFixture' if label == 'IntegratedFixture' else 'localGameFixture'
-    resources = PROJECT / ('java/adapters/forge-1.20.1/src/' + source + '/resources')
+    resources = PROJECT / (f'java/adapters/forge-{minecraft}/src/' + source + '/resources')
     expected = {name: regular_bytes(resources / name, 65536) for name in ('META-INF/mods.toml', 'pack.mcmeta')}
     forge = {'InstalledArchiveChecks', label}
-    game = {'GameFixtureData', 'InstalledArtifact', 'GameFixtureApi'}
-    if label == 'LocalGameFixture': forge |= {'LocalGameClientEvents', 'LocalGameClientEvents$Layers'}; game |= {'GameServerChecks', 'GameClientChecks'}
+    game = {'GameFixtureData', 'InstalledArtifact', 'GameFixtureApi', 'GameFixtureServerApi'}
+    if label == 'LocalGameFixture':
+        forge.add('LocalGameClientEvents')
+        if selected.layers_fixture: forge.add('LocalGameClientEvents$Layers')
+        game |= {'GameServerChecks', 'GameClientChecks'}
     else: game.add('IntegratedHostChecks')
-    owners = {'io/p2wlan/mc/forge/fixture/' + name for name in forge} | {'io/p2wlan/mc/game/v1_20_1/fixture/' + name for name in game}
+    owners = {'io/p2wlan/mc/forge/fixture/' + name for name in forge} | {selected.game_prefix + 'fixture/' + name for name in game}
     directories = {'META-INF/'} | {owner[:i + 1] for owner in owners for i, char in enumerate(owner) if char == '/'}
     with zipfile.ZipFile(io.BytesIO(value)) as archive:
         members = archive.infolist(); names = {m.filename for m in members}
@@ -302,23 +412,29 @@ def fixture_snapshot(job, label):
     return value, {'size': len(value), 'sha256': hashlib.sha256(value).hexdigest(), 'classes': sorted(classes)}
 
 
-def srg_records(sdk):
+def srg_records(sdk, minecraft=MC):
+    selected = runtime_profile(minecraft)
     records = {}
     for side in ('client', 'server'):
         try:
-            value = regular_bytes(relative(sdk, f'libraries/net/minecraft/{side}/{MCP}/{side}-{MCP}-srg.jar'), MAX_FILE)
+            value = regular_bytes(relative(sdk, f'libraries/net/minecraft/{side}/{selected.mcp}/{side}-{selected.mcp}-srg.jar'), MAX_FILE)
         except (OSError, ValueError): raise ValueError('LEGACY_RUNTIME_SRG_IDENTITY') from None
         records[side] = {'size': len(value), 'sha256': hashlib.sha256(value).hexdigest()}
     return records
 
 
-def plan(job, loader, fixtures, srgs):
-    pin = INSTALLERS[loader]
-    return {'schema': 1, 'minecraft': MC, 'loader': loader, 'loaderVersion': pin['version'],
-            'installerSHA256': pin['sha256'], 'minecraftSHA1': VERSION['sha1'], 'platform': list(host()), 'fixtures': fixtures, 'srgs': srgs}
+def plan(job, loader, fixtures, srgs, minecraft=MC):
+    selected = runtime_profile(minecraft, loader)
+    pin = selected.installer
+    result = {'schema': 1, 'minecraft': minecraft, 'loader': loader, 'loaderVersion': pin['version'],
+              'installerSHA256': pin['sha256'], 'minecraftSHA1': selected.version['sha1'], 'platform': list(host()), 'fixtures': fixtures, 'srgs': srgs}
+    substitution = fixture_lwjgl.identity(minecraft, host())
+    if substitution is not None:
+        result['lwjgl_substitution'] = substitution
+    return result
 
 
-def read_plan(job, loader):
+def read_plan(job, loader, minecraft=MC):
     try:
         value = json.loads(regular_bytes(relative(job, 'legacy-runtime.json'), 8192), object_pairs_hook=strict_object)
     except (OSError, ValueError): raise ValueError('LEGACY_RUNTIME_MANIFEST_IDENTITY') from None
@@ -341,27 +457,32 @@ def read_plan(job, loader):
                 or not 0 < record['size'] <= MAX_FILE or not isinstance(record['sha256'], str) \
                 or not re.fullmatch('[0-9a-f]{64}', record['sha256']):
             raise ValueError('LEGACY_RUNTIME_MANIFEST_IDENTITY')
-    if value != plan(job, loader, fixtures, srgs): raise ValueError('LEGACY_RUNTIME_MANIFEST_IDENTITY')
+    if value != plan(job, loader, fixtures, srgs, minecraft): raise ValueError('LEGACY_RUNTIME_MANIFEST_IDENTITY')
     return fixtures, srgs
 
 
-def prepare(job: Path, loader: str, env: dict, offline: bool) -> None:
-    if loader not in INSTALLERS: raise ValueError('LEGACY_RUNTIME_LOADER_INVALID')
-    java, _ = java17(env)
+def prepare(job: Path, loader: str, env: dict, offline: bool, minecraft=MC) -> None:
+    selected = runtime_profile(minecraft, loader)
+    java, _ = runtime_java(env, minecraft)
     job = owned_root(job); sdk = owned_root(job / 'legacy-sdk' / loader)
     sdk.mkdir(parents=True, exist_ok=True)
-    fixtures = {'LocalGameFixture': fixture_snapshot(job, 'LocalGameFixture')[1]}
+    fixtures = {'LocalGameFixture': fixture_snapshot(job, 'LocalGameFixture', minecraft)[1]}
     if relative(job, 'build/forge/installed-fixtures/IntegratedFixture-srg.jar').exists():
-        fixtures['IntegratedFixture'] = fixture_snapshot(job, 'IntegratedFixture')[1]
+        fixtures['IntegratedFixture'] = fixture_snapshot(job, 'IntegratedFixture', minecraft)[1]
     indexed = cache_index()
-    pin = INSTALLERS[loader]
-    ensure(sdk / 'installer.jar', pin, indexed, offline, ('forge-1.20.1-' + pin['version'] + '-installer.jar',))
-    ensure(sdk / 'minecraft.json', VERSION, indexed, offline, ('minecraft-1.20.1.json', '1.20.1.json'))
-    profile, version, vanilla, _ = metadata(sdk, loader)
-    for path, record in inputs(sdk, profile, version, vanilla):
-        aliases = ('client.jar',) if path.name == '1.20.1.jar' else ('minecraft-server.jar', 'server.jar') if path.name == 'server-1.20.1.jar' else ('client_mappings.txt', 'server_mappings.txt') if path.name.endswith('-mappings.txt') else ()
+    pin = selected.installer
+    ensure(sdk / 'installer.jar', pin, indexed, offline, (f'forge-{minecraft}-' + pin['version'] + '-installer.jar',))
+    ensure(sdk / 'minecraft.json', selected.version, indexed, offline, (f'minecraft-{minecraft}.json', f'{minecraft}.json'))
+    profile, version, vanilla, _ = metadata(sdk, loader, minecraft)
+    for path, record in inputs(sdk, profile, version, vanilla, minecraft):
+        aliases = ('client.jar',) if path.name == f'{minecraft}.jar' else ('minecraft-server.jar', 'server.jar') if path.name == f'server-{minecraft}.jar' else ('client_mappings.txt', 'server_mappings.txt') if path.name.endswith('-mappings.txt') else ()
         ensure(path, record, indexed, offline, aliases)
-    relative(sdk, 'versions/1.20.1/1.20.1.json').write_bytes((sdk / 'minecraft.json').read_bytes())
+    if minecraft == '1.16.5':
+        # This installer consumes the unbundled server at its root filename.
+        # Bind it to the same Mojang download record as the library copy.
+        ensure(sdk / f'minecraft_server.{minecraft}.jar', vanilla['downloads']['server'], indexed, offline,
+               (f'server-{minecraft}.jar', 'minecraft-server.jar', 'server.jar'))
+    relative(sdk, f'versions/{minecraft}/{minecraft}.json').write_bytes((sdk / 'minecraft.json').read_bytes())
     # This isolated installer-only profile has no accounts or user launcher data.
     relative(sdk, 'launcher_profiles.json').write_text('{"profiles":{}}\n')
     for role in ('Server', 'Client'):
@@ -373,13 +494,15 @@ def prepare(job: Path, loader: str, env: dict, offline: bool) -> None:
         finally: child.close()
         if result: raise ValueError('LEGACY_RUNTIME_INSTALL_FAILED:' + role.lower())
     outputs(sdk, profile)
-    srgs = srg_records(sdk)
+    for path, record in generated_runtime_inputs(sdk, version):
+        if not checked(path, record): raise ValueError('LEGACY_RUNTIME_GENERATED_IDENTITY')
+    srgs = srg_records(sdk, minecraft)
     for path, record in asset_inputs(sdk, vanilla): ensure(path, record, indexed, offline)
-    natives(sdk, vanilla)
+    natives(sdk, vanilla, minecraft=minecraft)
     for label, record in fixtures.items():
-        if fixture_snapshot(job, label)[1] != record: raise ValueError('LEGACY_RUNTIME_FIXTURE_CHANGED')
-    if srg_records(sdk) != srgs: raise ValueError('LEGACY_RUNTIME_SRG_IDENTITY')
-    publish(relative(job, 'legacy-runtime.json'), (json.dumps(plan(job, loader, fixtures, srgs), sort_keys=True) + '\n').encode())
+        if fixture_snapshot(job, label, minecraft)[1] != record: raise ValueError('LEGACY_RUNTIME_FIXTURE_CHANGED')
+    if srg_records(sdk, minecraft) != srgs: raise ValueError('LEGACY_RUNTIME_SRG_IDENTITY')
+    publish(relative(job, 'legacy-runtime.json'), (json.dumps(plan(job, loader, fixtures, srgs, minecraft), sort_keys=True) + '\n').encode())
 
 
 def expand(arguments, values):
@@ -394,36 +517,39 @@ def expand(arguments, values):
     return result
 
 
-def command(job, loader, role, integrated, development, archive_sha, env) -> list[str]:
-    if loader not in INSTALLERS or role not in ('client', 'server'): raise ValueError('LEGACY_RUNTIME_PROFILE_INVALID')
+def command(job, loader, role, integrated, development, archive_sha, env, minecraft=MC) -> list[str]:
+    selected = runtime_profile(minecraft, loader)
+    if role not in ('client', 'server'): raise ValueError('LEGACY_RUNTIME_PROFILE_INVALID')
     job = owned_root(job); sdk = owned_root(job / 'legacy-sdk' / loader)
-    fixtures, captured_srgs = read_plan(job, loader)
-    profile, version, vanilla, server_args = metadata(sdk, loader)
-    for path, record in inputs(sdk, profile, version, vanilla) + asset_inputs(sdk, vanilla):
+    fixtures, captured_srgs = read_plan(job, loader, minecraft)
+    profile, version, vanilla, server_args = metadata(sdk, loader, minecraft)
+    for path, record in inputs(sdk, profile, version, vanilla, minecraft) + generated_runtime_inputs(sdk, version) + asset_inputs(sdk, vanilla):
         if not checked(path, record): raise ValueError('LEGACY_RUNTIME_INPUT_IDENTITY:' + path.name)
-    outputs(sdk, profile); natives(sdk, vanilla, verify=True)
-    if srg_records(sdk) != captured_srgs: raise ValueError('LEGACY_RUNTIME_SRG_IDENTITY')
+    outputs(sdk, profile); natives(sdk, vanilla, verify=True, minecraft=minecraft)
+    if srg_records(sdk, minecraft) != captured_srgs: raise ValueError('LEGACY_RUNTIME_SRG_IDENTITY')
     installed = relative(job, role + '/mods/p2wlan.jar')
     if not isinstance(archive_sha, str) or not re.fullmatch('[0-9a-f]{64}', archive_sha) or digest(installed, 'sha256') != archive_sha:
         raise ValueError('GAME_INSTALLED_ARCHIVE_IDENTITY')
     fixture_name = 'IntegratedFixture' if integrated and role == 'server' else 'LocalGameFixture'
-    value, record = fixture_snapshot(job, fixture_name)
+    value, record = fixture_snapshot(job, fixture_name, minecraft)
     if fixtures.get(fixture_name) != record: raise ValueError('LEGACY_RUNTIME_FIXTURE_IDENTITY')
     target = relative(job, role + '/mods/' + fixture_name + '.jar'); target.parent.mkdir(parents=True, exist_ok=True)
     publish(target, value)
-    java, _ = java17(env)
+    java, _ = runtime_java(env, minecraft)
     properties = ['-Xmx2G', '-Dp2wlan.gameFixture.config=' + str(job / (role + '.json')),
                   '-Dp2wlan.gameFixture.installedArchive=' + str(installed),
                   '-Dp2wlan.gameFixture.installedSha256=' + archive_sha, '-Dp2wlan.gameFixture.installedUniversal=true']
     if development: properties.append('-Dp2wlan.allowDevelopmentNative=true')
-    if role == 'server' and not integrated:
+    if minecraft == '1.16.5':
+        properties += ['-Dnashorn.args=--anonymous-classes=false', '-DlibraryDirectory=' + str(sdk / 'libraries')]
+    if role == 'server' and not integrated and selected.launcher == MAIN:
         args = [a.replace('libraries/', str(sdk / 'libraries') + '/') for a in server_args]
         args = [a.replace('-DlibraryDirectory=libraries', '-DlibraryDirectory=' + str(sdk / 'libraries')) for a in args]
         return [str(java), *properties, *args, 'nogui']
-    libraries = selected_libraries(vanilla)
-    for library in version['libraries']: libraries[library['name']] = library['downloads']['artifact']
+    libraries = runtime_libraries(vanilla, version, minecraft)
     paths = [relative(sdk, 'libraries/' + r['path']) for r in libraries.values()]
-    paths.append(sdk / 'libraries/net/minecraft/client' / MCP / ('client-' + MCP + '-extra.jar'))
+    side = 'server' if role == 'server' and not integrated else 'client'
+    paths.append(sdk / 'libraries/net/minecraft' / side / selected.mcp / (side + '-' + selected.mcp + '-extra.jar'))
     values = {'auth_player_name': 'IntegratedHost' if role == 'server' else 'GuestFixture', 'version_name': version['id'],
               'game_directory': str(job / role), 'assets_root': str(sdk / 'assets'), 'assets_index_name': vanilla['assetIndex']['id'],
               'auth_uuid': '00000000000000000000000000000001' if role == 'server' else '00000000000000000000000000000002',
@@ -431,6 +557,13 @@ def command(job, loader, role, integrated, development, archive_sha, env) -> lis
               'natives_directory': str(sdk / 'natives'), 'launcher_name': 'p2wlan-local-fixture', 'launcher_version': '1',
               'classpath': os.pathsep.join(map(str, paths)), 'library_directory': str(sdk / 'libraries'), 'classpath_separator': os.pathsep}
     logging = vanilla['logging']['client']
+    if side == 'server':
+        game_args = expand(version['arguments']['game'], values)
+        target = game_args.index('--launchTarget') + 1
+        if game_args[target] != 'fmlclient': raise ValueError('LEGACY_RUNTIME_PROFILE_INVALID')
+        game_args[target] = 'fmlserver'
+        return [str(java), *properties, *expand(version['arguments']['jvm'], values),
+                '-cp', values['classpath'], selected.launcher, '--gameDir', str(job / role), *game_args, 'nogui']
     properties.append(logging['argument'].replace('${path}', str(sdk / 'assets/log_configs' / logging['file']['id'])))
     return [str(java), *properties, *expand(vanilla['arguments']['jvm'] + version['arguments']['jvm'], values),
-            MAIN, *expand(vanilla['arguments']['game'] + version['arguments']['game'], values)]
+            selected.launcher, *expand(vanilla['arguments']['game'] + version['arguments']['game'], values)]

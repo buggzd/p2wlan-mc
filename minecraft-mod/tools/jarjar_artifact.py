@@ -19,7 +19,7 @@ def _runtime_name(name):
 
 
 def portable(archive, version, development, loader="neoforge"):
-    archive_names = entries(archive)
+    archive_names = entries(archive, maximum=1024 if loader == 'universal' else 512)
     if any(name.endswith('.class') and _runtime_name(name).startswith(tuple(CLASS_PACKAGES.values())) for name in archive_names):
         raise VerificationError(f"{loader}_jarjar_class_owner")
     if any(_runtime_name(name).startswith('p2wlan/native/') and not name.endswith('/') for name in archive_names):

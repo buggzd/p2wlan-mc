@@ -27,12 +27,26 @@ def bytecode(major):
     return b"\xca\xfe\xba\xbe\x00\x00" + major.to_bytes(2, "big") + b"fixture"
 
 
-JNA_FIXTURE = {"com/sun/jna/Native.class": bytecode(52),
+JNA_FIXTURE = {"com/sun/jna/Native.class": b'\xca\xfe\xba\xbe\0\0\0\x34\0\x03\x01\0\x0d/com/sun/jna/\x08\0\x01' + bytes(14),
                "com/sun/jna/win32-x86-64/jnidispatch.dll": b"synthetic JNI payload"}
 
 
 def jna_fixture_binding():
-    return patch("artifact_checks.JNA_PAYLOADS", {name: hashlib.sha256(value).hexdigest() for name, value in JNA_FIXTURE.items()})
+    import universal_jna
+    patches = [patch("artifact_checks.JNA_PAYLOADS", {name: hashlib.sha256(value).hexdigest() for name, value in JNA_FIXTURE.items()}),
+        patch.multiple(universal_jna, ORIGINAL_NATIVE_SHA256=hashlib.sha256(JNA_FIXTURE[universal_jna.NATIVE]).hexdigest(),
+            ORIGINAL_CLASS_COUNT=1, ORIGINAL_CLASS_SHA256=universal_jna.class_digest({universal_jna.NATIVE: JNA_FIXTURE[universal_jna.NATIVE]}),
+            JNI_SHA256={name: hashlib.sha256(value).hexdigest() for name, value in JNA_FIXTURE.items() if not name.endswith('.class')},
+            METADATA_SHA256={})]
+    class Binding:
+        def start(self):
+            for item in patches: item.start()
+            return self
+        def stop(self):
+            for item in reversed(patches): item.stop()
+        def __enter__(self): return self.start()
+        def __exit__(self, *ignored): self.stop()
+    return Binding()
 
 
 class ModJarTests(unittest.TestCase):

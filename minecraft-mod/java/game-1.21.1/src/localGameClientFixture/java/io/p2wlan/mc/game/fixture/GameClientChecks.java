@@ -104,9 +104,7 @@ public final class GameClientChecks {
                 case "AGENT" -> {
                     // A fresh Vanilla install first presents accessibility setup.
                     // Complete that ordinary screen, not the Mod/account state.
-                    if (client.screen instanceof net.minecraft.client.gui.screens.AccessibilityOnboardingScreen) {
-                        client.screen.onClose(); return;
-                    }
+                    if (GameFixtureApi.completeOnboarding(client)) return;
                     if (!io.p2wlan.mc.game.client.ClientPlatform.agent().ready().isDone() || client.getOverlay() != null || !(client.screen instanceof TitleScreen)) return;
                     helper = io.p2wlan.mc.game.client.ClientPlatform.agent().ready().join();
                     data.check(io.p2wlan.mc.game.client.ClientPlatform.agent().isCurrent(helper), "HELPER_OWNER");
@@ -320,7 +318,7 @@ public final class GameClientChecks {
                         GameJoins.shutdown(); data.advance("DISCONNECT", 15); return;
                     }
                     if (received == sent && client.player.experienceLevel == sent && System.nanoTime() >= nextRound) {
-                        sent++; client.getConnection().sendCommand("p2wlan-game-fixture " + data.run + " " + sent);
+                        sent++; GameFixtureApi.command(client, "p2wlan-game-fixture " + data.run + " " + sent);
                         nextRound = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
                     }
                 }
@@ -369,7 +367,7 @@ public final class GameClientChecks {
                     gate.addProperty("reason", owner.status().reason());
                     gate.addProperty("overlay", client.getOverlay() != null);
                     gate.addProperty("title", client.screen instanceof TitleScreen);
-                    gate.addProperty("onboarding", client.screen instanceof net.minecraft.client.gui.screens.AccessibilityOnboardingScreen);
+                    gate.addProperty("onboarding", GameFixtureApi.onboarding(client));
                     String view = client.screen == null ? "NONE" : client.screen.getClass().getSimpleName();
                     gate.addProperty("view", view.matches("[A-Za-z0-9_$]{1,80}") ? view : "OTHER");
                     GameFixtureData.write(data.root.resolve("agent-gate.fixture.json"), gate);

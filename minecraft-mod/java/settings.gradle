@@ -27,6 +27,17 @@ if (providers.gradleProperty('fabricLegacyAdapter').isPresent()) {
     project(':fabric-legacy').projectDir = file('adapters/fabric-1.20.1')
 }
 
+// SDK input only until the profile's installed-archive contract is verified.
+if (providers.gradleProperty('fabric1182Adapter').isPresent()) {
+    include 'fabric-1182'
+    project(':fabric-1182').projectDir = file('adapters/fabric-1.18.2')
+}
+
+if (providers.gradleProperty('fabric1165Adapter').isPresent()) {
+    include 'fabric-1165'
+    project(':fabric-1165').projectDir = file('adapters/fabric-1.16.5')
+}
+
 if (providers.gradleProperty('neoforgeAdapter').isPresent()) {
     include 'neoforge'
     project(':neoforge').projectDir = file('adapters/neoforge-1.21.1')

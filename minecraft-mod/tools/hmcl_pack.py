@@ -19,16 +19,17 @@ from artifact_checks import MAX_BINARY, PLATFORMS, VerificationError, bind_sourc
 from verify_mod_jar import verify as verify_mod
 from verify_neoforge_jar import verify as verify_neoforge
 from verify_forge_jar import verify as verify_forge
+import minecraft_profiles as registry
 
-MINECRAFT = "1.21.1"
-LOADER = "0.16.14"
+MINECRAFT = registry.DEFAULT_MINECRAFT
+LOADER = registry.profile().version
 VERSION = "0.1.0"
-API_VERSION = "0.116.7+1.21.1"
+API_VERSION = registry.profile().api_version
 # The fixed official Fabric Maven artifact, not a remapped/sources jar. No
 # unverified download, caller-supplied checksum, or development-mode escape.
-API_SHA256 = "08018cc48c97415a38016a00dbd5a2c7a460ba6b7a051690a8cb3dbb5e8482a4"
-LEGACY_API_VERSION = "0.92.12+1.20.1"
-LEGACY_API_SHA256 = "4197ff4fbdac13cffccd267c1bc59e9fbabb2b5683a9d5f8023f4b5ea16a1c1e"
+API_SHA256 = registry.profile().api_sha256
+LEGACY_API_VERSION = registry.profile('1.20.1').api_version
+LEGACY_API_SHA256 = registry.profile('1.20.1').api_sha256
 MAX_API = 8 * 1024 * 1024
 # The wrapper's embedded JAR remains within the shared archive-member budget.
 MAX_UNIVERSAL_MOD = MAX_BINARY
@@ -59,22 +60,23 @@ class LoaderProfile:
 
     @property
     def java_version(self):
-        return 17 if self.minecraft == "1.20.1" else 21
+        return registry.profile(self.minecraft, self.loader).java_version
+
+
+def _pack_profile(selected):
+    return LoaderProfile(selected.minecraft, selected.loader, selected.name, selected.version,
+                         selected.api_version, selected.api_sha256)
 
 
 # Only audited source-defined combinations are admitted. A later game version
 # needs its own pins and archive contract; callers cannot supply checksums or
 # verification functions. The networking/native implementation remains shared.
-PROFILES = MappingProxyType({
-    (MINECRAFT, "fabric"): LoaderProfile(MINECRAFT, "fabric", "Fabric", LOADER, API_VERSION, API_SHA256),
-    (MINECRAFT, "neoforge"): LoaderProfile(MINECRAFT, "neoforge", "NeoForge", "21.1.256"),
-    (MINECRAFT, "forge"): LoaderProfile(MINECRAFT, "forge", "Forge", "52.1.16"),
-})
-LEGACY_PROFILES = MappingProxyType({
-    ("1.20.1", "fabric"): LoaderProfile("1.20.1", "fabric", "Fabric", LOADER, LEGACY_API_VERSION, LEGACY_API_SHA256),
-    ("1.20.1", "neoforge"): LoaderProfile("1.20.1", "neoforge", "NeoForge", "47.1.106"),
-    ("1.20.1", "forge"): LoaderProfile("1.20.1", "forge", "Forge", "47.3.2"),
-})
+# Compatibility exports are immutable projections. Selection reads the registry
+# directly, so a second profile table cannot become a packaging authority.
+PROFILES = MappingProxyType({key: _pack_profile(selected) for key, selected in registry.PROFILES.items()
+                            if selected.minecraft == MINECRAFT})
+LEGACY_PROFILES = MappingProxyType({key: _pack_profile(selected) for key, selected in registry.PROFILES.items()
+                                   if selected.minecraft != MINECRAFT})
 VERIFIERS = MappingProxyType({
     (MINECRAFT, "fabric"): verify_mod,
     (MINECRAFT, "neoforge"): verify_neoforge,
@@ -83,12 +85,13 @@ VERIFIERS = MappingProxyType({
 
 
 def profile(loader="fabric", minecraft=MINECRAFT):
-    if not isinstance(loader, str) or loader not in {"fabric", "neoforge", "forge"}:
-        raise VerificationError("pack_loader_unsupported")
-    if not isinstance(minecraft, str) or minecraft not in {"1.20.1", MINECRAFT}:
-        raise VerificationError("pack_minecraft_unsupported")
-    selected = PROFILES if minecraft == MINECRAFT else LEGACY_PROFILES
-    return selected[minecraft, loader]
+    try:
+        return _pack_profile(registry.profile(minecraft, loader))
+    except registry.ProfileError as failure:
+        reasons = {'MINECRAFT_PROFILE_LOADER_UNSUPPORTED': 'pack_loader_unsupported',
+                   'MINECRAFT_PROFILE_VERSION_UNSUPPORTED': 'pack_minecraft_unsupported',
+                   'MINECRAFT_PROFILE_PAIR_UNSUPPORTED': 'pack_profile_unsupported'}
+        raise VerificationError(reasons[failure.code]) from None
 
 
 def payload_names(loader="fabric", minecraft=MINECRAFT, universal=False):
@@ -133,12 +136,15 @@ def guide(platform, loader="fabric", minecraft=MINECRAFT, universal=False):
     validation = ("包核验范围：Universal Mod 源码绑定、嵌套资源和文件摘要；Windows/HMCL 与跨机器联机待验证。\r\n"
                   if universal else "实机验证范围：macOS Apple Silicon 本机离线认证专服及内置世界；Windows/HMCL 与跨机器联机待验证。\r\n")
     archive = "本包安装同一份 p2wlan-universal.jar；游戏与加载器版本由本 ZIP 的安装配置指定。\r\n" if universal else ""
+    legacy_java = ("Forge 1.16.5：在 HMCL 该实例设置的 Java 虚拟机参数中添加 -Dnashorn.args=--anonymous-classes=false。\r\n"
+                   if (minecraft, loader) == ("1.16.5", "forge") else "")
     return (f"P2WLAN 实验整合包 — {platform}\r\n"
             f"Minecraft {selected.minecraft} / {label} {selected.version}{dependencies}\r\n"
             + validation + archive +
             "1. 在 HMCL 的整合包安装入口选择本 ZIP，不要把 ZIP 放进 mods 文件夹。\r\n"
             f"2. 使用独立游戏实例、64 位操作系统和 64 位 Java {selected.java_version}。\r\n"
             "Windows 目标是 x86-64（Intel/AMD 64 位），实例及临时目录须放在本地 NTFS；不支持 32 位 Java/Windows。\r\n"
+            + legacy_java +
             "3. 使用自己的游戏账号启动；包内不含游戏本体、Java、账号或凭据。\r\n"
             "4. 点击菜单按钮旁的方形局域网像素图标打开 P2WLAN，首次填写 Control 地址并登录或注册；以后保留登录会话和地址。\r\n"
             "5. 加入或创建房间后，点击房间名称连接虚拟局域网。\r\n"
@@ -167,7 +173,7 @@ def verify_api(value, loader="fabric", minecraft=MINECRAFT):
     with zipfile.ZipFile(io.BytesIO(value)) as archive:
         entries(archive)
         info = metadata(archive)
-        if info.get("id") != "fabric-api" or info.get("version") != selected.api_version:
+        if info.get("id") != registry.profile(minecraft, loader).api.mod_id or info.get("version") != selected.api_version:
             raise VerificationError("pack_fabric_api_contract")
 
 
@@ -272,7 +278,7 @@ def verify_zip(source, expected_platform=None, expected_loader=None, expected_mi
             raise VerificationError("pack_metadata_mismatch")
         loader = loader_info["id"]
         minecraft = index.get("minecraft")
-        if not isinstance(minecraft, str) or minecraft not in {"1.20.1", MINECRAFT} or not universal and minecraft != MINECRAFT:
+        if not isinstance(minecraft, str) or minecraft not in registry.MINECRAFT_VERSIONS or not universal and minecraft != MINECRAFT:
             raise VerificationError("pack_metadata_mismatch")
         selected = profile(loader, minecraft)
         if loader_info["version"] != selected.version:
@@ -357,22 +363,22 @@ def main():
     build = commands.add_parser("build")
     build.add_argument("--mod", type=Path, required=True)
     build.add_argument("--fabric-api", type=Path)
-    build.add_argument("--loader", choices=("fabric", "neoforge", "forge"), default="fabric")
-    build.add_argument("--minecraft", choices=("1.20.1", MINECRAFT), default=MINECRAFT)
+    build.add_argument("--loader", choices=registry.LOADERS, default="fabric")
+    build.add_argument("--minecraft", choices=registry.MINECRAFT_VERSIONS, default=MINECRAFT)
     build.add_argument("--universal", action="store_true")
     build.add_argument("--platform", choices=sorted(PLATFORMS), required=True)
     build.add_argument("--output", type=Path, required=True)
     verify = commands.add_parser("verify")
     verify.add_argument("archive", type=Path)
-    verify.add_argument("--loader", choices=("fabric", "neoforge", "forge"), default="fabric")
-    verify.add_argument("--minecraft", choices=("1.20.1", MINECRAFT), default=MINECRAFT)
+    verify.add_argument("--loader", choices=registry.LOADERS, default="fabric")
+    verify.add_argument("--minecraft", choices=registry.MINECRAFT_VERSIONS, default=MINECRAFT)
     verify.add_argument("--universal", action="store_true", default=None)
     verify.add_argument("--platform", choices=sorted(PLATFORMS), required=True)
     args = parser.parse_args()
     if args.command == "build" and (args.loader == "fabric") != (args.fabric_api is not None):
         parser.error("--fabric-api is required only for Fabric packs")
     if args.command == "build" and args.minecraft != MINECRAFT and not args.universal:
-        parser.error("Minecraft 1.20.1 packs require --universal")
+        parser.error(f"Minecraft {args.minecraft} packs require --universal")
     try:
         if args.command == "build":
             api = regular_bytes(args.fabric_api, MAX_API) if args.fabric_api is not None else None

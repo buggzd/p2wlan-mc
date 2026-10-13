@@ -1,13 +1,14 @@
 """Canonical bounded manifest headers for the Universal Mixin dispatcher."""
-import re
-
 from artifact_checks import VerificationError
+from minecraft_profiles import PROFILES
 
 
 def mixin_manifest(configs):
-    if not isinstance(configs, (tuple, list)) or not 1 <= len(configs) <= 8 \
+    allowed = {name for profile in PROFILES.values()
+               for name in (profile.binding.server_config, profile.binding.client_config)}
+    if not isinstance(configs, (tuple, list)) or not 1 <= len(configs) <= 32 \
             or len(set(configs)) != len(configs) or any(not isinstance(name, str)
-            or re.fullmatch(r"p2wlan\.dispatch(?:\.fabric)?(?:\.1201)?(?:\.client)?\.json", name) is None
+            or name not in allowed
             for name in configs):
         raise VerificationError("universal_manifest_configs")
     lines = [b"Manifest-Version: 1.0"]

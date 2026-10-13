@@ -1,0 +1,13 @@
+modLoader="javafml"
+loaderVersion="[36,37)"
+license="MIT"
+[[mods]]
+modId="p2wlan_local_game_test"
+version="1.0.0"
+displayName="P2WLAN isolated real local game fixture"
+[[dependencies.p2wlan_local_game_test]]
+modId="p2wlan"
+mandatory=true
+versionRange="[0.1.0]"
+ordering="AFTER"
+side="BOTH"

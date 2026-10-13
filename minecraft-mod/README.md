@@ -4,7 +4,7 @@
 
 This page documents implementation contracts and component-specific build/test entry points. Start with the user guide for Mod installation, accounts, rooms and game controls. Unless stated otherwise, commands run from the complete repository root.
 
-This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The installable Universal JAR targets the fixed Minecraft 1.20.1 and 1.21.1 profiles below. Fabric, NeoForge and Forge share common Java, transport, Native and one physical game implementation; SDK differences stay in thin version adapters. An opt-in local fixture checks actual offline-mode client/dedicated-server play through the Mod. Platform and gameplay verification scope is summarized in [Project status](../README.md#项目状态); the sections below describe each component and its test entry points.
+This directory is an independent, experimental integration project. It does not alter the upstream Cargo workspace or existing P2WLAN client/server sources. The installable Universal JAR targets the ten exact loader profiles for Minecraft 1.16.5, 1.18.2, 1.20.1 and 1.21.1 below. Fabric, NeoForge and Forge share common Java, transport, Native and one physical game implementation; SDK differences stay in thin version adapters. An opt-in local fixture checks actual offline-mode client/dedicated-server play through the Mod. Platform and gameplay verification scope is summarized in [Project status](../README.md#项目状态); the sections below describe each component and its test entry points.
 
 ## Native TCP endpoint
 
@@ -749,46 +749,91 @@ verification targets.
 
 ## Universal installation archive
 
-`tools/universal_build.py` builds five SDK inputs and one neutral Bootstrap,
-then `tools/universal_jar.py` produces `p2wlan-universal.jar`. Fabric 1.20.1 and
-1.21.1, Forge 1.20.1 and 1.21.1, and NeoForge 1.21.1 supply compile-time inputs.
-Early NeoForge 1.20.1 uses the verified Forge-compatible legacy entry and API.
-The player installs the same archive for every supported profile.
+`tools/universal_build.py` builds nine pinned loader SDK inputs, one neutral
+Bootstrap and one Forge-36 carrier, then `tools/universal_jar.py` produces
+`p2wlan-universal.jar`. Early NeoForge 1.20.1 shares the Forge-compatible
+1.20.1 SDK input and game binding. Players install the same archive for all ten
+exact profiles; clients, dedicated servers and integrated worlds use that JAR.
 
 | Minecraft | Fabric Loader / API | Forge | NeoForge | Game Java |
 | --- | --- | --- | --- | --- |
+| 1.16.5 | 0.16.14 / 0.42.0+1.16 | 36.2.42 | — | 17 |
+| 1.18.2 | 0.16.14 / 0.77.0+1.18.2 | 40.3.12 | — | 17 |
 | 1.20.1 | 0.16.14 / 0.92.12+1.20.1 | 47.3.2 | 47.1.106 | 17 |
 | 1.21.1 | 0.16.14 / 0.116.7+1.21.1 | 52.1.16 | 21.1.256 | 21 |
 
-All P2WLAN Java classes use classfile major 61. Modern SDK dependency selection
-requires Java 21; this reader requirement is distinct from the emitted class
-version. `java/game-api-1.20.1` and `java/game-api-1.21.1` adapt background,
-tooltip and login APIs. Exact generated adaptations handle the old list constructor and login profile-admission method. The authoritative game sources remain in `java/game-1.21.1`.
-The assembler assigns the 47 shared game classes to four fixed loader/version
-namespaces. Modern inputs add a thin configuration-stage Mixin at player commit. Fabric 1.20.1 adds one narrow login-discovery Mixin, giving 191 game
-classes in total; no gameplay or networking source fork is maintained. That
-Mixin exposes the existing join owner's current LOGIN connection to Fabric's
-networking API when its Vanilla lookup has no connection. The original nonempty
-result is preserved; connection ticks and cleanup stay with the join owner.
+These are complete version pins. Missing loader/game pairs and other patch
+versions fail startup selection. All P2WLAN Java classes use classfile major 61;
+Minecraft 1.21.1's SDK and game still require Java 21. The authoritative game
+sources remain in `java/game-1.21.1`. The four `java/game-api-*` modules adapt
+background, tooltip, widgets, connection/login and narration APIs. Generated
+adaptations enforce exact source contracts before producing build-only files.
+Forge 1.16.5 additionally applies 63 reviewed MCP class aliases, while the
+pinned official member mappings supply reobfuscation. Screens, commands and
+connection ownership have one shared implementation.
+
+Fabric 1.16.5, 1.18.2 and 1.20.1 add a narrow login-discovery Mixin. It exposes
+the existing join owner's current LOGIN connection to Fabric networking when
+Vanilla's lookup has no connection, preserving an original nonempty result.
+Connection ticks and cleanup remain with the join owner. Modern inputs retain
+the thin configuration-stage Mixin at player commit; 1.16.5 checks both direct
+player-placement paths before the effect.
 
 One neutral Fabric entry and one Forge-compatible entry select only their
-version delegates. Each has one application initialization owner; only its
-selected server delegate owns `WorldSessions`. NeoForge 1.21.1 has its own event
-glue. Eight narrow Mixin configurations have empty static lists and Java-17
-headers. The 14-class Bootstrap selects leaf Mixins and the correct Fabric or
-legacy SRG refmap using the active loader, game version and side. Inactive
-namespaces return no Mixins. One copy each of common, transport and Native is
-embedded, with one Fabric JNA payload. Core contents must agree across all SDK
-inputs; overlapping Forge entry classes must pass the restricted semantic
-comparison before one Java-17 copy is selected.
+version delegates. Each has one application initialization owner; its selected
+server delegate owns `WorldSessions`. NeoForge 1.21.1 supplies its own event
+glue. Sixteen narrow dispatch configurations use Mixin 0.8.4 minimum versions,
+empty static lists and Java-17 headers. Bootstrap selects the leaf Mixins,
+refmaps and client side for the active exact pair. Inactive namespaces return
+no Mixins, including configurations parsed by Forge 36's Mixin 0.8.4.
 
-Forge 1.20.1 uses `java/forge-legacy`, Gradle 8.8 and ForgeGradle 6.0.47 with
-Java 17. `P2WLAN_LEGACY_JAVA_HOME` selects an absolute JDK-17 directory;
-`P2WLAN_LEGACY_GRADLE_ZIP` optionally selects the checksum-verified distribution.
-The modern Forge helper also accepts that JDK path for portable compilation.
-Both build graphs reference the original shared projects. The legacy Forge
-input is reobfuscated to SRG before assembly; Fabric inputs retain their exact
-intermediary mappings and separate server/client refmaps.
+The archive retains one owner each for common, transport, Native resources and
+JNA. Core contents must agree across SDK inputs; overlapping Forge entry classes
+pass restricted semantic comparison before one Java-17 copy is selected. JNA
+5.14 keeps its Java packages and API. Only its exact JNI resource-prefix
+constant and resource paths change from `com/sun/jna/` to `p2wlan/jna/`.
+Verification reverses that class change, checks the original class inventory,
+and requires unchanged JNI payloads. The private prefix prevents the launcher's
+older JNA resources from satisfying the Mod's JNI lookup.
+
+Forge 36 has no JarJar loader. The public Mod-locator carrier makes
+the canonical nested core components available to its game classloader.
+Extraction has eight atomic temporary slots, each bound to the outer archive's
+size/digest and a process PID/start-time lease. Reclamation requires an exited
+original process and unchanged directory/file identities; live, changed or
+uncertain owners retain their slots. The installed verifier binds the loaded
+classes and native resources to those exact indexed child archives. Modern
+Forge loaders use their normal nested-component loading path.
+
+Forge 1.20.1 uses `java/forge-legacy`; Forge 1.18.2 uses `java/forge-1182`.
+Both use Gradle 8.8, ForgeGradle 6.0.47 and Java 17. Set the absolute
+`P2WLAN_LEGACY_JAVA_HOME` or `P2WLAN_FORGE1182_JAVA_HOME` to select the compiler;
+the corresponding `P2WLAN_LEGACY_GRADLE_ZIP` or `P2WLAN_FORGE1182_GRADLE_ZIP`
+selects an optional checksum-verified local Gradle distribution.
+
+Forge 1.16.5 uses the independent `java/forge-1165` graph, pinned Gradle 8.4
+and ForgeGradle 6.0.47. Production/fixture code compiles with JDK 17; MCP patch
+compilation requires a full JDK 8, including `lib/tools.jar`. Prepare both
+installed toolchains before building:
+
+```sh
+export P2WLAN_FORGE1165_JAVA_HOME=/absolute/path/to/jdk17
+export P2WLAN_FORGE1165_MCP_JAVA_HOME=/absolute/path/to/jdk8
+python3 minecraft-mod/tools/forge_1165_gradle.py compile
+python3 minecraft-mod/tools/forge_1165_gradle.py build
+```
+
+`P2WLAN_FORGE1165_GRADLE_ZIP` optionally selects an absolute local Gradle-8.4
+ZIP after the fixed distribution SHA-256 matches. These commands produce a
+checked SDK assembly input; player installation uses the Universal archive.
+Forge 1.16.5 gameplay runs Java 17 with
+`-Dnashorn.args=--anonymous-classes=false`; the installed fixture supplies it.
+HMCL and standalone server launchers must supply the same JVM argument.
+
+All SDK graphs reference the original shared projects. Forge inputs are
+reobfuscated to SRG before assembly; Fabric inputs retain exact intermediary
+mappings and separate server/client refmaps. The nine SDK archives, Bootstrap,
+carrier and in-memory relocated Fabric input form twelve named input receipts.
 
 From a clean checkout with current Native resources:
 
@@ -819,7 +864,7 @@ contracts, Vanilla login, 20 ordered exchanges, sustained play and world/helper
 cleanup. Archive hash and module/class backing are checked before the assertions.
 Source outputs and portable/native/bootstrap project fallbacks are excluded.
 
-Forge/early NeoForge 1.20.1 use the official production SRG runtime. Their
+Forge 1.16.5, 1.18.2 and 1.20.1, plus early NeoForge 1.20.1, use the official production SRG runtime. Their
 pinned installers prepare both sides; patched outputs, library metadata, assets
 and natives are checked against official digests. The observer fixture is
 independently reobfuscated with its exact resource-pack metadata and captured
@@ -827,15 +872,16 @@ in a strict run plan. Derived client/server SRG files retain their captured
 size and SHA-256. Each production launch rechecks the SDK, fixture and original
 Universal archive. Named MCP
 userdev runs explicitly reject the installed archive. Fabric uses its installed
-intermediary namespace and a Java-17 game launcher.
+intermediary namespace and the Java version selected by the exact profile. On macOS/aarch64, the older SDK fixture substitutes a pinned complete LWJGL Java/native family, and records those artifact identities in its run plan.
 
-The same Universal archive has passed all 12 local macOS/aarch64 gameplay cases:
-both pinned Minecraft versions, three loaders and dedicated/integrated worlds.
-Each case completes Vanilla login, 20 ordered exchanges over at least 18 seconds,
-and world/helper cleanup. Java 17 runs 1.20.1 and Java 21 runs 1.21.1; the fixture
-uses local Control and Direct traffic with explicitly authorized offline game
-authentication. The local fixture supports POSIX hosts; Windows uses HMCL.
-Windows/HMCL, remote machines, forced Relay and public NAT remain unverified.
+The installed fixture selects the exact profiles above and checks dedicated
+68/65 or integrated 80/65 host/guest results, Vanilla login, 20 ordered exchanges
+over at least 18 seconds, and world/helper cleanup. Java 17 runs 1.16.5, 1.18.2
+and 1.20.1; Java 21 runs 1.21.1. It uses local Control and Direct traffic with
+explicitly authorized offline game authentication. Verification records bind
+the final Universal digest to the source identities, exact profile and mode.
+The local fixture supports POSIX hosts; Windows uses HMCL. Windows/HMCL,
+remote machines, forced Relay and public NAT remain unverified.
 
 ## HMCL ZIP packaging
 
@@ -843,8 +889,9 @@ Windows/HMCL, remote machines, forced Relay and public NAT remain unverified.
 fixed Minecraft/loader profile and the same `overrides/mods/p2wlan-universal.jar`.
 Only Fabric includes its version-matched, SHA-256-pinned API. The guide is present
 outside and inside `overrides`; game files, Java, accounts, private profiles,
-worlds and EULA files are excluded. Players use Java 17 for 1.20.1 and Java 21
-for 1.21.1. Windows resources target x86-64 and local NTFS/user ACLs.
+worlds and EULA files are excluded. Players use Java 17 for 1.16.5, 1.18.2 and
+1.20.1, and Java 21 for 1.21.1. Forge 1.16.5 also requires the Nashorn JVM
+argument above. Windows resources target x86-64 and local NTFS/user ACLs.
 
 After building a release Universal archive containing the selected target:
 
@@ -853,10 +900,13 @@ python3 minecraft-mod/tools/java.py universal-hmcl-pack --minecraft 1.20.1 --loa
 python3 minecraft-mod/tools/hmcl_pack.py verify minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-hmcl-forge-1.20.1-windows-x86_64-0.1.0.zip --universal --minecraft 1.20.1 --loader forge --platform windows-x86_64
 ```
 
-Fabric additionally needs `--fabric-api /absolute/path/to/fabric-api-0.92.12+1.20.1.jar`
-(or `0.116.7+1.21.1` for 1.21.1), the original official Fabric Maven artifact.
-The packager accepts only the fixed source-defined API SHA-256. Change the game,
-loader, target and output arguments together to select another supported profile.
+Fabric additionally needs `--fabric-api /absolute/path/to/fabric-api.jar`,
+pointing to the unchanged official full installation JAR for the exact API pin
+in the table. Fabric 1.16.5 and 1.18.2 require the full nested-module Mod, not
+the small Maven dependency aggregate. Their full-artifact SHA-256 values are
+pinned in `tools/minecraft_profiles.py`; the packager rejects a thin aggregate,
+a different game version or changed bytes. Change the game, loader, target
+and output arguments together to select another exact supported profile.
 
 `P2WLAN-PACK.json` schema 2 binds the Universal SHA-256, source/Native identities,
 input receipts, selected profile, Java version and payload inventory. Verification

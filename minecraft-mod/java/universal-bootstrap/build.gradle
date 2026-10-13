@@ -10,6 +10,7 @@ dependencies {
     compileOnly 'net.fabricmc:sponge-mixin:0.15.5+mixin.0.8.7'
     compileOnly 'org.ow2.asm:asm-tree:9.7.1'
     compileOnly 'com.google.code.gson:gson:2.10'
+    testImplementation 'org.apache.maven:maven-artifact:3.6.3'
 }
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -22,6 +23,16 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.compilerArgs += '-proc:none'
 }
+def profiles = layout.buildDirectory.dir('generated/profiles')
+def generateProfiles = tasks.register('generateUniversalProfiles', Exec) {
+    inputs.files(layout.projectDirectory.file('../../tools/universal_profile_sources.py'), layout.projectDirectory.file('../../tools/minecraft_profiles.py'))
+    outputs.dir(profiles)
+    commandLine 'python3', layout.projectDirectory.file('../../tools/universal_profile_sources.py').asFile, '--output', profiles.get().asFile
+}
+sourceSets.main.java.srcDir(profiles.map { it.dir('java') })
+sourceSets.main.resources.setSrcDirs([profiles.map { it.dir('resources') }])
+tasks.named('compileJava') { dependsOn generateProfiles }
+tasks.named('processResources') { dependsOn generateProfiles }
 sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
 sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
 tasks.register('bootstrapPolicyTest', JavaExec) {

@@ -159,6 +159,7 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
     // client checks dormant in the dedicated JVM.
     gameServer.java.srcDir new File(game, 'src/localGameClientFixture/java')
     gameServer.java.srcDir rootProject.file('../game-api-1.21.1/src/fixture/java')
+    gameServer.java.srcDir rootProject.file('../game-api-1.21.1/src/fixtureServer/java')
     gameServer.java.srcDir layout.projectDirectory.dir('src/localGameClientFixture/java')
     minecraft.runs.named('server') {
         with(gameServer) {
@@ -199,6 +200,7 @@ if (providers.gradleProperty('integratedGameFixture').isPresent()) {
     def hostFixture = sourceSets.create('integratedFixture')
     hostFixture.java.srcDir new File(game, 'src/integratedFixture/java')
     hostFixture.java.srcDir rootProject.file('../game-api-1.21.1/src/fixture/java')
+    hostFixture.java.srcDir rootProject.file('../game-api-1.21.1/src/fixtureServer/java')
     hostFixture.java.srcDir new File(game, 'src/fixtureCommon/java')
     hostFixture.java.srcDir layout.projectDirectory.dir('src/fixtureCommon/java')
     configurations.integratedFixtureImplementation.extendsFrom configurations.implementation

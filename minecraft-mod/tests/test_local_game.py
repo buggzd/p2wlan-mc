@@ -308,7 +308,7 @@ class LocalGameContractTests(unittest.TestCase):
                 patch('local_game.prepare_seed_binary'), patch('local_game.subprocess.run') as run, \
                 patch('local_game.FixtureProcess', return_value=child) as build:
             prepare(self.root, {}, True, True, 'fabric', True, installed_mod=archive, minecraft='1.20.1')
-        verify.assert_called_once_with(archive, True, '1.20.1')
+        verify.assert_called_once_with(archive, True, '1.20.1', 'fabric')
         self.assertEqual(run.call_count, 1)
         tasks = {value for value in build.call_args.args[0] if value.startswith(':')}
         self.assertEqual(tasks, {':fabric-legacy:verifyModJar', ':fabric-legacy:localGameFixtureClasses',
@@ -355,6 +355,85 @@ class LocalGameContractTests(unittest.TestCase):
                     gradle.assert_not_called()
                     sdk_command.assert_called_with(self.root, loader, role, integrated, True, 'a' * 64, {})
                     self.assertEqual(launch.call_args.args, (['checked-java17', 'production-bootstrap'], self.root / role, {}, self.root / (role + '.log')))
+
+    def test_1182_exact_pairs_use_installed_archives_sdk_paths_and_complete_assertions(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        self.assertEqual(adapter_project('fabric', '1.18.2'), 'fabric-1182')
+        self.assertEqual(adapter_project('forge', '1.18.2'), 'forge')
+        self.assertEqual(java_directory('forge', '1.18.2'), PROJECT / 'java/forge-1182')
+        self.assertEqual(java_directory('fabric', '1.18.2'), PROJECT / 'java')
+        with self.assertRaisesRegex(ValueError, 'GAME_PROFILE_UNSUPPORTED'):
+            adapter_project('neoforge', '1.18.2')
+        for loader in ('fabric', 'forge'):
+            with self.subTest(loader=loader), self.assertRaisesRegex(ValueError, 'GAME_LEGACY_REQUIRES_UNIVERSAL_ARCHIVE'):
+                gradle_command(self.root, [f':{loader}:runLocalGameClient'], True, True, loader, minecraft='1.18.2')
+            with self.subTest(loader=loader), patch('local_game.subprocess.run') as run, self.assertRaisesRegex(ValueError, 'GAME_LEGACY_REQUIRES_UNIVERSAL_ARCHIVE'):
+                prepare(self.root, {}, True, True, loader, minecraft='1.18.2')
+            run.assert_not_called()
+        for role in CASES:
+            for integrated in (False, True):
+                value = self.result(role) | {'minecraft': '1.18.2'}
+                if integrated and role == 'server':
+                    value |= {'checks': 80, 'cases': sorted(INTEGRATED_SERVER_CASES)}
+                self.path.write_text(json.dumps(value))
+                self.assertEqual(verify_result(self.path, self.run, role, integrated, '1.18.2'), value)
+                self.path.write_text(json.dumps(value | {'checks': value['checks'] - 1}))
+                with self.assertRaises(ValueError):
+                    verify_result(self.path, self.run, role, integrated, '1.18.2')
+        sdk_command = Mock(return_value=['java17', 'production18'])
+        with patch.dict('sys.modules', {'legacy_installation': SimpleNamespace(command=sdk_command)}), \
+                patch('local_game.gradle_command') as gradle, patch('local_game.FixtureProcess'):
+            launch_game(self.root, 'client', {}, True, True, 'forge', True, False, 'a' * 64, self.path, '1.18.2')
+        gradle.assert_not_called()
+        sdk_command.assert_called_once_with(self.root, 'forge', 'client', True, True, 'a' * 64, {}, minecraft='1.18.2')
+
+    def test_1182_installed_archive_requires_the_exact_loader_pin_as_well_as_game_version(self):
+        payload = b'checked universal snapshot'
+        self.path.write_bytes(payload)
+        info = {'artifact_sha256': hashlib.sha256(payload).hexdigest(), 'minecraft': ['1.18.2'],
+                'loaders': {'1.18.2': {'fabric': '0.16.14', 'forge': '40.3.12'}}}
+        with patch('universal_jar.verify', return_value=info):
+            for loader in ('fabric', 'forge'):
+                self.assertEqual(external_archive(self.path, True, '1.18.2', loader), payload)
+            with self.assertRaisesRegex(ValueError, 'GAME_PROFILE_UNSUPPORTED'):
+                external_archive(self.path, True, '1.18.2', 'neoforge')
+        for info in [info | {'minecraft': ['1.20.1']}, info | {'loaders': {}},
+                     info | {'loaders': {'1.18.2': {'forge': '40.3.11'}}}]:
+            with patch('universal_jar.verify', return_value=info), self.assertRaisesRegex(ValueError, 'GAME_INSTALLED_ARCHIVE_(VERSION|LOADER)'):
+                external_archive(self.path, True, '1.18.2', 'forge')
+
+    def test_1182_prepare_is_installed_and_routes_each_sdk_without_other_adapter_fallbacks(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        archive = self.installed_source()
+        child = SimpleNamespace(process=SimpleNamespace(wait=lambda timeout: 0), close=lambda: None)
+        for loader in ('fabric', 'forge'):
+            # The private copies are newly created for every fixture run.
+            for role in CASES:
+                target = self.root / role / 'mods'
+                if target.exists():
+                    import shutil
+                    shutil.rmtree(target)
+            sdk_prepare = Mock()
+            with patch('local_game.shutil.which', return_value='/fixture/go'), \
+                    patch('local_game.external_archive', return_value=archive.read_bytes()) as verify, \
+                    patch('local_game.prepare_seed_binary'), patch('local_game.subprocess.run'), \
+                    patch('forge_1182_gradle.command', return_value=['java17', 'gradle88']), \
+                    patch('local_game.game_environment', return_value={}), patch('local_game.FixtureProcess', return_value=child) as build, \
+                    patch.dict('sys.modules', {'legacy_installation': SimpleNamespace(prepare=sdk_prepare)}):
+                prepare(self.root, {}, True, True, loader, True, installed_mod=archive, minecraft='1.18.2')
+            verify.assert_called_once_with(archive, True, '1.18.2', loader)
+            tasks = {value for value in build.call_args.args[0] if value.startswith(':')}
+            if loader == 'forge':
+                self.assertEqual(tasks, {':forge:verifyModJar', ':forge:reobfInstalledLocalGameFixture', ':forge:reobfInstalledIntegratedFixture'})
+                sdk_prepare.assert_called_once_with(self.root, 'forge', {}, True, minecraft='1.18.2')
+                self.assertEqual(build.call_args.args[1], PROJECT / 'java/forge-1182')
+            else:
+                self.assertIn('-Pfabric1182Adapter', build.call_args.args[0])
+                self.assertTrue(all(task.startswith(':fabric-1182:') for task in tasks))
+                self.assertIn(':fabric-1182:relocateLocalGameClient', tasks)
+                sdk_prepare.assert_not_called()
 
     def test_seed_image_comes_only_from_verified_native_child_bytes(self):
         def packaged(binary, checksum=None):

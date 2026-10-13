@@ -1,4 +1,5 @@
 import io
+import hashlib
 import json
 from dataclasses import FrozenInstanceError, replace
 import os
@@ -24,13 +25,14 @@ class HmclPackTests(unittest.TestCase):
         self.jna_binding = fixtures.jna_fixture_binding()
         self.jna_binding.start()
         self.addCleanup(self.jna_binding.stop)
-        self.api = fixtures.jar({"fabric.mod.json": json.dumps({"id": "fabric-api", "version": pack.API_VERSION})})
+        self.api = fixtures.jar({"fabric.mod.json": json.dumps({"id": "fabric-api", "provides": ["fabric"], "version": pack.API_VERSION})})
         # Synthetic archives test the contract only. The production checksum has
         # no CLI override, and an actual Maven artifact is required by Gradle.
         self.original_profiles = pack.PROFILES
-        synthetic = dict(pack.PROFILES)
-        synthetic[pack.MINECRAFT, "fabric"] = replace(pack.profile(), api_sha256=pack.checksum(self.api))
-        self.api_digest = patch.object(pack, "PROFILES", MappingProxyType(synthetic))
+        synthetic = dict(pack.registry.PROFILES)
+        selected = synthetic[pack.MINECRAFT, "fabric"]
+        synthetic[pack.MINECRAFT, "fabric"] = replace(selected, api=replace(selected.api, artifact_sha256=pack.checksum(self.api)))
+        self.api_digest = patch.object(pack.registry, "PROFILES", MappingProxyType(synthetic))
         self.api_digest.start()
         self.addCleanup(self.api_digest.stop)
         self.binding = patch.object(pack, "bind_sources")
@@ -94,6 +96,74 @@ class HmclPackTests(unittest.TestCase):
         for loader in ("unknown", "", None, [], {}):
             with self.subTest(loader=loader), self.assertRaisesRegex(pack.VerificationError, "pack_loader_unsupported"):
                 pack.launcher_manifest("windows-x86_64", loader)
+
+    def test_compatibility_profile_exports_cannot_override_registry_selection(self):
+        for name, minecraft in [('PROFILES', '1.21.1'), ('LEGACY_PROFILES', '1.20.1')]:
+            selected = pack.profile('forge', minecraft)
+            changed = MappingProxyType({(minecraft, 'forge'): replace(selected, version='unverified')})
+            with patch.object(pack, name, changed):
+                self.assertEqual(pack.profile('forge', minecraft), selected)
+        for loader in ('fabric', 'neoforge', 'forge'):
+            for minecraft in ('1.18.1', '1.16.4', '1.18', '1.16'):
+                with self.subTest(loader=loader, minecraft=minecraft), self.assertRaisesRegex(pack.VerificationError, 'pack_minecraft_unsupported'):
+                    pack.profile(loader, minecraft)
+
+    def test_1182_pack_profiles_are_exact_loader_pins_and_require_universal(self):
+        expected = {'fabric': '0.16.14', 'forge': '40.3.12'}
+        for loader, version in expected.items():
+            selected = pack.profile(loader, '1.18.2')
+            self.assertEqual(selected.java_version, 17)
+            self.assertEqual(selected.version, version)
+            manifest = pack.launcher_manifest('windows-x86_64', loader, '1.18.2')
+            self.assertEqual(manifest['minecraft'], {'version': '1.18.2', 'modLoaders': [{'id': loader + '-' + version, 'primary': True}]})
+            self.assertIn('Minecraft 1.18.2', pack.guide('windows-x86_64', loader, '1.18.2', True).decode())
+            with self.assertRaisesRegex(pack.VerificationError, 'pack_minecraft_requires_universal'):
+                pack.payload_names(loader, '1.18.2')
+        self.assertEqual(pack.profile('fabric', '1.18.2').api_sha256,
+                         '6f822fb5aa481b4a6c1cfb8612bbfecc62a58e69d2c792f61a0eafa580e75999')
+        with self.assertRaisesRegex(pack.VerificationError, 'pack_profile_unsupported'):
+            pack.profile('neoforge', '1.18.2')
+
+    def test_1165_pack_has_exact_fabric_and_forge_java17_profiles(self):
+        selected = pack.profile('fabric', '1.16.5')
+        self.assertEqual((selected.version, selected.java_version, selected.api_version, selected.api_sha256),
+                         ('0.16.14', 17, '0.42.0+1.16', '3df8dd503f35aa0ac9fab8ad9f9a369fdfd0b1ab544af19a3d626d948fb4586c'))
+        self.assertEqual(pack.launcher_manifest('windows-x86_64', 'fabric', '1.16.5')['minecraft'],
+                         {'version': '1.16.5', 'modLoaders': [{'id': 'fabric-0.16.14', 'primary': True}]})
+        with self.assertRaisesRegex(pack.VerificationError, 'pack_minecraft_requires_universal'):
+            pack.payload_names('fabric', '1.16.5')
+        forge = pack.profile('forge', '1.16.5')
+        self.assertEqual((forge.version, forge.java_version, forge.api_version, forge.api_sha256),
+                         ('36.2.42', 17, None, None))
+        self.assertEqual(pack.launcher_manifest('windows-x86_64', 'forge', '1.16.5')['minecraft'],
+                         {'version': '1.16.5', 'modLoaders': [{'id': 'forge-36.2.42', 'primary': True}]})
+        with self.assertRaisesRegex(pack.VerificationError, 'pack_minecraft_requires_universal'):
+            pack.payload_names('forge', '1.16.5')
+        with self.assertRaisesRegex(pack.VerificationError, 'pack_profile_unsupported'):
+            pack.profile('neoforge', '1.16.5')
+
+    def test_profile_migration_preserves_all_existing_guide_and_launcher_bytes(self):
+        rows = []
+        for minecraft in ('1.20.1', '1.21.1'):
+            for loader in ('fabric', 'neoforge', 'forge'):
+                for platform in sorted(pack.PLATFORMS):
+                    for universal in (False, True):
+                        rows.append([minecraft, loader, platform, universal,
+                                     pack.guide(platform, loader, minecraft, universal).hex(),
+                                     pack.encoded(pack.launcher_manifest(platform, loader, minecraft)).hex(),
+                                     sorted(pack.payload_names(loader, minecraft, True))])
+        # Recorded from the complete pre-migration outputs, including CRLF.
+        digest = hashlib.sha256(json.dumps(rows, separators=(',', ':')).encode()).hexdigest()
+        self.assertEqual(digest, '387cf685e3ef33aed378afaae73e6a90e0fc1f4eb33e74653a20cc3c460bff99')
+
+    def test_forge1165_guide_supplies_the_required_java17_nashorn_argument(self):
+        argument = '-Dnashorn.args=--anonymous-classes=false'
+        for minecraft, loader in pack.registry.PROFILES:
+            with self.subTest(minecraft=minecraft, loader=loader):
+                guide = pack.guide('windows-x86_64', loader, minecraft, True).decode()
+                self.assertEqual(argument in guide, (minecraft, loader) == ('1.16.5', 'forge'))
+                if argument in guide:
+                    self.assertIn('HMCL 该实例设置的 Java 虚拟机参数', guide)
 
     def test_wrong_loader_incomplete_forge_and_unneeded_fabric_api_are_rejected(self):
         for loader in ("fabric", "neoforge", "forge"):
@@ -360,16 +430,21 @@ class UniversalHmclPackTests(unittest.TestCase):
     def setUp(self):
         self.mod = b"synthetic universal snapshot; full archive verification is separately tested"
         self.actual_verifier = pack.verify_universal
-        self.apis = {version: fixtures.jar({'fabric.mod.json': json.dumps({'id': 'fabric-api', 'version': api})})
-                     for version, api in [('1.20.1', pack.LEGACY_API_VERSION), ('1.21.1', pack.API_VERSION)]}
-        for name, minecraft in [('PROFILES', '1.21.1'), ('LEGACY_PROFILES', '1.20.1')]:
-            values = dict(getattr(pack, name))
-            values[minecraft, 'fabric'] = replace(values[minecraft, 'fabric'], api_sha256=pack.checksum(self.apis[minecraft]))
-            patcher = patch.object(pack, name, MappingProxyType(values))
-            patcher.start(); self.addCleanup(patcher.stop)
+        self.apis = {version: fixtures.jar({'fabric.mod.json': json.dumps({'id': 'fabric', 'version': api} if version == '1.16.5'
+                     else {'id': 'fabric-api', 'provides': ['fabric'], 'version': api})})
+                     for version, api in [('1.16.5', '0.42.0+1.16'), ('1.18.2', '0.77.0+1.18.2'),
+                                          ('1.20.1', pack.LEGACY_API_VERSION), ('1.21.1', pack.API_VERSION)]}
+        values = dict(pack.registry.PROFILES)
+        for minecraft in self.apis:
+            selected = values[minecraft, 'fabric']
+            values[minecraft, 'fabric'] = replace(selected, api=replace(selected.api, artifact_sha256=pack.checksum(self.apis[minecraft])))
+        patcher = patch.object(pack.registry, 'PROFILES', MappingProxyType(values))
+        patcher.start(); self.addCleanup(patcher.stop)
         self.info = {'schema': 2, 'artifact_sha256': pack.checksum(self.mod),
-                     'minecraft': ['1.20.1', '1.21.1'],
-                     'loaders': {'1.20.1': {'fabric': '0.16.14', 'neoforge': '47.1.106', 'forge': '47.3.2'},
+                     'minecraft': ['1.16.5', '1.18.2', '1.20.1', '1.21.1'],
+                     'loaders': {'1.16.5': {'fabric': '0.16.14', 'forge': '36.2.42'},
+                                 '1.18.2': {'fabric': '0.16.14', 'forge': '40.3.12'},
+                                 '1.20.1': {'fabric': '0.16.14', 'neoforge': '47.1.106', 'forge': '47.3.2'},
                                  '1.21.1': {'fabric': '0.16.14', 'neoforge': '21.1.256', 'forge': '52.1.16'}},
                      'inputs': {'fixture': {'size': 1, 'sha256': 'a' * 64}},
                      'source_revision': 'b' * 40, 'native_source_sha256': 'c' * 64,
@@ -387,9 +462,11 @@ class UniversalHmclPackTests(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(value)) as archive:
             return {name: archive.read(name) for name in archive.namelist()}
 
-    def test_six_profiles_embed_identical_universal_bytes_and_exact_launchers(self):
-        for minecraft in ['1.20.1', '1.21.1']:
-            for loader in ['fabric', 'neoforge', 'forge']:
+    def test_ten_profiles_embed_identical_universal_bytes_and_exact_launchers(self):
+        self.assertEqual(sum(len(loaders) for loaders in self.info['loaders'].values()), 10)
+        self.assertEqual({(minecraft, loader) for minecraft, loaders in self.info['loaders'].items() for loader in loaders}, set(pack.registry.PROFILES))
+        for minecraft, loaders in self.info['loaders'].items():
+            for loader in loaders:
                 with self.subTest(minecraft=minecraft, loader=loader):
                     value = self.build(loader, minecraft)
                     self.assertEqual(value, self.build(loader, minecraft))
@@ -401,7 +478,7 @@ class UniversalHmclPackTests(unittest.TestCase):
                     self.assertEqual(info['schema'], 2)
                     self.assertEqual(info['artifact_mode'], 'universal')
                     self.assertEqual(info['universal_sha256'], pack.checksum(self.mod))
-                    self.assertEqual(info['java'], 17 if minecraft == '1.20.1' else 21)
+                    self.assertEqual(info['java'], 21 if minecraft == '1.21.1' else 17)
                     manifest = json.loads(files['manifest.json'])
                     self.assertEqual(manifest['minecraft'], {'version': minecraft, 'modLoaders': [
                         {'id': loader + '-' + self.info['loaders'][minecraft][loader], 'primary': True}]})
@@ -420,10 +497,11 @@ class UniversalHmclPackTests(unittest.TestCase):
             pack.verify_zip(io.BytesIO(value), expected_universal=False)
 
     def test_each_fabric_profile_requires_its_official_api_and_other_loaders_have_none(self):
-        for minecraft, wrong in [('1.20.1', '1.21.1'), ('1.21.1', '1.20.1')]:
-            with self.assertRaisesRegex(pack.VerificationError, 'pack_fabric_api_checksum'):
-                pack.build_bytes(self.mod, self.apis[wrong], 'windows-x86_64', 'fabric', minecraft, True)
-            for loader in ['forge', 'neoforge']:
+        for minecraft in self.apis:
+            for wrong in self.apis.keys() - {minecraft}:
+                with self.subTest(minecraft=minecraft, wrong=wrong), self.assertRaisesRegex(pack.VerificationError, 'pack_fabric_api_checksum'):
+                    pack.build_bytes(self.mod, self.apis[wrong], 'windows-x86_64', 'fabric', minecraft, True)
+            for loader in self.info['loaders'][minecraft].keys() - {'fabric'}:
                 with self.subTest(loader=loader), self.assertRaisesRegex(pack.VerificationError, 'pack_fabric_api_unexpected'):
                     pack.build_bytes(self.mod, self.apis[minecraft], 'windows-x86_64', loader, minecraft, True)
 
@@ -457,14 +535,15 @@ class UniversalHmclPackTests(unittest.TestCase):
         self.assertIs(development, False)
 
     def test_universal_guides_state_java_and_package_scope(self):
-        for minecraft, java in [('1.20.1', 17), ('1.21.1', 21)]:
-            guide = pack.guide('windows-x86_64', 'forge', minecraft, True).decode()
-            self.assertIn('64 位 Java ' + str(java), guide)
-            self.assertIn('同一份 p2wlan-universal.jar', guide)
-            self.assertIn('包核验范围', guide)
-            self.assertIn('Windows/HMCL 与跨机器联机待验证', guide)
-            self.assertIn('wine-build-info 表示在 Wine 中', guide)
-            self.assertNotIn('实机验证范围：macOS', guide)
+        for minecraft, java in [('1.16.5', 17), ('1.18.2', 17), ('1.20.1', 17), ('1.21.1', 21)]:
+            for loader in ('fabric', 'forge'):
+                guide = pack.guide('windows-x86_64', loader, minecraft, True).decode()
+                self.assertIn('64 位 Java ' + str(java), guide)
+                self.assertIn('同一份 p2wlan-universal.jar', guide)
+                self.assertIn('包核验范围', guide)
+                self.assertIn('Windows/HMCL 与跨机器联机待验证', guide)
+                self.assertIn('wine-build-info 表示在 Wine 中', guide)
+                self.assertNotIn('实机验证范围：macOS', guide)
 
     def test_cli_forwards_universal_minecraft_and_rejects_implicit_legacy_build(self):
         arguments = ['hmcl_pack.py', 'build', '--mod', 'mod.jar', '--loader', 'forge', '--minecraft', '1.20.1',

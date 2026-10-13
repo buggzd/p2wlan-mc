@@ -22,8 +22,7 @@ import static io.p2wlan.mc.bootstrap.BootstrapFailure.Code;
 
 /** Pure loader/version decisions plus bounded, local classpath metadata reads. */
 public final class UniversalEnvironment {
-    public static final String MINECRAFT_VERSION = "1.21.1";
-    private static final java.util.Set<String> SUPPORTED_VERSIONS = java.util.Set.of("1.20.1", MINECRAFT_VERSION);
+    public static final String MINECRAFT_VERSION = UniversalProfiles.DEFAULT_VERSION;
     public static final String FABRIC_MARKER = "net/fabricmc/loader/api/FabricLoader.class";
     public static final String NEOFORGE_MARKER = "net/neoforged/fml/loading/FMLLoader.class";
     public static final String FORGE_MARKER = "net/minecraftforge/fml/loading/FMLLoader.class";
@@ -34,27 +33,20 @@ public final class UniversalEnvironment {
     public static final String LEGACY_FML_SERVER_REFMAP = "p2wlan-universal-forge-1.20.1-server-refmap.json";
     public static final String LEGACY_FML_CLIENT_REFMAP = "p2wlan-universal-forge-1.20.1-client-refmap.json";
     private static final int MAX_METADATA_BYTES = 8192;
-    private static final List<String> SERVER_MIXINS = List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin");
-    private static final List<String> MODERN_SERVER_MIXINS = java.util.stream.Stream.concat(
-            SERVER_MIXINS.stream(), java.util.stream.Stream.of("ServerConfigurationMixin")).toList();
-    private static final List<String> CLIENT_MIXINS = List.of("ClientConnectionMixin", "IntegratedServerMixin",
-            "MultiplayerListMixin", "MultiplayerListAccessor", "MultiplayerScreenMixin");
-    private static final List<String> FABRIC_LEGACY_CLIENT_MIXINS = java.util.stream.Stream.concat(
-            CLIENT_MIXINS.stream(), java.util.stream.Stream.of("FabricLoginNetworkingMixin")).toList();
     public enum Loader { FABRIC, NEOFORGE, FORGE }
     public enum Side { CLIENT, SERVER, UNKNOWN }
     public enum Family { FABRIC, FML }
     public record Selection(Loader loader, String minecraftVersion) {
         public Selection {
             Objects.requireNonNull(loader);
-            if (minecraftVersion == null || !SUPPORTED_VERSIONS.contains(minecraftVersion)) throw new BootstrapFailure(Code.GAME_VERSION_UNSUPPORTED);
+            if (!UniversalProfiles.supports(loader, minecraftVersion)) throw new BootstrapFailure(Code.GAME_VERSION_UNSUPPORTED);
         }
         public Family family() { return loader == Loader.FABRIC ? Family.FABRIC : Family.FML; }
     }
     public record Binding(Family family, String minecraftVersion) {
         public Binding {
             Objects.requireNonNull(family);
-            if (minecraftVersion == null || !SUPPORTED_VERSIONS.contains(minecraftVersion)) throw new BootstrapFailure(Code.MIXIN_PACKAGE_INVALID);
+            if (!UniversalProfiles.supports(family, minecraftVersion)) throw new BootstrapFailure(Code.MIXIN_PACKAGE_INVALID);
         }
         public boolean active(Selection selection) {
             return selection.family() == family && selection.minecraftVersion().equals(minecraftVersion);
@@ -175,36 +167,27 @@ public final class UniversalEnvironment {
         String normalized = packageName != null && packageName.endsWith(".")
                 ? packageName.substring(0, packageName.length() - 1) : packageName;
         String suffix = client ? ".mixin" : ".server.mixin";
-        if (("io.p2wlan.mc.game" + suffix).equals(normalized)) return new Binding(Family.FML, MINECRAFT_VERSION);
-        if (("io.p2wlan.mc.fabric.game" + suffix).equals(normalized)) return new Binding(Family.FABRIC, MINECRAFT_VERSION);
-        if (("io.p2wlan.mc.game.v1_20_1" + suffix).equals(normalized)) return new Binding(Family.FML, "1.20.1");
-        if (("io.p2wlan.mc.fabric.game.v1_20_1" + suffix).equals(normalized)) return new Binding(Family.FABRIC, "1.20.1");
-        throw new BootstrapFailure(Code.MIXIN_PACKAGE_INVALID);
+        if (normalized == null || !normalized.endsWith(suffix)) throw new BootstrapFailure(Code.MIXIN_PACKAGE_INVALID);
+        return UniversalProfiles.binding(normalized.substring(0, normalized.length() - suffix.length()));
     }
     public static List<String> serverMixins(Selection selection, Binding binding) {
-        return !binding.active(selection) ? List.of() : selection.minecraftVersion().equals("1.20.1") ? SERVER_MIXINS : MODERN_SERVER_MIXINS;
+        return binding.active(selection) ? UniversalProfiles.mixins(binding, false) : List.of();
     }
     public static List<String> clientMixins(Selection selection, Binding binding, Side side) {
         return binding.active(selection) ? clientMixins(selection, binding.family(), side) : List.of();
     }
     public static String refmap(Selection selection, Binding binding, boolean client) {
         if (!binding.active(selection)) return null;
-        if (selection.loader() != Loader.FABRIC) {
-            return selection.minecraftVersion().equals("1.20.1")
-                    ? client ? LEGACY_FML_CLIENT_REFMAP : LEGACY_FML_SERVER_REFMAP : null;
-        }
-        return selection.minecraftVersion().equals("1.20.1")
-                ? client ? LEGACY_CLIENT_REFMAP : LEGACY_SERVER_REFMAP
-                : client ? CLIENT_REFMAP : SERVER_REFMAP;
+        return UniversalProfiles.refmap(binding, client);
     }
     public static List<String> serverMixins(Selection selection, Family family) {
-        return selection.family() != family ? List.of() : selection.minecraftVersion().equals("1.20.1") ? SERVER_MIXINS : MODERN_SERVER_MIXINS;
+        return selection.family() == family
+                ? UniversalProfiles.mixins(new Binding(family, selection.minecraftVersion()), false) : List.of();
     }
     public static List<String> clientMixins(Selection selection, Family family, Side side) {
         if (selection.family() != family) return List.of();
         return switch (Objects.requireNonNull(side)) {
-            case CLIENT -> family == Family.FABRIC && selection.minecraftVersion().equals("1.20.1")
-                    ? FABRIC_LEGACY_CLIENT_MIXINS : CLIENT_MIXINS;
+            case CLIENT -> UniversalProfiles.mixins(new Binding(family, selection.minecraftVersion()), true);
             case SERVER -> List.of();
             case UNKNOWN -> throw new BootstrapFailure(Code.CLIENT_SIDE_UNAVAILABLE);
         };

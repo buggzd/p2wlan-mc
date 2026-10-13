@@ -73,6 +73,10 @@ public final class ForgeP2wlan {
 
     private static Factories factories(String version) {
         return switch (version) {
+            case "1.16.5" -> new Factories("io.p2wlan.mc.forge.v1165.ForgeServerEvents",
+                    "io.p2wlan.mc.forge.v1165.ForgeClientEvents", "io.p2wlan.mc.forge.v1165.LocalNativeResources");
+            case "1.18.2" -> new Factories("io.p2wlan.mc.forge.v1182.ForgeServerEvents",
+                    "io.p2wlan.mc.forge.v1182.ForgeClientEvents", "io.p2wlan.mc.forge.v1182.LocalNativeResources");
             case "1.20.1" -> new Factories("io.p2wlan.mc.forge.legacy.ForgeServerEvents",
                     "io.p2wlan.mc.forge.legacy.ForgeClientEvents", "io.p2wlan.mc.forge.legacy.LocalNativeResources");
             case "1.21.1" -> new Factories("io.p2wlan.mc.forge.ForgeServerEvents",

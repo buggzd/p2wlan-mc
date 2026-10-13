@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.p2wlan.mc.common.AgentException;
 import io.p2wlan.mc.common.UiCompletionGate;
+import io.p2wlan.mc.bootstrap.UniversalEnvironment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -80,7 +81,7 @@ final class GameFixtureData {
         result.addProperty("schema", 1); result.addProperty("run", run); result.addProperty("role", role);
         result.addProperty("status", "OK".equals(reason) && helperCleanup && worldCleanup ? "pass" : "fail");
         String minecraft = SharedConstants.getCurrentVersion().getName();
-        if (!Set.of("1.20.1", "1.21.1").contains(minecraft)) throw new IllegalStateException("FIXTURE_GAME_VERSION");
+        if (!minecraft.equals(UniversalEnvironment.current().minecraftVersion())) throw new IllegalStateException("FIXTURE_GAME_VERSION");
         result.addProperty("reason", reason); result.addProperty("checks", checks); result.addProperty("minecraft", minecraft);
         result.addProperty("helper_cleanup", helperCleanup); result.addProperty("world_cleanup", worldCleanup);
         result.addProperty("joins", joins); result.addProperty("rounds", rounds);

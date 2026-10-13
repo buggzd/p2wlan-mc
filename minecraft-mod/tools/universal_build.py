@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build checked loader inputs and assemble one Minecraft Universal archive."""
 import argparse
+import importlib
 import os
 from pathlib import Path
 import subprocess
@@ -8,13 +9,12 @@ import sys
 import tempfile
 
 from artifact_checks import VerificationError
-from class_relocation import relocate_fabric
 from native import PROJECT
+import minecraft_profiles as registry
 
 
 def commands(environment, offline=False, development=False, build_root=None):
-    from forge_gradle import command
-    from legacy_gradle import command as legacy_command
+    sources = registry.sdk_inputs()
     options = ["--no-daemon"]
     if offline:
         options.append("--offline")
@@ -23,15 +23,20 @@ def commands(environment, offline=False, development=False, build_root=None):
     wrapper = PROJECT / "java" / ("gradlew.bat" if sys.platform == "win32" else "gradlew")
     selected = [
         (PROJECT / "java", [str(wrapper), *options, ":universal-bootstrap:check", ":universal-bootstrap:jar"]),
-        (PROJECT / "java", [str(wrapper), *options, "-PfabricAdapter", ":fabric:verifyModJar"]),
-        (PROJECT / "java", [str(wrapper), *options, "-PneoforgeAdapter", ":neoforge:verifyModJar"]),
-        (PROJECT / "java/forge", [*command(environment), *options, ":forge:verifyModJar"]),
-        (PROJECT / "java/forge-legacy", [*legacy_command(environment), *options, ":forge:verifyModJar"]),
-        (PROJECT / "java", [str(wrapper), *options, "-PfabricLegacyAdapter", ":fabric-legacy:verifyModJar"]),
     ]
+    caches = ['standard-cache']
+    if ('1.16.5', 'forge') in registry.PROFILES:
+        selected.append((PROJECT / 'java/legacy-bootstrap', [str(wrapper), *options, ':jar']))
+        caches.append('legacy-bootstrap-cache')
+    for source in sources.values():
+        launcher = importlib.import_module(source.wrapper_module).command(environment) if source.wrapper_module else [str(wrapper)]
+        arguments = [*launcher, *options]
+        if source.selector is not None:
+            arguments.append(source.selector)
+        selected.append((PROJECT / source.directory, [*arguments, f':{source.project}:verifyModJar']))
+        caches.append(source.cache_directory)
     if build_root is not None:
-        for directory, arguments in selected:
-            cache = 'legacy-forge-cache' if directory.name == 'forge-legacy' else 'forge-cache' if directory.name == 'forge' else 'standard-cache'
+        for (_, arguments), cache in zip(selected, caches):
             arguments += ["-I", str(build_root / "outputs.gradle"), "-Dp2wlan.universal.outputRoot=" + str(build_root),
                           "--project-cache-dir", str(build_root / cache)]
     return selected
@@ -40,10 +45,14 @@ def commands(environment, offline=False, development=False, build_root=None):
 def prepare_inputs(directory):
     from native_bundle import OUTPUT, PLATFORMS, executable_name
     from universal_jar import regular_bytes
+    aliases = ''.join(f"    if (name == '{source.project}' && rootProject.name == '{source.root_project}') name = '{source.output_directory}'\n"
+                      for source in registry.sdk_inputs().values() if source.project != source.output_directory)
+    if ('1.16.5', 'forge') in registry.PROFILES:
+        aliases += "    if (name == 'p2wlan-legacy-bootstrap') name = 'legacy-bootstrap'\n"
     (directory / "outputs.gradle").write_text(
         "allprojects {\n"
         "    def name = project.name\n"
-        "    if (name == 'forge' && rootProject.name == 'p2wlan-minecraft-forge-legacy') name = 'forge-legacy'\n"
+        + aliases +
         "    layout.buildDirectory.set(new File(System.getProperty('p2wlan.universal.outputRoot'), name))\n"
         "}\n",
         encoding="utf-8")
@@ -64,7 +73,7 @@ def prepare_inputs(directory):
 
 
 def build(output, environment, offline=False, development=False):
-    from universal_jar import build_bytes, publish, regular_bytes, verify
+    from universal_jar import build_inputs, publish, regular_bytes, verify
     parent = PROJECT / "java/universal-bootstrap/build"
     parent.mkdir(parents=True, exist_ok=True)
     # A fresh output tree excludes deleted classes without touching test worlds,
@@ -74,15 +83,12 @@ def build(output, environment, offline=False, development=False):
         prepare_inputs(inputs)
         for directory, arguments in commands(environment, offline, development, inputs):
             subprocess.run(arguments, cwd=directory, env=environment, check=True, timeout=1200)
-        fabric = inputs / "fabric/libs/p2wlan-fabric-1.21.1-0.1.0.jar"
-        neoforge = inputs / "neoforge/libs/p2wlan-neoforge-1.21.1-0.1.0.jar"
-        forge = inputs / "forge/libs/p2wlan-forge-1.21.1-0.1.0.jar"
-        legacy_forge = inputs / "forge-legacy/libs/p2wlan-forge-1.20.1-0.1.0.jar"
-        legacy_fabric = inputs / "fabric-legacy/libs/p2wlan-fabric-1.20.1-0.1.0.jar"
+        sources = {role: regular_bytes(inputs / source.output_directory / 'libs' / source.archive_name('0.1.0'))
+                   for role, source in registry.sdk_inputs().items()}
         bootstrap = inputs / "universal-bootstrap/libs/p2wlan-universal-bootstrap-0.1.0.jar"
-        relocated = relocate_fabric(fabric, development)
-        value = build_bytes(regular_bytes(fabric), regular_bytes(neoforge), regular_bytes(forge), relocated,
-                            regular_bytes(bootstrap), development, legacy_forge=regular_bytes(legacy_forge), legacy_fabric=regular_bytes(legacy_fabric))
+        carrier = {'legacy_bootstrap': regular_bytes(inputs / 'legacy-bootstrap/libs/p2wlan-legacy-bootstrap-0.1.0.jar')} \
+            if ('1.16.5', 'forge') in registry.PROFILES else {}
+        value = build_inputs(sources, regular_bytes(bootstrap), development, **carrier)
     # The relocated input stays in memory. Verified publication creates a new
     # artifact or reuses identical bytes without changing an existing result.
     import io

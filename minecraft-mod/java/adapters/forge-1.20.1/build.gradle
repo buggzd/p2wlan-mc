@@ -29,6 +29,7 @@ def legacyLoginMixin = 'io/p2wlan/mc/game/server/mixin/ServerLoginMixin.java'
 def generatedGame = layout.buildDirectory.dir('generated/sources/legacyGame')
 def gameClient = sourceSets.create('gameClient')
 sourceSets.main.java.srcDir new File(game, 'src/server/java')
+sourceSets.main.java.srcDir rootProject.file('../game-api-1.20.1/src/server/java')
 sourceSets.main.java.exclude 'io/p2wlan/mc/forge/legacy/ForgeClientEvents.java'
 sourceSets.main.java.exclude legacyLoginMixin
 gameClient.java.srcDirs new File(game, 'src/client/java'), layout.projectDirectory.dir('src/main/java'),
@@ -209,7 +210,7 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
     def fixture = sourceSets.create('localGameFixture')
     fixture.java.srcDirs new File(game, 'src/localGameFixture/java'), new File(game, 'src/localGameClientFixture/java'),
             new File(game, 'src/fixtureCommon/java'), layout.projectDirectory.dir('src/fixtureCommon/java'),
-            layout.projectDirectory.dir('src/localGameClientFixture/java'), rootProject.file('../game-api-1.20.1/src/fixture/java')
+            layout.projectDirectory.dir('src/localGameClientFixture/java'), rootProject.file('../game-api-1.20.1/src/fixture/java'), rootProject.file('../game-api-1.20.1/src/fixtureServer/java')
     configurations.localGameFixtureImplementation.extendsFrom configurations.implementation
     fixture.compileClasspath += sourceSets.main.output + gameClient.output + gameClient.compileClasspath
     if (externalInstalled) installedRuntime(fixture)
@@ -237,7 +238,7 @@ if (providers.gradleProperty('integratedGameFixture').isPresent()) {
     if (!providers.gradleProperty('localGameFixture').isPresent()) throw new GradleException('INTEGRATED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
     def fixture = sourceSets.create('integratedFixture')
     fixture.java.srcDirs new File(game, 'src/integratedFixture/java'), new File(game, 'src/fixtureCommon/java'),
-            layout.projectDirectory.dir('src/fixtureCommon/java'), rootProject.file('../game-api-1.20.1/src/fixture/java')
+            layout.projectDirectory.dir('src/fixtureCommon/java'), rootProject.file('../game-api-1.20.1/src/fixture/java'), rootProject.file('../game-api-1.20.1/src/fixtureServer/java')
     configurations.integratedFixtureImplementation.extendsFrom configurations.implementation
     fixture.compileClasspath += sourceSets.main.output + gameClient.output + gameClient.compileClasspath
     if (externalInstalled) installedRuntime(fixture)

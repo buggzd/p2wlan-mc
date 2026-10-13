@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "p2wlan_local_game_test",
+  "version": "1.0.0",
+  "name": "P2WLAN isolated local gameplay fixture",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["io.p2wlan.mc.fabric.fixture.LocalGameServer"],
+    "client": ["io.p2wlan.mc.fabric.fixture.LocalGameClient"]
+  },
+  "depends": {"p2wlan": "*", "minecraft": "1.18.2", "java": ">=17"},
+  "mixins": [{"config": "p2wlan.fixture.mixins.json", "environment": "client"}]
+}

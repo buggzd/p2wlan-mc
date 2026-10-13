@@ -10,7 +10,6 @@ import io.p2wlan.mc.common.WorldHost;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 import net.minecraft.server.MinecraftServer;
 
 /** Real dedicated world + native host. One tick-owned step/future; bounded by
@@ -46,7 +45,7 @@ public final class GameServerChecks {
                     rounds = next;
                     // Real S2C game state and message through Vanilla packet codecs.
                     player.setExperienceLevels(next);
-                    player.connection.send(new ClientboundSystemChatPacket(Component.literal(receipt(next)), false));
+                    GameFixtureServerApi.message(player, Component.literal(receipt(next)));
                     return 1;
                 }))));
     }

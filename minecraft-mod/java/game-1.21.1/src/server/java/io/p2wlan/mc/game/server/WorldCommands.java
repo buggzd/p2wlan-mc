@@ -38,7 +38,7 @@ public final class WorldCommands {
         var root = Commands.literal("p2wlan").requires(source -> source.hasPermission(4))
                 .then(Commands.literal("status").executes(context -> {
                     var status = agent.status();
-                    context.getSource().sendSuccess(() -> Component.literal("P2WLAN helper: " + status.phase()
+                    GameCommandApi.success(context.getSource(), () -> Component.literal("P2WLAN helper: " + status.phase()
                             + (status.reason() == null ? "" : " / " + status.reason())
                             + "; world transport hooks: " + (transport.getAsBoolean() ? "linked" : "missing")), false);
                     return status.phase() == io.p2wlan.mc.common.AgentLifecycle.Phase.READY ? 1 : 0;
@@ -51,7 +51,7 @@ public final class WorldCommands {
             String phase = client == null ? "NOT_READY" : client.snapshot()
                     .map(value -> RuntimeView.text(value.data(), "phase"))
                     .filter(value -> java.util.Set.of("idle", "starting", "ready").contains(value)).orElse("NOT_READY");
-            context.getSource().sendSuccess(() -> Component.literal("P2WLAN native runtime: " + phase + "; use /p2wlan host after ready to share the world"), false);
+            GameCommandApi.success(context.getSource(), () -> Component.literal("P2WLAN native runtime: " + phase + "; use /p2wlan host after ready to share the world"), false);
             return "ready".equals(phase) ? 1 : 0;
         }));
         root.then(Commands.literal("connect").then(Commands.argument("room", StringArgumentType.word())
@@ -60,7 +60,7 @@ public final class WorldCommands {
         root.then(Commands.literal("host").executes(context -> {
             var source = context.getSource(); var world = worlds.apply(source.getServer());
             if (world == null) { source.sendFailure(Component.literal("WORLD_CHANGED")); return 0; }
-            try { world.host(); source.sendSuccess(() -> Component.literal("正在共享世界"
+            try { world.host(); GameCommandApi.success(source, () -> Component.literal("正在共享世界"
                     + (source.getServer().isSingleplayer() && !source.getServer().isDedicatedServer() ? "（支持离线账号）" : "")
                     + "；使用 /p2wlan world 查看状态。"), false); return 1; }
             catch (WorldHostException error) { source.sendFailure(Component.literal(error.code().name())); return 0; }
@@ -68,12 +68,12 @@ public final class WorldCommands {
         root.then(Commands.literal("unhost").executes(context -> {
             var source = context.getSource(); var world = worlds.apply(source.getServer());
             if (world == null) { source.sendFailure(Component.literal("WORLD_CHANGED")); return 0; }
-            world.unhost(); source.sendSuccess(() -> Component.literal("P2WLAN local world revoked"), false); return 1;
+            world.unhost(); GameCommandApi.success(source, () -> Component.literal("P2WLAN local world revoked"), false); return 1;
         }));
         root.then(Commands.literal("world").executes(context -> {
             var source = context.getSource(); var world = worlds.apply(source.getServer());
             WorldHost.Status status = world == null ? null : world.status();
-            source.sendSuccess(() -> Component.literal("P2WLAN world: " + (status == null ? "NOT_PUBLISHED" : status.phase()
+            GameCommandApi.success(source, () -> Component.literal("P2WLAN world: " + (status == null ? "NOT_PUBLISHED" : status.phase()
                     + (status.reason() == null ? "" : " / " + status.reason()))), false);
             return status != null && status.phase() == WorldHost.Phase.HOSTED ? 1 : 0;
         }));
@@ -89,7 +89,7 @@ public final class WorldCommands {
             world.commands().submit(client, "stop", runtime.arguments(), () -> agent.isCurrent(client), world::isCurrent,
                     task -> source.getServer().execute(task), (reply, error) -> {
                         if (error != null) source.sendFailure(Component.literal("World revoked; room stop: " + UiCompletionGate.reason(error)));
-                        else source.sendSuccess(() -> Component.literal("P2WLAN world revoked and room runtime stopped; membership retained"), false);
+                        else GameCommandApi.success(source, () -> Component.literal("P2WLAN world revoked and room runtime stopped; membership retained"), false);
                     });
             return 1;
         } catch (AgentException error) { source.sendFailure(Component.literal("World revoked; room stop: " + UiCompletionGate.reason(error))); return 0; }
@@ -103,7 +103,7 @@ public final class WorldCommands {
             world.commands().submit(client, "connect_room", args, () -> agent.isCurrent(client), world::isCurrent,
                     task -> source.getServer().execute(task), (reply, error) -> {
                         if (error != null) source.sendFailure(Component.literal(UiCompletionGate.reason(error)));
-                        else source.sendSuccess(() -> Component.literal("P2WLAN room runtime starting; after ready, use /p2wlan host to share the world"), false);
+                        else GameCommandApi.success(source, () -> Component.literal("P2WLAN room runtime starting; after ready, use /p2wlan host to share the world"), false);
                     });
             return 1;
         } catch (AgentException error) { source.sendFailure(Component.literal(UiCompletionGate.reason(error))); return 0; }

@@ -15,9 +15,9 @@ class VerificationError(ValueError):
     pass
 
 
-def entries(archive):
+def entries(archive, *, maximum=512):
     values = archive.infolist()
-    if len(values) > 512 or len({item.filename for item in values}) != len(values):
+    if len(values) > maximum or len({item.filename for item in values}) != len(values):
         raise VerificationError("mod_archive_entries")
     for item in values:
         if item.file_size > MAX_BINARY or item.filename.startswith("/") or "\\" in item.filename or ".." in item.filename.split("/"):

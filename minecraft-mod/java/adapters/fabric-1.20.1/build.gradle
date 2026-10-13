@@ -40,6 +40,7 @@ loom {
 sourceSets.main.java {
     srcDir rootProject.file('adapters/fabric-1.21.1/src/main/java')
     srcDir rootProject.file('game-1.21.1/src/server/java')
+    srcDir rootProject.file('game-api-1.20.1/src/server/java')
     include 'io/p2wlan/mc/fabric/FabricP2wlan.java'
     include 'io/p2wlan/mc/fabric/world/FabricWorlds.java'
     include 'io/p2wlan/mc/fabric/legacy/**'
@@ -134,6 +135,7 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
     server.java.srcDir rootProject.file('adapters/fabric-1.21.1/src/localGameFixture/java')
     server.java.srcDir rootProject.file('game-1.21.1/src/localGameFixture/java')
     server.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
+    server.java.srcDir rootProject.file('game-api-1.20.1/src/fixtureServer/java')
     server.java.srcDir rootProject.file('adapters/fabric-1.21.1/src/fixtureCommon/java')
     server.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     if (!externalInstalled) server.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
@@ -214,6 +216,7 @@ if (providers.gradleProperty('integratedGameFixture').isPresent()) {
     def host = sourceSets.create('integratedFixture')
     host.java.srcDir rootProject.file('adapters/fabric-1.21.1/src/integratedFixture/java')
     host.java.srcDir rootProject.file('game-api-1.20.1/src/fixture/java')
+    host.java.srcDir rootProject.file('game-api-1.20.1/src/fixtureServer/java')
     host.java.srcDir rootProject.file('game-1.21.1/src/integratedFixture/java')
     host.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
     host.java.srcDir rootProject.file('adapters/fabric-1.21.1/src/fixtureCommon/java')

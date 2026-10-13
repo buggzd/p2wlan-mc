@@ -75,6 +75,8 @@ public final class FabricP2wlan implements ModInitializer {
     }
     private static String delegate(String version, String name) {
         String family = switch (version) {
+            case "1.16.5" -> "v1_16_5";
+            case "1.18.2" -> "v1_18_2";
             case "1.20.1" -> "legacy";
             case "1.21.1" -> "current";
             default -> throw new BootstrapFailure(BootstrapFailure.Code.GAME_VERSION_UNSUPPORTED);

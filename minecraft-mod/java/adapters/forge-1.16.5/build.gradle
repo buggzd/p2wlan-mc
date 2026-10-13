@@ -1,0 +1,239 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net/' }
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:6.0.47'
+        classpath 'org.spongepowered:mixingradle:0.7.38'
+    }
+}
+apply plugin: 'java-library'
+apply plugin: 'net.minecraftforge.gradle'
+apply plugin: 'org.spongepowered.mixin'
+base { archivesName = 'p2wlan-forge-1.16.5' }
+def installedArchive = providers.gradleProperty('installedModArchive')
+def externalInstalled = installedArchive.isPresent()
+if (externalInstalled && !providers.gradleProperty('localGameFixture').isPresent()) {
+    throw new GradleException('FORGE1165_INSTALLED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
+}
+['common', 'netty-transport', 'native-bundle', 'universal-bootstrap'].each { evaluationDependsOn(':' + it) }
+java { toolchain.languageVersion = JavaLanguageVersion.of(17) }
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    // ForgeGradle compiles generated Minecraft patches on its Java 8 toolchain.
+    // Only our production and fixture source sets target the shared Java 17 ABI.
+    if (name in ['compileJava', 'compileGameClientJava', 'compileLocalGameFixtureJava', 'compileIntegratedFixtureJava']) {
+        options.release = 17
+    }
+}
+
+def generatedGame = layout.buildDirectory.dir('generated/sources/game1165')
+def gameApi = rootProject.file('../game-api-1.16.5/src')
+def sharedEntry = rootProject.file('../adapters/forge-1.21.1/src/main/java/io/p2wlan/mc/forge')
+def clientConnectionMixin = 'io/p2wlan/mc/game/mixin/ClientConnectionMixin.java'
+sourceSets.main.java.srcDirs generatedGame.map { it.dir('shared/server/java') },
+        generatedGame.map { it.dir('api/main/java') }, generatedGame.map { it.dir('api/server/java') }
+def gameClient = sourceSets.create('gameClient')
+gameClient.java.srcDirs generatedGame.map { it.dir('shared/client/java') }, generatedGame.map { it.dir('api/client/java') },
+        layout.projectDirectory.dir('src/client/java')
+// Forge's supplied-connection bootstrap needs its own activation glue.
+gameClient.java.exclude clientConnectionMixin
+configurations.gameClientImplementation.extendsFrom configurations.implementation
+gameClient.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+gameClient.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+
+def prepareGame = tasks.register('prepare1165GameSources', Exec) {
+    inputs.files rootProject.fileTree('../game-1.21.1/src') { include '**/*.java' }
+    inputs.files rootProject.fileTree('../game-api-1.16.5/src') { include '**/*.java' }
+    inputs.files rootProject.file('../../tools/forge_1165_sources.py'), rootProject.file('../../tools/game_sources_1165.py'),
+            rootProject.file('../../tools/game_sources_1182.py'), rootProject.file('../../tools/source_contract.py')
+    outputs.dir generatedGame
+    commandLine 'python3', rootProject.file('../../tools/forge_1165_sources.py'), '--output', generatedGame.get().asFile
+}
+tasks.named('compileJava', JavaCompile) {
+    dependsOn prepareGame
+    source new File(sharedEntry, 'ForgeP2wlan.java'), new File(sharedEntry, 'ForgeRuntime.java')
+}
+tasks.named(gameClient.compileJavaTaskName, JavaCompile) {
+    dependsOn prepareGame
+    source layout.projectDirectory.file('src/client/java/' + clientConnectionMixin)
+}
+
+minecraft {
+    mappings channel: 'official', version: '1.16.5'
+    runs {
+        configureEach {
+            workingDirectory layout.projectDirectory.dir('run').asFile
+            property 'nashorn.args', '--anonymous-classes=false'
+            if (providers.gradleProperty('developmentNative').isPresent()) property 'p2wlan.allowDevelopmentNative', 'true'
+            if (!externalInstalled) mods {
+                p2wlan {
+                    source sourceSets.main
+                    source project(':common').sourceSets.main
+                    source project(':netty-transport').sourceSets.main
+                    source project(':native-bundle').sourceSets.main
+                    source project(':universal-bootstrap').sourceSets.main
+                }
+            }
+        }
+        client { if (!externalInstalled) mods { p2wlan { source gameClient } } }
+        server { args '--nogui' }
+    }
+}
+repositories { mavenCentral() }
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.16.5-36.2.42'
+    implementation project(':common')
+    implementation project(':netty-transport')
+    implementation project(':universal-bootstrap')
+    compileOnly project(':legacy-bootstrap')
+    // Resource-only native production inputs are prepared by the release owner.
+    runtimeOnly project(':native-bundle')
+    annotationProcessor 'org.spongepowered:mixin:0.8.4:processor'
+    gameClientAnnotationProcessor 'org.spongepowered:mixin:0.8.4:processor'
+}
+mixin {
+    add sourceSets.main, 'p2wlan-forge-1.16.5-server-refmap.json'
+    add gameClient, 'p2wlan-forge-1.16.5-client-refmap.json'
+    config 'p2wlan.forge.1.16.5.mixins.json'
+    config 'p2wlan.forge.1.16.5.client.mixins.json'
+}
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/mods.toml') { expand version: project.version }
+}
+tasks.named('jar') {
+    from gameClient.output
+    finalizedBy 'reobfJar'
+}
+tasks.register('verifyModJar', Exec) {
+    if (!externalInstalled) dependsOn 'reobfJar'
+    doFirst {
+        commandLine 'python3', rootProject.file(externalInstalled ? '../../tools/universal_jar.py' : '../../tools/verify_forge_1165_jar.py'),
+                'verify', externalInstalled ? installedArchive.get() : tasks.named('jar').get().archiveFile.get().asFile
+        if (providers.gradleProperty('developmentNative').isPresent()) args '--development'
+    }
+}
+check.dependsOn 'verifyModJar'
+tasks.register('compileSdk') {
+    dependsOn tasks.named('compileJava'), tasks.named(gameClient.compileJavaTaskName), tasks.named('processResources')
+}
+def bindFixture = { name, trees ->
+    def fixture = sourceSets.create(name)
+    fixture.java.srcDirs trees.collect { generatedGame.map { directory -> directory.dir('shared/' + it + '/java') } }
+    fixture.java.srcDir layout.projectDirectory.dir('src/' + name + '/java')
+    fixture.java.srcDir layout.projectDirectory.dir('src/fixtureCommon/java')
+    fixture.java.srcDir generatedGame.map { it.dir('api/fixtureServer/java') }
+    fixture.java.srcDir generatedGame.map { it.dir('api/fixture/java') }
+    if (name == 'localGameFixture') fixture.java.srcDir layout.projectDirectory.dir('src/localGameClientFixture/java')
+    configurations[fixture.implementationConfigurationName].extendsFrom configurations.implementation
+    fixture.compileClasspath += sourceSets.main.output + gameClient.output + gameClient.compileClasspath
+    if (externalInstalled) {
+        // The installed runtime contains the fixture and official SDK only.
+        def sdk = configurations[fixture.runtimeClasspathConfigurationName].incoming.artifactView {
+            componentFilter { identity ->
+                !(identity instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier
+                        && identity.projectPath in [':common', ':netty-transport', ':native-bundle', ':universal-bootstrap'])
+            }
+        }.files
+        fixture.runtimeClasspath = fixture.output + sdk
+    } else fixture.runtimeClasspath += sourceSets.main.output + gameClient.output + gameClient.runtimeClasspath
+    tasks.named(fixture.compileJavaTaskName, JavaCompile) { dependsOn prepareGame }
+    return fixture
+}
+def installedFixture = { fixture, label, metadataTree ->
+    def archive = layout.buildDirectory.file("installed-fixtures/${label}.jar")
+    def relocation = tasks.register("relocate${label}", Exec) {
+        dependsOn tasks.named(fixture.classesTaskName)
+        inputs.files(fixture.output.classesDirs)
+        inputs.files(layout.projectDirectory.file('src/' + metadataTree + '/resources/META-INF/mods.toml'),
+                layout.projectDirectory.file('src/' + metadataTree + '/resources/pack.mcmeta'))
+        inputs.files(rootProject.file('../../tools/fixture_relocation.py'), rootProject.file('../../tools/class_relocation.py'))
+        outputs.file archive
+        doFirst {
+            def selected = ['python3', rootProject.file('../../tools/fixture_relocation.py'), '--loader', 'forge', '--minecraft', '1.16.5']
+            fixture.output.classesDirs.files.sort().each { selected += ['--classes', it] }
+            selected += ['--metadata', layout.projectDirectory.file('src/' + metadataTree + '/resources/META-INF/mods.toml').asFile,
+                    '--pack-metadata', layout.projectDirectory.file('src/' + metadataTree + '/resources/pack.mcmeta').asFile,
+                    '--output', archive.get().asFile]
+            commandLine selected
+        }
+    }
+    // Reobfuscation writes a new immutable file; the named fixture stays intact.
+    tasks.register("reobfInstalled${label}", net.minecraftforge.gradle.userdev.tasks.RenameJar) {
+        dependsOn relocation
+        input.set(archive)
+        output.set(layout.buildDirectory.file("installed-fixtures/${label}-srg.jar"))
+        mappings.set(tasks.named('createMcpToSrg').flatMap { it.output })
+        libraries.from(fixture.compileClasspath)
+        args.add('--disable-abstract-param')
+    }
+    def directory = layout.buildDirectory.dir("installed-fixtures/${label}")
+    def expanded = tasks.register("expand${label}", Sync) {
+        dependsOn relocation
+        from { zipTree(archive.get().asFile) }
+        into directory
+    }
+    def runtime = sourceSets.create("installed${label}")
+    runtime.output.classesDirs.setFrom(files(directory).builtBy(expanded))
+    runtime.output.resourcesDir = directory.get().asFile
+    runtime.runtimeClasspath = runtime.output + (fixture.runtimeClasspath - fixture.output)
+    tasks.named(runtime.classesTaskName) { dependsOn expanded }
+    return runtime
+}
+def bindRun = { run, fixture, directory, config ->
+    run.workingDirectory file(directory)
+    run.setSources([fixture])
+    run.property 'p2wlan.gameFixture.config', config
+    if (externalInstalled) {
+        run.property 'p2wlan.gameFixture.installedArchive', providers.gradleProperty('localGameInstalledArchive').get()
+        run.property 'p2wlan.gameFixture.installedSha256', providers.gradleProperty('localGameInstalledSha256').get()
+        run.property 'p2wlan.gameFixture.installedUniversal', 'true'
+    }
+}
+if (providers.gradleProperty('localGameFixture').isPresent()) {
+    def fixture = bindFixture('localGameFixture', ['localGameFixture', 'localGameClientFixture', 'fixtureCommon'])
+    tasks.named('compileSdk') { dependsOn fixture.classesTaskName }
+    def installed = installedFixture(fixture, 'LocalGameFixture', 'localGameFixture')
+    if (providers.gradleProperty('localGameServerDirectory').isPresent()) {
+        def runtime = externalInstalled ? installed : fixture
+        minecraft.runs.create('localGameFixtureServer') {
+            parent minecraft.runs.server
+            bindRun(delegate, runtime, providers.gradleProperty('localGameServerDirectory').get(), providers.gradleProperty('localGameServerConfig').get())
+            property 'terminal.jline', 'false'
+            property 'terminal.ansi', 'false'
+            mods { p2wlan_local_game_test { source runtime } }
+        }
+        minecraft.runs.create('localGameFixtureClient') {
+            parent minecraft.runs.client
+            bindRun(delegate, runtime, providers.gradleProperty('localGameClientDirectory').get(), providers.gradleProperty('localGameClientConfig').get())
+            if (providers.gradleProperty('integratedGameFixture').isPresent()) args '--username', 'IntegratedGuest'
+            mods { p2wlan_local_game_test { source runtime } }
+        }
+    }
+}
+if (providers.gradleProperty('integratedGameFixture').isPresent()) {
+    if (!providers.gradleProperty('localGameFixture').isPresent()) throw new GradleException('INTEGRATED_FIXTURE_REQUIRES_LOCAL_GAME_FIXTURE')
+    def fixture = bindFixture('integratedFixture', ['integratedFixture', 'fixtureCommon'])
+    tasks.named('compileSdk') { dependsOn fixture.classesTaskName }
+    def installed = installedFixture(fixture, 'IntegratedFixture', 'integratedFixture')
+    if (providers.gradleProperty('localGameServerDirectory').isPresent()) {
+        def runtime = externalInstalled ? installed : fixture
+        minecraft.runs.create('integratedFixtureClient') {
+            parent minecraft.runs.client
+            bindRun(delegate, runtime, providers.gradleProperty('localGameServerDirectory').get(), providers.gradleProperty('localGameServerConfig').get())
+            args '--username', 'IntegratedHost'
+            mods { p2wlan_integrated_test { source runtime } }
+        }
+    }
+}
+tasks.withType(JavaExec).matching { it.name.startsWith('run') }.configureEach {
+    dependsOn tasks.named('verifyModJar')
+    if (name.endsWith('Client') && System.getProperty('os.name').startsWith('Mac')) jvmArgs '-XstartOnFirstThread'
+    if (externalInstalled) {
+        // Named userdev APIs cannot execute the raw installed SRG archive.
+        doFirst { throw new GradleException('FORGE1165_INSTALLED_REQUIRES_PRODUCTION_RUNTIME') }
+    }
+}

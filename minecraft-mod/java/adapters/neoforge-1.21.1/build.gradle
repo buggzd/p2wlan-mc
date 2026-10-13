@@ -176,6 +176,7 @@ if (providers.gradleProperty('clientHookFixture').isPresent()) {
     def fixture = sourceSets.create('clientFixture')
     fixture.java.srcDir rootProject.file('game-1.21.1/src/clientFixture/java')
     fixture.java.srcDir rootProject.file('game-api-1.21.1/src/fixture/java')
+    fixture.java.srcDir rootProject.file('game-api-1.21.1/src/fixtureServer/java')
     fixture.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     fixture.runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     neoForge.mods.register('p2wlan_client_hook_test') { sourceSet fixture }
@@ -194,6 +195,7 @@ if (providers.gradleProperty('localGameFixture').isPresent()) {
     def gameServer = sourceSets.create('localGameFixture')
     gameServer.java.srcDir rootProject.file('game-1.21.1/src/localGameFixture/java')
     gameServer.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
+    gameServer.java.srcDir rootProject.file('game-api-1.21.1/src/fixtureServer/java')
     gameServer.java.srcDir layout.projectDirectory.dir('src/fixtureCommon/java')
     gameServer.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     if (externalInstalled) installedRuntime(gameServer, files())
@@ -241,6 +243,7 @@ if (providers.gradleProperty('integratedGameFixture').isPresent()) {
     def hostFixture=sourceSets.create('integratedFixture')
     hostFixture.java.srcDir rootProject.file('game-1.21.1/src/integratedFixture/java')
     hostFixture.java.srcDir rootProject.file('game-api-1.21.1/src/fixture/java')
+    hostFixture.java.srcDir rootProject.file('game-api-1.21.1/src/fixtureServer/java')
     hostFixture.java.srcDir rootProject.file('game-1.21.1/src/fixtureCommon/java')
     hostFixture.java.srcDir layout.projectDirectory.dir('src/fixtureCommon/java')
     hostFixture.compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath

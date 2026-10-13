@@ -1,0 +1,9 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "io.p2wlan.mc.game.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "p2wlan-forge-1.18.2-client-refmap.json",
+  "client": ["ClientConnectionMixin", "IntegratedServerMixin", "MultiplayerListMixin", "MultiplayerListAccessor", "MultiplayerScreenMixin", "ClientShutdownMixin"],
+  "injectors": {"defaultRequire": 1}
+}

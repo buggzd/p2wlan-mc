@@ -11,6 +11,13 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 import class_relocation as relocation
 from artifact_checks import VerificationError
+from minecraft_profiles import sdk_input
+
+DESTINATIONS = (relocation.NEW, relocation.LEGACY, relocation.FABRIC_LEGACY,
+                sdk_input('1.16.5', 'fabric').binding.class_prefix,
+                sdk_input('1.16.5', 'forge').binding.class_prefix,
+                sdk_input('1.18.2', 'fabric').binding.class_prefix,
+                sdk_input('1.18.2', 'forge').binding.class_prefix)
 
 
 def utf8(value):
@@ -30,15 +37,17 @@ class ClassRelocationTests(unittest.TestCase):
         self.assertNotEqual(relocation.relocate_class(value), value)
 
     def test_version_namespaces_are_fixed_and_relocation_is_idempotent(self):
-        for destination in (relocation.NEW, relocation.LEGACY, relocation.FABRIC_LEGACY):
+        for destination in DESTINATIONS:
             original = class_bytes([utf8((relocation.OLD + "Example;" + destination + "Already").encode())])
             moved = relocation.relocate_class(original, destination)
             self.assertEqual(moved, relocation.relocate_class(moved, destination))
             name = relocation.relocate_name(relocation.OLD + "Example.class", destination)
             self.assertEqual(name, destination + "Example.class")
             self.assertEqual(name, relocation.relocate_name(name, destination))
-        with self.assertRaisesRegex(VerificationError, "namespace"):
-            relocation.relocate_class(class_bytes([utf8(b"value")]), "arbitrary/owner/")
+        for invalid in ('arbitrary/owner/', relocation.OLD, 'io/p2wlan/mc/game/v1_16_4/',
+                        'io/p2wlan/mc/fabric/game/v1_18_1/', 'io/p2wlan/mc/game/v1_18_2/extra/'):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(VerificationError, "namespace"):
+                relocation.relocate_class(class_bytes([utf8(b"value")]), invalid)
 
     def test_fabric20_login_mixin_relocates_owned_references_without_changing_api_target(self):
         from verify_fabric_legacy_jar import LOGIN_MIXIN
@@ -124,7 +133,7 @@ public class Main {
 }''', encoding="utf-8")
             classes = root / "classes"
             subprocess.run([shutil.which("javac"), "--release", "17", "-d", str(classes), str(source)], check=True, capture_output=True, timeout=30)
-            for index, destination in enumerate((relocation.NEW, relocation.LEGACY, relocation.FABRIC_LEGACY)):
+            for index, destination in enumerate(DESTINATIONS):
                 result = root / f"relocated-{index}.jar"
                 with zipfile.ZipFile(result, "w") as archive:
                     for path in sorted(classes.rglob("*.class")):

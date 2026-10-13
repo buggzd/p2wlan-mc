@@ -1,0 +1,9 @@
+plugins { id 'base' }
+apply from: '../conventions.gradle'
+
+// Each SDK graph compiles the original portable projects into its own output.
+if (System.getProperty('p2wlan.fixture.outputRoot') == null && System.getProperty('p2wlan.universal.outputRoot') == null) {
+    subprojects {
+        layout.buildDirectory = rootProject.layout.buildDirectory.dir('projects/' + project.name)
+    }
+}

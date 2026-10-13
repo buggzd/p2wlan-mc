@@ -1,5 +1,7 @@
 """Official production installation identities and isolated launch policies."""
 import hashlib
+import io
+from dataclasses import FrozenInstanceError
 import json
 from pathlib import Path
 import sys
@@ -26,6 +28,39 @@ class LegacyInstallationTests(unittest.TestCase):
             self.assertEqual(len(value['sha256']), 64)
             self.assertTrue(value['url'].endswith('-installer.jar'))
 
+    def test_1182_production_profile_is_exact_immutable_and_has_no_neoforge_pair(self):
+        selected = runtime.runtime_profile('1.18.2', 'forge')
+        self.assertEqual(selected.mcp, '1.18.2-20220404.173914')
+        self.assertEqual(selected.game_prefix, 'io/p2wlan/mc/game/v1_18_2/')
+        self.assertEqual(selected.version['sha1'], '334b33fcba3c9be4b7514624c965256535bd7eba')
+        self.assertEqual(selected.installer['version'], '40.3.12')
+        self.assertEqual((selected.installer['size'], selected.installer['sha256']),
+                         (5051601, 'dcff493f6c2212bdf6ae087f98029cd317a79759ab1009dce23e63e7dba0e216'))
+        with self.assertRaises(FrozenInstanceError):
+            selected.mcp = 'unverified'
+        with self.assertRaises(TypeError):
+            selected.installer['version'] = '40.3.11'
+        with self.assertRaises(TypeError):
+            runtime.RUNTIME_PROFILES['1.18.2', 'neoforge'] = selected
+        for minecraft, loader in [('1.18.2', 'neoforge'), ('1.18.1', 'forge'), ('1.16.5', 'fabric'),
+                                   ([], 'forge'), ('1.18.2', {})]:
+            with self.subTest(minecraft=minecraft, loader=loader), self.assertRaisesRegex(ValueError, 'PROFILE_INVALID'):
+                runtime.runtime_profile(minecraft, loader)
+
+    def test_1165_sdk_fixture_has_exact_official_launcher_and_pins(self):
+        selected = runtime.runtime_profile('1.16.5', 'forge')
+        self.assertEqual((selected.minecraft, selected.mcp, selected.launcher, selected.layers_fixture),
+                         ('1.16.5', '1.16.5-20210115.111550', 'cpw.mods.modlauncher.Launcher', False))
+        self.assertEqual(selected.game_prefix, 'io/p2wlan/mc/game/v1_16_5/')
+        self.assertEqual((selected.version['size'], selected.version['sha1']),
+                         (29287, 'fba9f7833e858a1257d810d21a3a9e3c967f9077'))
+        self.assertEqual((selected.installer['version'], selected.installer['size'], selected.installer['sha256']),
+                         ('36.2.42', 7543237, 'dfa90c681f30be2406548b6429bccb68d95af4f64ab19b8c58f6128fd50ff857'))
+        self.assertEqual(runtime.runtime_profile('1.18.2', 'forge').launcher, runtime.MAIN)
+        self.assertEqual(runtime.runtime_profile('1.20.1', 'forge').launcher, runtime.MAIN)
+        with self.assertRaisesRegex(ValueError, 'PROFILE_INVALID'):
+            runtime.runtime_profile('1.16.5', 'neoforge')
+
     def test_checked_cache_requires_size_hash_and_regular_file(self):
         payload = b'exact input'
         record = {'size': len(payload), 'sha1': hashlib.sha1(payload).hexdigest()}
@@ -39,6 +74,25 @@ class LegacyInstallationTests(unittest.TestCase):
         target.symlink_to(cached)
         with self.assertRaisesRegex(ValueError, 'PATH_INVALID'):
             runtime.ensure(target, record, {}, True)
+
+    def test_official_download_identifies_the_fixture_and_still_requires_exact_bytes(self):
+        payload = b'exact pinned source'
+        record = {'url': 'https://example.com/fixture.jar', 'size': len(payload),
+                  'sha1': hashlib.sha1(payload).hexdigest()}
+        target = self.root / 'sdk/fixture.jar'
+        with patch('legacy_installation.urllib.request.urlopen', return_value=io.BytesIO(payload)) as read:
+            runtime.ensure(target, record, {}, False)
+        request = read.call_args.args[0]
+        self.assertEqual(request.full_url, record['url'])
+        self.assertEqual(request.get_header('User-agent'), 'P2WLAN-local-fixture/0.1.0')
+        self.assertEqual(request.get_header('Accept'), 'application/octet-stream')
+        self.assertEqual(read.call_args.kwargs, {'timeout': 30})
+        self.assertEqual(target.read_bytes(), payload)
+        target.unlink()
+        with patch('legacy_installation.urllib.request.urlopen', return_value=io.BytesIO(payload[:-1])), \
+                self.assertRaisesRegex(ValueError, 'DOWNLOAD_IDENTITY'):
+            runtime.ensure(target, record, {}, False)
+        self.assertFalse(target.exists())
 
     def test_owned_paths_reject_escape_and_symlink_ancestors(self):
         for value in ('../escape.jar', '/tmp/escape.jar', 'a/../../b', 'a\\b'):
@@ -80,11 +134,46 @@ class LegacyInstallationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'NATIVE_IDENTITY'):
                 runtime.natives(self.root, metadata, verify=True)
 
-    def prepare_launch(self, loader='forge'):
-        pin = runtime.INSTALLERS[loader]
-        manifest = {'schema': 1, 'minecraft': '1.20.1', 'loader': loader,
+    def test_old_style_java_and_native_classifier_records_remain_separate(self):
+        library = {'name': 'org.lwjgl:lwjgl:3.2.2',
+                   'natives': {'linux': 'natives-linux', 'windows': 'natives-windows-${arch}'},
+                   'downloads': {'artifact': {'path': 'java.jar'},
+                                 'classifiers': {'natives-linux': {'path': 'linux.jar'},
+                                                 'natives-windows-64': {'path': 'windows64.jar'}}}}
+        for platform, classifier, path in [(('linux', 'x86_64'), 'natives-linux', 'linux.jar'),
+                                            (('windows', 'x86_64'), 'natives-windows-64', 'windows64.jar')]:
+            with patch.object(runtime, 'host', return_value=platform):
+                self.assertEqual(runtime.selected_libraries({'libraries': [library]}, '1.18.2'),
+                                 {'org.lwjgl:lwjgl:3.2.2': {'path': 'java.jar'},
+                                  'org.lwjgl:lwjgl:3.2.2:' + classifier: {'path': path}})
+        library['downloads']['classifiers'].clear()
+        with patch.object(runtime, 'host', return_value=('linux', 'x86_64')), self.assertRaisesRegex(ValueError, 'NATIVE_CLASSIFIER'):
+            runtime.selected_libraries({'libraries': [library]}, '1.18.2')
+
+    def test_1182_arm64_substitution_replaces_all_java_and_native_lwjgl_artifacts_together(self):
+        libraries = []
+        for name in ('lwjgl', 'lwjgl-glfw', 'lwjgl-jemalloc', 'lwjgl-openal', 'lwjgl-opengl', 'lwjgl-stb', 'lwjgl-tinyfd'):
+            libraries.append({'name': f'org.lwjgl:{name}:3.2.1', 'natives': {'osx': 'natives-macos'},
+                              'downloads': {'artifact': {'path': name + '.jar'},
+                                            'classifiers': {'natives-macos': {'path': name + '-x64.jar'}}}})
+        libraries.append({'name': 'unchanged:library:1', 'downloads': {'artifact': {'path': 'unchanged.jar'}}})
+        with patch.object(runtime, 'host', return_value=('osx', 'arm64')):
+            selected = runtime.selected_libraries({'libraries': libraries}, '1.18.2')
+            self.assertEqual(len(selected), 15)
+            self.assertEqual(selected['unchanged:library:1'], {'path': 'unchanged.jar'})
+            owned = {name: value for name, value in selected.items() if name.startswith('org.lwjgl:')}
+            self.assertEqual(owned, runtime.fixture_lwjgl.replacement('1.18.2', ('osx', 'arm64')))
+            self.assertFalse(any(':3.2.' in name for name in selected))
+
+    def prepare_launch(self, loader='forge', minecraft=runtime.MC):
+        selected = runtime.runtime_profile(minecraft, loader)
+        pin = selected.installer
+        manifest = {'schema': 1, 'minecraft': minecraft, 'loader': loader,
                     'loaderVersion': pin['version'], 'installerSHA256': pin['sha256'],
-                    'minecraftSHA1': runtime.VERSION['sha1'], 'platform': ['osx', 'arm64']}
+                    'minecraftSHA1': selected.version['sha1'], 'platform': ['osx', 'arm64']}
+        substitution = runtime.fixture_lwjgl.identity(minecraft, ('osx', 'arm64'))
+        if substitution is not None:
+            manifest['lwjgl_substitution'] = substitution
         for role in ('client', 'server'):
             installed = self.root / role / 'mods/p2wlan.jar'; installed.parent.mkdir(parents=True)
             installed.write_bytes(b'unchanged universal bytes')
@@ -95,20 +184,20 @@ class LegacyInstallationTests(unittest.TestCase):
                                       'classes': ['expected/fixture']} for name in ('LocalGameFixture', 'IntegratedFixture')}
         sdk = self.root / 'legacy-sdk' / loader
         for side in ('client', 'server'):
-            srg = sdk / f'libraries/net/minecraft/{side}/{runtime.MCP}/{side}-{runtime.MCP}-srg.jar'
+            srg = sdk / f'libraries/net/minecraft/{side}/{selected.mcp}/{side}-{selected.mcp}-srg.jar'
             srg.parent.mkdir(parents=True); srg.write_bytes(('checked ' + side + ' SRG bytes').encode())
-        manifest['srgs'] = runtime.srg_records(sdk)
+        manifest['srgs'] = runtime.srg_records(sdk, minecraft)
         (self.root / 'legacy-runtime.json').write_text(json.dumps(manifest))
-        version = {'id': '1.20.1-forge-' + pin['version'], 'libraries': [],
+        version = {'id': minecraft + '-forge-' + pin['version'], 'libraries': [],
                    'arguments': {'jvm': ['-DlibraryDirectory=${library_directory}'],
-                                 'game': ['--launchTarget', 'forgeclient', '--fml.forgeVersion', pin['version']]}}
+                                 'game': ['--launchTarget', 'fmlclient' if minecraft == '1.16.5' else 'forgeclient', '--fml.forgeVersion', pin['version']]}}
         vanilla = {'libraries': [], 'assetIndex': {'id': '5'},
                    'logging': {'client': {'argument': '-Dlog4j.configurationFile=${path}', 'file': {'id': 'client-1.12.xml'}}},
                    'arguments': {'jvm': ['-XstartOnFirstThread', '-cp', '${classpath}'],
                                  'game': ['--username', '${auth_player_name}', '--gameDir', '${game_directory}', '--assetsDir', '${assets_root}']}}
         args = ['-p', 'libraries/bootstrap.jar:libraries/asm.jar', '-DlibraryDirectory=libraries',
                 '-DlegacyClassPath=libraries/loader.jar:libraries/server-extra.jar',
-                runtime.MAIN, '--launchTarget', 'forgeserver']
+                runtime.MAIN, '--launchTarget', 'forgeserver', '--fml.forgeVersion', pin['version']]
         return version, vanilla, args
 
     def launch_patches(self, metadata):
@@ -120,8 +209,9 @@ class LegacyInstallationTests(unittest.TestCase):
         stack.enter_context(patch.object(runtime, 'asset_inputs', return_value=[]))
         stack.enter_context(patch.object(runtime, 'outputs', return_value=[]))
         stack.enter_context(patch.object(runtime, 'natives'))
+        stack.enter_context(patch.object(runtime, 'selected_libraries', return_value={}))
         stack.enter_context(patch.object(runtime, 'java17', return_value=(Path('/jdk17/bin/java'), Path('/jdk17'))))
-        def snapshot(job, label):
+        def snapshot(job, label, minecraft=runtime.MC):
             value = (job / ('build/forge/installed-fixtures/' + label + '-srg.jar')).read_bytes()
             return value, {'size': len(value), 'sha256': hashlib.sha256(value).hexdigest(), 'classes': ['expected/fixture']}
         stack.enter_context(patch.object(runtime, 'fixture_snapshot', side_effect=snapshot))
@@ -148,6 +238,93 @@ class LegacyInstallationTests(unittest.TestCase):
                 self.assertIn('-extra.jar', command[command.index('-cp') + 1])
             else:
                 self.assertTrue(command[command.index('-p') + 1].startswith(str(self.root / 'legacy-sdk/forge/libraries')))
+
+    def test_1182_production_targets_and_manifest_use_the_exact_mcp_and_lwjgl_identity(self):
+        metadata = self.prepare_launch(minecraft='1.18.2'); self.launch_patches(metadata)
+        sha = hashlib.sha256(b'unchanged universal bytes').hexdigest()
+        for role, integrated in [('server', False), ('server', True), ('client', True)]:
+            command = runtime.command(self.root, 'forge', role, integrated, True, sha, {}, minecraft='1.18.2')
+            self.assertIn(runtime.MAIN, command)
+            self.assertEqual(command[command.index('--fml.forgeVersion') + 1], '40.3.12')
+            if role == 'client' or integrated:
+                self.assertIn('client-1.18.2-20220404.173914-extra.jar', command[command.index('-cp') + 1])
+                self.assertNotIn('1.20.1', command[command.index('-cp') + 1])
+            self.assertFalse(any('/src/' in value or '/classes/' in value or 'userdev' in value for value in command))
+        manifest = self.root / 'legacy-runtime.json'
+        value = json.loads(manifest.read_text())
+        self.assertLess(len(manifest.read_bytes()), 8192)
+        self.assertEqual(len(value['lwjgl_substitution']['artifacts']), 14)
+        value['lwjgl_substitution']['artifacts'][0]['sha256'] = '0' * 64
+        manifest.write_text(json.dumps(value))
+        with self.assertRaisesRegex(ValueError, 'MANIFEST_IDENTITY'):
+            runtime.command(self.root, 'forge', 'client', True, True, sha, {}, minecraft='1.18.2')
+
+    def test_1165_uses_only_the_official_modlauncher_with_checked_side_extra(self):
+        metadata = self.prepare_launch(minecraft='1.16.5'); self.launch_patches(metadata)
+        sha = hashlib.sha256(b'unchanged universal bytes').hexdigest()
+        for role, integrated, side, target in [('server', False, 'server', 'fmlserver'),
+                                               ('server', True, 'client', 'fmlclient'),
+                                               ('client', True, 'client', 'fmlclient')]:
+            command = runtime.command(self.root, 'forge', role, integrated, True, sha, {}, minecraft='1.16.5')
+            self.assertIn('cpw.mods.modlauncher.Launcher', command)
+            self.assertNotIn(runtime.MAIN, command)
+            self.assertEqual(command[command.index('--launchTarget') + 1], target)
+            self.assertEqual(command[command.index('--fml.forgeVersion') + 1], '36.2.42')
+            self.assertIn(side + '-1.16.5-20210115.111550-extra.jar', command[command.index('-cp') + 1])
+            self.assertIn('-Dnashorn.args=--anonymous-classes=false', command)
+            self.assertIn('-DlibraryDirectory=' + str(self.root / 'legacy-sdk/forge/libraries'), command)
+            self.assertIn('-Dp2wlan.gameFixture.installedUniversal=true', command)
+            self.assertFalse(any('userdev' in value or '/classes/' in value or '/src/' in value for value in command))
+            if target == 'fmlserver':
+                self.assertNotIn('-XstartOnFirstThread', command)
+                self.assertEqual(command[-1], 'nogui')
+            else:
+                self.assertIn('-XstartOnFirstThread', command)
+        captured = json.loads((self.root / 'legacy-runtime.json').read_text())
+        self.assertEqual(captured['minecraft'], '1.16.5')
+        self.assertEqual(len(captured['lwjgl_substitution']['artifacts']), 14)
+
+    def test_loader_library_versions_override_inheritance_without_merging_classifiers(self):
+        inherited = {'org.apache.logging.log4j:log4j-api:2.8.1': {'path': 'old-log4j.jar'},
+                     'net.sf.jopt-simple:jopt-simple:5.0.3': {'path': 'old-jopt.jar'},
+                     'org.lwjgl:lwjgl:3.2.2': {'path': 'binding.jar'},
+                     'org.lwjgl:lwjgl:3.2.2:natives-macos': {'path': 'native.jar'},
+                     'com.sun.jna:jna:4.4.0': {'path': 'inherited-jna.jar'}}
+        version = {'libraries': [{'name': name, 'downloads': {'artifact': {'path': path}}} for name, path in
+                   [('org.apache.logging.log4j:log4j-api:2.15.0', 'new-log4j.jar'),
+                    ('net.sf.jopt-simple:jopt-simple:5.0.4', 'new-jopt.jar')]]}
+        with patch.object(runtime, 'selected_libraries', return_value=inherited):
+            result = runtime.runtime_libraries({}, version, '1.16.5')
+        self.assertEqual(set(result), {'org.apache.logging.log4j:log4j-api:2.15.0',
+                                      'net.sf.jopt-simple:jopt-simple:5.0.4',
+                                      'org.lwjgl:lwjgl:3.2.2', 'org.lwjgl:lwjgl:3.2.2:natives-macos',
+                                      'com.sun.jna:jna:4.4.0'})
+        self.assertEqual(result['org.apache.logging.log4j:log4j-api:2.15.0']['path'], 'new-log4j.jar')
+        self.assertEqual(len(inherited), 5)
+        for name in ('group:artifact', 'group:artifact:1:classifier:extra', 'group::1', 'group:artifact:../1'):
+            with patch.object(runtime, 'selected_libraries', return_value={name: {'path': 'bad'}}), \
+                    self.assertRaisesRegex(ValueError, 'LIBRARY_IDENTITY'):
+                runtime.runtime_libraries({}, {'libraries': []})
+
+    def test_generated_launcher_has_a_fixed_pin_and_is_rechecked_before_fixture_install(self):
+        metadata = self.prepare_launch(minecraft='1.16.5')
+        version, vanilla, args = metadata
+        payload = b'installed launcher snapshot'
+        path = self.root / 'legacy-sdk/forge/libraries/forge/launcher.jar'
+        path.parent.mkdir(parents=True); path.write_bytes(payload)
+        record = {'path': 'forge/launcher.jar', 'size': len(payload),
+                  'sha1': hashlib.sha1(payload).hexdigest(), 'url': ''}
+        version['libraries'] = [{'name': 'net.minecraftforge:forge:1.16.5-36.2.42', 'downloads': {'artifact': record}}]
+        self.assertEqual(runtime.generated_runtime_inputs(self.root / 'legacy-sdk/forge', version), [(path, record)])
+        self.launch_patches(metadata)
+        path.write_bytes(b'changed launcher snapshot')
+        sha = hashlib.sha256(b'unchanged universal bytes').hexdigest()
+        with self.assertRaisesRegex(ValueError, 'INPUT_IDENTITY'):
+            runtime.command(self.root, 'forge', 'client', False, False, sha, {}, minecraft='1.16.5')
+        self.assertFalse((self.root / 'client/mods/LocalGameFixture.jar').exists())
+        record['size'] = True
+        with self.assertRaisesRegex(ValueError, 'GENERATED_RECORD'):
+            runtime.generated_runtime_inputs(self.root / 'legacy-sdk/forge', version)
 
     def test_archive_or_manifest_mutation_fails_before_launch(self):
         metadata = self.prepare_launch('neoforge'); self.launch_patches(metadata)
@@ -206,7 +383,7 @@ class LegacyInstallationTests(unittest.TestCase):
         roots = ['io/p2wlan/mc/forge/fixture/' + name for name in
                  ('InstalledArchiveChecks', 'IntegratedFixture')]
         roots += ['io/p2wlan/mc/game/v1_20_1/fixture/' + name for name in
-                  ('GameFixtureData', 'InstalledArtifact', 'GameFixtureApi', 'IntegratedHostChecks')]
+                  ('GameFixtureData', 'InstalledArtifact', 'GameFixtureApi', 'GameFixtureServerApi', 'IntegratedHostChecks')]
         fixture = self.root / 'build/forge/installed-fixtures/IntegratedFixture-srg.jar'
         fixture.parent.mkdir(parents=True)
         metadata = runtime.PROJECT / 'java/adapters/forge-1.20.1/src/integratedFixture/resources/META-INF/mods.toml'
@@ -241,6 +418,41 @@ class LegacyInstallationTests(unittest.TestCase):
             write(metadata_mode=mode)
             with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, 'FIXTURE_PACK_METADATA'):
                 runtime.fixture_snapshot(self.root, 'IntegratedFixture')
+
+    def test_1182_fixture_snapshot_requires_exact_current_api_and_no_modern_layers_class(self):
+        def bytecode(owner):
+            name = owner.encode()
+            pool = b'\x01' + len(name).to_bytes(2, 'big') + name + b'\x07\x00\x01'
+            return b'\xca\xfe\xba\xbe\x00\x00\x00=\x00\x03' + pool + b'\x00\x21\x00\x02' + b'\x00' * 12
+        directory = self.root / 'build/forge/installed-fixtures'; directory.mkdir(parents=True)
+        for label, game in [('IntegratedFixture', {'IntegratedHostChecks'}),
+                             ('LocalGameFixture', {'GameClientChecks', 'GameServerChecks'})]:
+            forge = {'InstalledArchiveChecks', label}
+            if label == 'LocalGameFixture':
+                forge.add('LocalGameClientEvents')
+            game |= {'GameFixtureData', 'InstalledArtifact', 'GameFixtureApi', 'GameFixtureServerApi'}
+            owners = {'io/p2wlan/mc/forge/fixture/' + value for value in forge} | {
+                'io/p2wlan/mc/game/v1_18_2/fixture/' + value for value in game}
+            source = 'integratedFixture' if label == 'IntegratedFixture' else 'localGameFixture'
+            resources = runtime.PROJECT / f'java/adapters/forge-1.18.2/src/{source}/resources'
+            path = directory / (label + '-srg.jar')
+            def write(removed=None, extra=None):
+                with zipfile.ZipFile(path, 'w') as archive:
+                    for name in ('META-INF/mods.toml', 'pack.mcmeta'):
+                        archive.writestr(name, (resources / name).read_bytes())
+                    for owner in owners - ({removed} if removed else set()):
+                        archive.writestr(owner + '.class', bytecode(owner))
+                    if extra:
+                        archive.writestr(extra + '.class', bytecode(extra))
+            write()
+            _, record = runtime.fixture_snapshot(self.root, label, '1.18.2')
+            self.assertEqual(set(record['classes']), owners)
+            write(removed='io/p2wlan/mc/game/v1_18_2/fixture/GameFixtureServerApi')
+            with self.assertRaisesRegex(ValueError, 'FIXTURE_OWNER'):
+                runtime.fixture_snapshot(self.root, label, '1.18.2')
+            write(extra='io/p2wlan/mc/forge/fixture/LocalGameClientEvents$Layers')
+            with self.assertRaisesRegex(ValueError, 'FIXTURE_OWNER'):
+                runtime.fixture_snapshot(self.root, label, '1.18.2')
 
     def test_client_and_server_srg_mutation_fails_before_launch_or_fixture_install(self):
         metadata = self.prepare_launch(); self.launch_patches(metadata)

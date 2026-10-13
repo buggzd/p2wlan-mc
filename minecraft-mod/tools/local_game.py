@@ -15,11 +15,13 @@ import tempfile
 import time
 import uuid
 import io
+import importlib
 import zipfile
 
 from control_smoke import Agent, FixtureError, available_port, environment, healthy, terminate
 from game_fixture_process import FixtureProcess
 from native_bundle import MAX_BINARY, executable_name, host_platform, strict_object
+import minecraft_profiles as registry
 
 PROJECT = Path(__file__).resolve().parents[1]
 ADAPTER = PROJECT / "java/adapters/fabric-1.21.1"
@@ -41,7 +43,7 @@ def bounded_json(path):
 
 
 def verify_result(path, identity, role, integrated=False, minecraft="1.21.1"):
-    if minecraft not in {"1.20.1", "1.21.1"}:
+    if minecraft not in {source.minecraft for source in registry.SDK_INPUTS.values()}:
         raise ValueError("GAME_PROFILE_UNSUPPORTED")
     value = bounded_json(path)
     cases = INTEGRATED_SERVER_CASES if integrated and role == "server" else CASES.get(role, set())
@@ -92,23 +94,32 @@ def private_json(path, value):
         json.dump(value, stream, ensure_ascii=False)
 
 
-def adapter_project(loader, minecraft):
-    if loader not in {"fabric", "forge", "neoforge"} or minecraft not in {"1.20.1", "1.21.1"}:
+def game_sdk(loader, minecraft):
+    try:
+        return registry.sdk_input(minecraft, loader)
+    except registry.ProfileError:
         raise ValueError("GAME_PROFILE_UNSUPPORTED")
-    if minecraft == "1.20.1":
-        return "fabric-legacy" if loader == "fabric" else "forge"
-    return loader
+
+
+def adapter_project(loader, minecraft):
+    return game_sdk(loader, minecraft).project
+
+
+def adapter_directory(loader, minecraft):
+    source = game_sdk(loader, minecraft)
+    return PROJECT / f'java/adapters/{source.loader}-{source.minecraft}'
+
+
+def production_sdk(loader, minecraft):
+    return game_sdk(loader, minecraft).fixture_loader_range is not None
 
 
 def java_directory(loader, minecraft="1.21.1"):
-    adapter_project(loader, minecraft)
-    if minecraft == "1.20.1" and loader != "fabric":
-        return PROJECT / "java/forge-legacy"
-    return PROJECT / ("java/forge" if loader == "forge" else "java")
+    return PROJECT / game_sdk(loader, minecraft).directory
 
 
 def game_environment(loader, minecraft="1.21.1"):
-    adapter_project(loader, minecraft)
+    source = game_sdk(loader, minecraft)
     env = environment()
     for key in ("JAVA_OPTS", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"):
         env.pop(key, None)
@@ -117,11 +128,18 @@ def game_environment(loader, minecraft="1.21.1"):
         # P2WLAN environment values remain excluded by the shared sanitizer.
         for key in ("P2WLAN_FORGE_GRADLE_ZIP", "P2WLAN_FORGE_JAVA25_HOME", "P2WLAN_FORGE_JAVA8_HOME", "P2WLAN_FORGE_ASSETS", "P2WLAN_LEGACY_JAVA_HOME"):
             if key in os.environ: env[key] = os.environ[key]
-    if minecraft == "1.20.1":
+    if minecraft == '1.20.1':
         for key in ("P2WLAN_LEGACY_JAVA_HOME", "P2WLAN_LEGACY_GRADLE_ZIP"):
             if key in os.environ: env[key] = os.environ[key]
+    if source.wrapper_module == 'forge_1182_gradle':
+        for key in ('P2WLAN_FORGE1182_JAVA_HOME', 'P2WLAN_FORGE1182_GRADLE_ZIP', 'P2WLAN_LEGACY_JAVA_HOME'):
+            if key in os.environ: env[key] = os.environ[key]
+    if source.wrapper_module == 'forge_1165_gradle':
+        for key in ('P2WLAN_FORGE1165_JAVA_HOME', 'P2WLAN_FORGE1165_GRADLE_ZIP',
+                    'P2WLAN_FORGE1165_MCP_JAVA_HOME', 'P2WLAN_LEGACY_JAVA_HOME'):
+            if key in os.environ: env[key] = os.environ[key]
     if sys.platform == "darwin":
-        version = "17" if minecraft == "1.20.1" and loader != "fabric" else "21"
+        version = '17' if production_sdk(loader, minecraft) else '21'
         env["JAVA_HOME"] = subprocess.check_output(["/usr/libexec/java_home", "-v", version], text=True, timeout=5).strip()
     return env
 
@@ -164,7 +182,7 @@ def install_archive(job, archive=None, payload=None):
     return expected
 
 
-def external_archive(path, development, minecraft="1.21.1"):
+def external_archive(path, development, minecraft="1.21.1", loader=None):
     from universal_jar import regular_bytes, verify
     if not path.is_absolute():
         raise ValueError("GAME_INSTALLED_ARCHIVE_INVALID")
@@ -176,8 +194,14 @@ def external_archive(path, development, minecraft="1.21.1"):
     if info["artifact_sha256"] != hashlib.sha256(payload).hexdigest():
         raise ValueError("GAME_INSTALLED_ARCHIVE_CHANGED")
     versions = info.get("minecraft")
-    if minecraft not in {"1.20.1", "1.21.1"} or not isinstance(versions, list) or minecraft not in versions:
+    if minecraft not in {source.minecraft for source in registry.SDK_INPUTS.values()} or not isinstance(versions, list) or minecraft not in versions:
         raise ValueError("GAME_INSTALLED_ARCHIVE_VERSION")
+    if loader is not None:
+        source = game_sdk(loader, minecraft)
+        selected = registry.PROFILES.get((minecraft, loader))
+        version = selected.version if selected else source.loader_pin.version
+        if info.get('loaders', {}).get(minecraft, {}).get(loader) != version:
+            raise ValueError('GAME_INSTALLED_ARCHIVE_LOADER')
     return payload
 
 
@@ -203,22 +227,19 @@ def prepare_seed_binary(job, payload):
 
 
 def gradle_command(job, task, offline, development, loader="fabric", integrated=False, installed=False, archive_sha=None, installed_mod=None, minecraft="1.21.1"):
-    project = adapter_project(loader, minecraft)
-    if minecraft == "1.20.1" and installed_mod is None:
+    source = game_sdk(loader, minecraft)
+    project = source.project
+    if minecraft != registry.DEFAULT_MINECRAFT and installed_mod is None:
         raise ValueError("GAME_LEGACY_REQUIRES_UNIVERSAL_ARCHIVE")
     task = [value.replace(f":{loader}:", f":{project}:", 1) if value.startswith(f":{loader}:") else value for value in task]
     external = installed_mod is not None
     installed = installed or external
     if installed and loader != "forge" and not external:
         raise ValueError("GAME_INSTALLED_LOADER")
-    adapter = PROJECT / f"java/adapters/{'forge' if minecraft == '1.20.1' and loader != 'fabric' else loader}-{minecraft}"
+    adapter = adapter_directory(loader, minecraft)
     directory = (lambda role: os.path.relpath(job / role, adapter)) if loader == "fabric" else (lambda role: str(job / role))
-    if project == "forge":
-        if minecraft == "1.20.1":
-            from legacy_gradle import command as forge_command
-        else:
-            from forge_gradle import command as forge_command
-        launcher = forge_command(game_environment(loader, minecraft))
+    if source.wrapper_module:
+        launcher = importlib.import_module(source.wrapper_module).command(game_environment(loader, minecraft))
         assets = os.environ.get("P2WLAN_FORGE_ASSETS")
         if assets and minecraft == "1.21.1":
             asset_path = Path(assets)
@@ -238,8 +259,8 @@ def gradle_command(job, task, offline, development, loader="fabric", integrated=
                "-PlocalGameClientDirectory=" + directory("client"),
                "-PlocalGameServerConfig=" + str(job / "server.json"),
                "-PlocalGameClientConfig=" + str(job / "client.json"), *task]
-    if project != "forge":
-        command.append("-PfabricLegacyAdapter" if project == "fabric-legacy" else f"-P{loader}Adapter")
+    if source.selector is not None:
+        command.append(source.selector)
     if integrated:
         command.append("-PintegratedGameFixture")
     if installed:
@@ -309,7 +330,7 @@ def wait_game(processes, job, identity, integrated=False, minecraft="1.21.1"):
 
 def prepare(job, env, offline, development, loader="fabric", integrated=False, installed=False, installed_mod=None, minecraft="1.21.1"):
     adapter_project(loader, minecraft)
-    if minecraft == "1.20.1" and installed_mod is None:
+    if minecraft != registry.DEFAULT_MINECRAFT and installed_mod is None:
         raise ValueError("GAME_LEGACY_REQUIRES_UNIVERSAL_ARCHIVE")
     if not shutil.which("go", path=env.get("PATH")):
         raise ValueError("GAME_GO_REQUIRED_ON_PATH")
@@ -326,7 +347,7 @@ def prepare(job, env, offline, development, loader="fabric", integrated=False, i
     if installed_mod is None:
         subprocess.run(command, cwd=PROJECT, env=env, check=True, timeout=1800)
     else:
-        payload = external_archive(installed_mod, development, minecraft)
+        payload = external_archive(installed_mod, development, minecraft, loader)
         captured = install_archive(job, installed_mod, payload)
         prepare_seed_binary(job, payload)
     # Build the real, unchanged local Control; never contact a user deployment.
@@ -338,7 +359,7 @@ def prepare(job, env, offline, development, loader="fabric", integrated=False, i
     if installed_mod is not None and loader == "fabric":
         tasks += [":fabric:relocateLocalGameServer", ":fabric:relocateLocalGameClient"]
         if integrated: tasks.append(":fabric:relocateIntegratedHost")
-    if minecraft == '1.20.1' and loader != 'fabric':
+    if production_sdk(loader, minecraft):
         tasks = [':forge:verifyModJar', ':forge:reobfInstalledLocalGameFixture']
         if integrated:
             tasks.append(':forge:reobfInstalledIntegratedFixture')
@@ -348,16 +369,17 @@ def prepare(job, env, offline, development, loader="fabric", integrated=False, i
             raise ValueError("GAME_FIXTURE_BUILD")
     finally:
         build.close()
-    if minecraft == '1.20.1' and loader != 'fabric':
+    if production_sdk(loader, minecraft):
         from legacy_installation import prepare as prepare_runtime
-        prepare_runtime(job, loader, env, offline)
+        prepare_runtime(job, loader, env, offline, **({'minecraft': minecraft} if minecraft != '1.20.1' else {}))
     return captured if installed_mod is not None else install_archive(job) if installed else None
 
 
 def launch_game(job, role, env, offline, development, loader, integrated, installed, archive_sha, installed_mod, minecraft):
-    if minecraft == '1.20.1' and loader != 'fabric':
+    if production_sdk(loader, minecraft):
         from legacy_installation import command
-        arguments = command(job, loader, role, integrated, development, archive_sha, env)
+        arguments = command(job, loader, role, integrated, development, archive_sha, env,
+                            **({'minecraft': minecraft} if minecraft != '1.20.1' else {}))
         return FixtureProcess(arguments, job / role, env, job / (role + '.log'))
     task = 'runLocalGameClient' if role == 'client' else 'runIntegratedHost' if integrated else 'runLocalGameServer'
     arguments = gradle_command(job, [f':{loader}:{task}'], offline, development, loader, integrated, installed, archive_sha, installed_mod, minecraft)
@@ -415,8 +437,8 @@ def server_settings(port):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--loader", choices=("fabric", "neoforge", "forge"), default="fabric")
-    parser.add_argument("--minecraft", choices=("1.20.1", "1.21.1"), default="1.21.1")
+    parser.add_argument("--loader", choices=registry.LOADERS, default="fabric")
+    parser.add_argument("--minecraft", choices=sorted({source.minecraft for source in registry.SDK_INPUTS.values()}), default=registry.DEFAULT_MINECRAFT)
     parser.add_argument("--integrated", action="store_true", help="two real client JVMs with a fresh singleplayer host world")
     parser.add_argument("--installed", action="store_true", help="Forge: load the checked JarJar archive with production classpath fallbacks excluded")
     parser.add_argument("--installed-mod", type=Path, help="load this source-bound Universal archive on the selected loader; no production source/classpath fallback")
@@ -429,15 +451,18 @@ def main():
         parser.error("--installed-mod requires an absolute archive and cannot be combined with --installed")
     if args.installed and args.loader != "forge":
         parser.error("--installed requires --loader forge")
-    if args.minecraft == "1.20.1" and args.installed_mod is None:
-        parser.error("Minecraft 1.20.1 fixtures require --installed-mod with the Universal archive")
+    if args.minecraft != registry.DEFAULT_MINECRAFT and args.installed_mod is None:
+        parser.error(f"Minecraft {args.minecraft} fixtures require --installed-mod with the Universal archive")
+    try:
+        game_sdk(args.loader, args.minecraft)
+    except ValueError:
+        parser.error('GAME_PROFILE_UNSUPPORTED')
     if not args.accept_eula or not args.offline_mode:
         parser.error("explicit --accept-eula and --offline-mode are required; no user world/config is modified")
     if sys.platform not in {"darwin", "linux"}:
         parser.error("local gameplay fixture is not verified on this platform")
     env = game_environment(args.loader, args.minecraft)
-    adapter = "forge" if args.minecraft == "1.20.1" and args.loader != "fabric" else args.loader
-    parent = PROJECT / f"java/adapters/{adapter}-{args.minecraft}/build/local-game-fixture"
+    parent = adapter_directory(args.loader, args.minecraft) / 'build/local-game-fixture'
     parent.mkdir(parents=True, exist_ok=True)
     job = Path(tempfile.mkdtemp(prefix="run-", dir=parent)).resolve()
     os.chmod(job, 0o700)

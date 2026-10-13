@@ -1,0 +1,14 @@
+pluginManagement {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net/' }
+        gradlePluginPortal()
+    }
+}
+rootProject.name = 'p2wlan-minecraft-forge-1165'
+include 'common', 'netty-transport', 'native-bundle', 'universal-bootstrap', 'legacy-bootstrap', 'forge'
+project(':common').projectDir = file('../common')
+project(':netty-transport').projectDir = file('../netty-transport')
+project(':native-bundle').projectDir = file('../native-bundle')
+project(':universal-bootstrap').projectDir = file('../universal-bootstrap')
+project(':forge').projectDir = file('../adapters/forge-1.16.5')
+project(':legacy-bootstrap').projectDir = file('../legacy-bootstrap')

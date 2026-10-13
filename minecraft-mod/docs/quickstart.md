@@ -10,6 +10,10 @@
 
 | Minecraft | 加载器 | Java | 额外 Mod |
 | --- | --- | --- | --- |
+| 1.16.5 | Fabric Loader 0.16.14 | 17 | Fabric API 0.42.0+1.16（完整安装 JAR） |
+| 1.16.5 | Forge 36.2.42 | 17 | 无 |
+| 1.18.2 | Fabric Loader 0.16.14 | 17 | Fabric API 0.77.0+1.18.2（完整安装 JAR） |
+| 1.18.2 | Forge 40.3.12 | 17 | 无 |
 | 1.20.1 | Fabric Loader 0.16.14 | 17 | Fabric API 0.92.12+1.20.1 |
 | 1.20.1 | Forge 47.3.2 | 17 | 无 |
 | 1.20.1 | NeoForge 47.1.106 | 17 | 无 |
@@ -17,7 +21,7 @@
 | 1.21.1 | Forge 52.1.16 | 21 | 无 |
 | 1.21.1 | NeoForge 21.1.256 | 21 | 无 |
 
-使用 64 位 Java，架构与包内原生 Agent 匹配。还需要管理员提供的可信 Control 根地址，以及参与者在同一 Control 下的房间。自托管参见[底层服务部署指南](../../docs/guides/self-hosting.md)。
+上表列出十个精确配置；1.16.5 和 1.18.2 的 NeoForge 配置不在矩阵中。请使用表中的完整版本号。使用 64 位 Java，架构与包内原生 Agent 匹配。还需要管理员提供的可信 Control 根地址，以及参与者在同一 Control 下的房间。自托管参见[底层服务部署指南](../../docs/guides/self-hosting.md)。
 
 Mod 自带联机所需的原生程序。Minecraft 本体、Java、游戏账号和 Control 服务由使用者准备。
 
@@ -26,11 +30,14 @@ Mod 自带联机所需的原生程序。Minecraft 本体、Java、游戏账号�
 1. 创建独立游戏实例，安装表中的 Minecraft 和加载器；专用服务器选择相同配置。
 2. 将 `p2wlan-universal.jar` 放入 `mods/`。更新时移走旧 P2WLAN JAR，保留实例的 `config/`。
 3. Fabric 实例另放入表中对应的 Fabric API；Forge／NeoForge 实例直接使用 Universal JAR。
-4. 确认包内有本机的原生目标，再正常启动。Agent 从包内提取并启动。
+4. Forge 1.16.5 使用 Java 17 时，在启动器的 Java／JVM 额外参数中加入 `-Dnashorn.args=--anonymous-classes=false`；专用服务器将该参数放在 Java 命令的 `-jar` 或主类之前。
+5. 确认包内有本机的原生目标，再正常启动。Agent 从包内提取并启动。
+
+Fabric 1.16.5 和 1.18.2 必须使用包含嵌套模块的官方完整 Fabric API 安装 JAR。对应 Maven 依赖聚合文件只供构建解析，不能代替游戏实例中的完整 Mod；打包器会检查固定摘要。
 
 原生目标为 `macos-aarch64`、`macos-x86_64`、`linux-aarch64`、`linux-x86_64`、`windows-x86_64`。源码构建默认生成主机目标，其他目标须单独构建。Windows 游戏实例、私有配置和提取位置使用本地 NTFS，Mod 会核验用户 ACL。
 
-上表两个 Minecraft 版本、三个加载器的专用服与内置服，共 12 个场景，已使用同一份 Universal JAR 在 macOS/aarch64 本机完成真实联机验证。每个场景完成原版登录、20 轮有序游戏数据往返、至少 18 秒持续游戏和退出清理。Windows/HMCL 与跨机器联机待验证。兼容矩阵和执行入口见[技术参考](../README.md)。
+专用服和共享单人世界使用同一安装 JAR。真实游戏夹具分别检查原版登录、20 轮有序游戏数据往返、至少 18 秒持续游戏和退出清理；兼容矩阵与执行入口见[技术参考](../README.md#installed-universal-gameplay-verification)。Windows/HMCL 与跨机器联机待验证。
 
 ### 导入 HMCL ZIP
 
@@ -77,7 +84,7 @@ Mod 自带联机所需的原生程序。Minecraft 本体、Java、游戏账号�
 
 ## 房主：共享单人世界
 
-Minecraft 1.20.1 和 1.21.1 的三个加载器已在 macOS/aarch64 本机验证共享、停止共享、暂停恢复和朋友加入。其他平台与跨机器验收待完成。
+使用上表中的精确 Minecraft／加载器配置。共享期间保持原版世界、玩家与游戏模式；停止共享后恢复单人暂停行为。
 
 1. 登录并连接房间，等待房间运行时就绪。
 2. 进入想共享的单人世界，打开暂停菜单中的 P2WLAN 面板。
@@ -162,7 +169,7 @@ P2WLAN 面板提供「显示设置」和「延迟统计」。显示设置可在 
 
 ## 从源码获得安装包
 
-使用完整仓库：原生适配读取本 checkout 中的上游实现。需要 Python 3.11+、Rust 及原生编译依赖、JDK 17 和 21。Forge 的固定 Gradle 与辅助 JDK 准备见[技术参考](../README.md#forge-adapter-and-build-inputs)。第一次构建需要联网解析固定依赖。
+使用完整仓库：原生适配读取本 checkout 中的上游实现。需要 Python 3.11+、Rust 及原生编译依赖、JDK 17 和 21；Forge 1.16.5 的 MCP 构建另需完整 JDK 8。Forge 的固定 Gradle 与辅助 JDK 准备见[技术参考](../README.md#forge-adapter-and-build-inputs)。第一次构建需要联网解析固定依赖。
 
 在干净、已提交的仓库根目录运行：
 
@@ -181,7 +188,7 @@ python3 minecraft-mod/tools/java.py universal-hmcl-pack --minecraft 1.20.1 --loa
 python3 minecraft-mod/tools/hmcl_pack.py verify minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-hmcl-forge-1.20.1-windows-x86_64-0.1.0.zip --universal --minecraft 1.20.1 --loader forge --platform windows-x86_64
 ```
 
-用表中的版本和加载器选择其他配置。Fabric 追加 `--fabric-api /absolute/path/to/fabric-api-0.92.12+1.20.1.jar`；1.21.1 使用 `fabric-api-0.116.7+1.21.1.jar`。参数指向原始 Fabric Maven 文件，打包器核对固定 SHA-256。各 ZIP 安装的 P2WLAN JAR 字节相同。
+用表中的精确版本和加载器选择其他配置。Fabric 追加 `--fabric-api /absolute/path/to/fabric-api.jar`，参数指向该版本未经修改的官方完整安装 JAR：1.16.5 使用 0.42.0+1.16，1.18.2 使用 0.77.0+1.18.2，1.20.1 使用 0.92.12+1.20.1，1.21.1 使用 0.116.7+1.21.1。打包器核对固定 SHA-256，1.16.5／1.18.2 的 Maven 依赖聚合文件不通过此校验。各 ZIP 安装的 P2WLAN JAR 字节相同。Forge 1.16.5 导入 HMCL 后仍需加入上述 JVM 参数。
 
 缺失原生目标、开发资源或过期源码身份会使正式打包失败。开发构建使用 `native_bundle.py --development` 与 `universal-build --development`，校验加 `--development`；HMCL 包要求正式资源。`--offline` 只在依赖全部缓存后使用。
 

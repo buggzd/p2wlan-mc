@@ -2,6 +2,7 @@
 """Append unchanged canonical Bootstrap classes after Fabric game remapping."""
 import argparse
 import hashlib
+import importlib
 import io
 from pathlib import Path
 import subprocess
@@ -13,9 +14,12 @@ from universal_jar import (BOOTSTRAP, BOOTSTRAP_CLASSES, CONFIGS, archive_bytes,
                            constant_symbols, encoded, json_value, members, publish,
                            regular_bytes)
 
+VERIFIERS = {'1.16.5': 'verify_fabric_1165_jar', '1.18.2': 'verify_fabric_1182_jar', '1.20.1': 'verify_fabric_legacy_jar',
+             '1.21.1': 'verify_mod_jar'}
+
 
 def build_bytes(mapped, bootstrap, minecraft, development=False):
-    if minecraft not in {'1.20.1', '1.21.1'}:
+    if minecraft not in VERIFIERS:
         raise VerificationError('fabric_input_game_profile')
     files = members(mapped)
     if any(name.startswith(BOOTSTRAP) for name in files):
@@ -23,8 +27,7 @@ def build_bytes(mapped, bootstrap, minecraft, development=False):
     if len(bootstrap) > 1024 * 1024:
         raise VerificationError('fabric_input_bootstrap_size')
     canonical = members(bootstrap)
-    if len(BOOTSTRAP_CLASSES) != 14 or len(CONFIGS) != 8 \
-            or set(canonical) != BOOTSTRAP_CLASSES | set(CONFIGS) | {'META-INF/MANIFEST.MF'}:
+    if set(canonical) != BOOTSTRAP_CLASSES | set(CONFIGS) | {'META-INF/MANIFEST.MF'}:
         raise VerificationError('fabric_input_bootstrap_layout')
     for name, expected in CONFIGS.items():
         if encoded(json_value(canonical[name])) != encoded(expected):
@@ -34,11 +37,7 @@ def build_bytes(mapped, bootstrap, minecraft, development=False):
             constant_symbols(classfile(archive, name, 61))
             files[name] = canonical[name]
     value = archive_bytes(files)
-    if minecraft == '1.20.1':
-        from verify_fabric_legacy_jar import verify
-    else:
-        from verify_mod_jar import verify
-    natives = verify(io.BytesIO(value), development)
+    natives = importlib.import_module(VERIFIERS[minecraft]).verify(io.BytesIO(value), development)
     bind_sources(natives, development)
     return value
 
@@ -57,7 +56,7 @@ def main():
     parser.add_argument('--remapped', type=Path, required=True)
     parser.add_argument('--bootstrap', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--minecraft', choices=('1.20.1', '1.21.1'), required=True)
+    parser.add_argument('--minecraft', choices=tuple(VERIFIERS), required=True)
     parser.add_argument('--development', action='store_true')
     args = parser.parse_args()
     try:
