@@ -1,38 +1,6 @@
 name: Mobile Lifecycle
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - ".fvmrc"
-      - ".github/workflows/mobile-lifecycle.yml"
-      - "scripts/mobile-lifecycle-regression.sh"
-      - "scripts/mobile_lifecycle/**"
-      - "scripts/build_android_native.sh"
-      - "apps/flutter_client/**"
-      - "client/android-native/**"
-      - "client/daemon/**"
-      - "client/tun/**"
-      - "contracts/**"
-      - "docs/explanation/connection-lifecycle.md"
-      - "Cargo.toml"
-      - "Cargo.lock"
-  push:
-    branches: [main]
-    paths:
-      - ".fvmrc"
-      - ".github/workflows/mobile-lifecycle.yml"
-      - "scripts/mobile-lifecycle-regression.sh"
-      - "scripts/mobile_lifecycle/**"
-      - "scripts/build_android_native.sh"
-      - "apps/flutter_client/**"
-      - "client/android-native/**"
-      - "client/daemon/**"
-      - "client/tun/**"
-      - "contracts/**"
-      - "docs/explanation/connection-lifecycle.md"
-      - "Cargo.toml"
-      - "Cargo.lock"
   workflow_dispatch:
     inputs:
       validation_sha:

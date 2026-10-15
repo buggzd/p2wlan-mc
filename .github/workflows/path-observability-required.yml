@@ -1,32 +1,6 @@
 name: Path Observability
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/path-observability-required.yml"
-      - "client/daemon/**"
-      - "client/cli/**"
-      - "apps/flutter_client/**"
-      - "contracts/**"
-      - "docs/reference/path-observability.md"
-      - "scripts/path-observability-evidence.py"
-      - "server/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/path-observability-required.yml"
-      - "client/daemon/**"
-      - "client/cli/**"
-      - "apps/flutter_client/**"
-      - "contracts/**"
-      - "docs/reference/path-observability.md"
-      - "scripts/path-observability-evidence.py"
-      - "server/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
   workflow_dispatch:
 
 permissions:

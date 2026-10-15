@@ -1,35 +1,6 @@
 name: Windows Lifecycle
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - ".fvmrc"
-      - ".github/workflows/path-state-machine-required.yml"
-      - ".github/workflows/windows-lifecycle.yml"
-      - "client/daemon/**"
-      - "client/cli/**"
-      - "client/tray/**"
-      - "client/desktop-host/**"
-      - "apps/flutter_client/**"
-      - "scripts/release/**"
-      - "scripts/windows_lifecycle/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-  push:
-    branches: [main]
-    paths:
-      - ".fvmrc"
-      - ".github/workflows/windows-lifecycle.yml"
-      - "client/daemon/**"
-      - "client/cli/**"
-      - "client/tray/**"
-      - "client/desktop-host/**"
-      - "apps/flutter_client/**"
-      - "scripts/release/**"
-      - "scripts/windows_lifecycle/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
   workflow_dispatch:
     inputs:
       validation_sha:

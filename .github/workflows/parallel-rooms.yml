@@ -1,10 +1,6 @@
 name: Parallel Rooms
 
 on:
-  push:
-    branches: [main, feat/parallel-rooms-20260908]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

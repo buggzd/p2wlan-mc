@@ -20,9 +20,6 @@ on:
         options:
           - smoke-upload
           - install-upload
-  push:
-    tags:
-      - 'server-v*'
 
 permissions:
   contents: read

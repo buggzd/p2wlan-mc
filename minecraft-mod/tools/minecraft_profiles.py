@@ -27,6 +27,7 @@ class FabricApiPin:
     version: str
     artifact_sha256: str
     mod_id: str = 'fabric-api'
+    artifact_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -131,7 +132,8 @@ _FML_1211 = GameBinding(DEFAULT_MINECRAFT, 21, 'fml', 'io.p2wlan.mc.game',
     MixinSelection(_SERVER + ('ServerConfigurationMixin',), _CLIENT, None, None),
     'p2wlan.dispatch.json', 'p2wlan.dispatch.client.json')
 _FABRIC_API_1182 = FabricApiPin('0.77.0+1.18.2',
-    '6f822fb5aa481b4a6c1cfb8612bbfecc62a58e69d2c792f61a0eafa580e75999')
+    '6f822fb5aa481b4a6c1cfb8612bbfecc62a58e69d2c792f61a0eafa580e75999',
+    artifact_url='https://cdn.modrinth.com/data/P7dR8mSH/versions/qk28POfr/fabric-api-0.77.0%2B1.18.2.jar')
 _FORGE_1182 = LoaderPin('forge', 'Forge', '40.3.12')
 _FABRIC_1182 = GameBinding('1.18.2', 17, 'fabric', 'io.p2wlan.mc.fabric.game.v1_18_2',
     MixinSelection(_SERVER, _CLIENT + ('FabricLoginNetworkingMixin',),
@@ -144,7 +146,8 @@ _FML_1182 = GameBinding('1.18.2', 17, 'fml', 'io.p2wlan.mc.game.v1_18_2',
                    'p2wlan-universal-forge-1.18.2-client-refmap.json'),
     'p2wlan.dispatch.1182.json', 'p2wlan.dispatch.1182.client.json')
 _FABRIC_API_1165 = FabricApiPin('0.42.0+1.16',
-    '3df8dd503f35aa0ac9fab8ad9f9a369fdfd0b1ab544af19a3d626d948fb4586c', 'fabric')
+    '3df8dd503f35aa0ac9fab8ad9f9a369fdfd0b1ab544af19a3d626d948fb4586c', 'fabric',
+    'https://cdn.modrinth.com/data/P7dR8mSH/versions/0.42.0%2B1.16/fabric-api-0.42.0%2B1.16.jar')
 _FORGE_1165 = LoaderPin('forge', 'Forge', '36.2.42')
 _FABRIC_1165 = GameBinding('1.16.5', 17, 'fabric', 'io.p2wlan.mc.fabric.game.v1_16_5',
     MixinSelection(_SERVER, _CLIENT + ('FabricLoginNetworkingMixin', 'LanNarrationMixin'),

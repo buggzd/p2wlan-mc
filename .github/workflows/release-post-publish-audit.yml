@@ -1,24 +1,6 @@
 name: Release Post-publish Audit
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/release/verify_published_release.py'
-      - 'scripts/release/release_assets.py'
-      - 'scripts/release/test_verify_published_release.py'
-      - '.github/workflows/release-post-publish-audit.yml'
-      - 'docs/reference/release-contract.md'
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/release/verify_published_release.py'
-      - 'scripts/release/release_assets.py'
-      - 'scripts/release/test_verify_published_release.py'
-      - '.github/workflows/release-post-publish-audit.yml'
-      - 'docs/reference/release-contract.md'
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:

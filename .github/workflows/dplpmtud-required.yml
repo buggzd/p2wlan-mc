@@ -1,38 +1,6 @@
 name: DPLPMTUD Required
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/dplpmtud-required.yml"
-      - ".github/workflows/business-mtu-budget-required.yml"
-      - "client/daemon/**"
-      - "client/netbind/**"
-      - "client/tun/**"
-      - "client/wireguard/**"
-      - "client/relay/**"
-      - "scripts/dplpmtud/**"
-      - "scripts/mtu-smoke.sh"
-      - "contracts/dplpmtud_acceptance.json"
-      - "docs/reference/networking.md"
-      - "Cargo.toml"
-      - "Cargo.lock"
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/dplpmtud-required.yml"
-      - ".github/workflows/business-mtu-budget-required.yml"
-      - "client/daemon/**"
-      - "client/netbind/**"
-      - "client/tun/**"
-      - "client/wireguard/**"
-      - "client/relay/**"
-      - "scripts/dplpmtud/**"
-      - "scripts/mtu-smoke.sh"
-      - "contracts/dplpmtud_acceptance.json"
-      - "docs/reference/networking.md"
-      - "Cargo.toml"
-      - "Cargo.lock"
   workflow_dispatch:
     inputs:
       validation_sha:

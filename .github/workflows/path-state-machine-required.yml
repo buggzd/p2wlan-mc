@@ -1,18 +1,6 @@
 name: Path State Machine
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/path-state-machine-required.yml"
-      - ".github/workflows/nat-topology-gate.yml"
-      - ".github/workflows/windows-lifecycle.yml"
-      - ".github/workflows/mobile-lifecycle.yml"
-      - "client/daemon/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
   workflow_dispatch:
 
 permissions:

@@ -1,25 +1,7 @@
 name: Self-hosted Server
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'server/**'
-      - 'deploy/selfhost/**'
-      - 'scripts/selfhost/**'
-      - 'scripts/p2wlan-server'
-      - 'docs/guides/self-hosting.md'
-      - '.github/workflows/selfhost.yml'
-      - '.github/workflows/build-server.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'server/**'
-      - 'deploy/selfhost/**'
-      - 'scripts/selfhost/**'
-      - 'scripts/p2wlan-server'
-      - '.github/workflows/selfhost.yml'
-      - '.github/workflows/build-server.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:

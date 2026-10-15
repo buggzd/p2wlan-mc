@@ -1,22 +1,6 @@
 name: Windows PID Identity
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/windows-pid-identity.yml"
-      - "apps/flutter_client/lib/core/daemon/**"
-      - "apps/flutter_client/test/windows_pid_identity_test.dart"
-      - "apps/flutter_client/test/daemon_controller_log_test.dart"
-      - "apps/flutter_client/test/windows_startup_trace_test.dart"
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/windows-pid-identity.yml"
-      - "apps/flutter_client/lib/core/daemon/**"
-      - "apps/flutter_client/test/windows_pid_identity_test.dart"
-      - "apps/flutter_client/test/daemon_controller_log_test.dart"
-      - "apps/flutter_client/test/windows_startup_trace_test.dart"
   workflow_dispatch:
 
 permissions:

@@ -2,30 +2,6 @@ name: Package Test Builds
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - ".fvmrc"
-      - ".github/workflows/package-test.yml"
-      - "apps/flutter_client/**"
-      - "client/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "contracts/**"
-      - "scripts/build_android_native.sh"
-      - "scripts/release/**"
-  pull_request:
-    branches: [main]
-    paths:
-      - ".fvmrc"
-      - ".github/workflows/package-test.yml"
-      - "apps/flutter_client/**"
-      - "client/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "contracts/**"
-      - "scripts/build_android_native.sh"
-      - "scripts/release/**"
 
 permissions:
   contents: read

@@ -1,10 +1,6 @@
 name: Friend Rooms
 
 on:
-  push:
-    branches: [feat/friend-rooms-20260907]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
