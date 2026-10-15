@@ -98,12 +98,14 @@ Fabric 1.16.5 和 1.18.2 必须使用包含嵌套模块的官方完整 Fabric AP
 
 ### 1. 启服后初始化和登录
 
-安装同一份 Universal JAR，按照对应加载器的服务器流程正常启动，游戏条款由管理员自行确认。在**服务器本机控制台**输入下列命令，无需停服或另装账号工具：
+将 Universal JAR 放入服务端的 `mods/`，按照 Fabric／Forge／NeoForge 的流程启动 Minecraft 服务端 JAR，游戏条款由管理员自行确认。启动完成后，在**这个服务端 JAR 自己的控制台**输入下列命令，也就是平时输入 `list`、`stop` 的同一个输入位置。`p2wlan` 是 Mod 注册的 Minecraft 服务端命令，直接输入，不加开头的 `/`：
 
 ```text
 p2wlan init https://control.example.com
 p2wlan login "user@example.com" "<账号密码>"
 ```
+
+`https://control.example.com` 是 P2WLAN Control 服务地址的示例，替换为实际地址；账号和密码同样替换为自己的值。后续创建／加入房间和共享也都在这个服务端控制台完成。
 
 没有 P2WLAN 账号时，用 `p2wlan register "user@example.com" "<账号密码>"` 代替登录。`init` 保存 Control 根地址；优先使用 HTTPS，选择 HTTP 时控制台会提示账号和房间密码通过明文连接发送。P2WLAN 账号独立于 Microsoft／Minecraft 账号。
 
@@ -151,7 +153,7 @@ p2wlan restore
 
 独立的 [`p2wlan-account` 工具](reference/building.md#dedicated-server-account-console)保留为可选的离线账号维护入口；使用它时才需要停服，避免同时占用私有目录。控制台配置与重启恢复的真实游戏验收状态见[验证参考](reference/testing.md#dedicated-console-and-restart-workflow)。
 
-## 朋友：从原版多人游戏加入
+## 朋友：从多人游戏加入
 
 连接房间后打开 Minecraft「多人游戏」。服务发现只在这个浏览器打开时执行，P2WLAN 条目与普通局域网条目和已保存服务器共存；关闭浏览器会清理发现条目，但不会断开房间。
 

@@ -83,10 +83,7 @@ When done, click **断开房间** (Disconnect room) in the panel. Leaving a worl
 
 ### Dedicated server
 
-Install the same Universal JAR and start the server normally. Configure it in the
-actual server console. Passwords below are placeholders; terminal or hosting-panel
-history may retain complete commands, so check access to those records before
-entering credentials:
+Place the same Universal JAR in the server’s `mods/` directory and start the Minecraft server JAR normally. Once it has started, enter these commands in **that JAR’s own server console**, in the same input used for `list` and `stop`. The Mod registers `p2wlan` as a Minecraft server command; enter it directly without a leading `/`. The address and credentials below are placeholders. Console or hosting-panel history may retain complete commands, so check access to those records before entering credentials:
 
 | Command | Action |
 | --- | --- |
