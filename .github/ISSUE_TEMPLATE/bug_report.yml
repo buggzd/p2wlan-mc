@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible P2WLAN defect with build identity and topology context
+description: Report a reproducible P2WLAN Minecraft Mod defect with game, loader and build identity
 title: "bug: "
 body:
   - type: markdown
@@ -31,8 +31,8 @@ body:
     id: identity
     attributes:
       label: 构建身份
-      description: 提供客户端/daemon/server 的版本、commit 或发布包身份。daemon 可优先提供 --build-info 的脱敏结果。
-      placeholder: "version / git commit / release artifact"
+      description: 提供 Mod 版本、源码 commit、Universal JAR/HMCL ZIP 名称及摘要；服务端问题同时提供 Control/Relay 版本。
+      placeholder: "Mod version / git commit / JAR or HMCL artifact / SHA-256"
     validations:
       required: true
 
@@ -43,11 +43,18 @@ body:
       options:
         - Windows
         - Linux
-        - Android
-        - macOS / iOS
-        - Server / Docker
+        - macOS
+        - Dedicated Minecraft server
         - Multiple platforms
         - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: minecraft
+    attributes:
+      label: Minecraft 与加载器
+      description: 填写准确游戏版本、Fabric/Forge/NeoForge 及版本、Java 版本、客户端或专用服务器、是否使用 HMCL。
     validations:
       required: true
 
@@ -55,7 +62,7 @@ body:
     id: topology
     attributes:
       label: 网络与路径拓扑
-      description: 描述两端平台、是否同 LAN、NAT 类型（若已知）、Direct/Relay 状态、房间数量。不要填写真实公网 IP。
+      description: 描述两端平台、世界共享或专用服务器、是否同 LAN、NAT 类型（若已知）、Direct/Relay 状态与房间数量。不要填写真实公网 IP。
     validations:
       required: true
 

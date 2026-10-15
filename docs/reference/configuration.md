@@ -1,5 +1,7 @@
 # 配置参考
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 ## Control
 
 | 变量 | 规则 |

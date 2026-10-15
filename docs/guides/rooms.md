@@ -1,5 +1,7 @@
 # 房间指南
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 房间把设备成员、权限和虚拟地址放在独立边界内。控制面成员列表、daemon 加密会话和业务数据面是三个不同状态。
 
 ## 常用操作

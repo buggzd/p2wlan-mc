@@ -1,5 +1,7 @@
 # 网络参考
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 ## 路径
 
 默认 Direct-first 优先验证 LAN、IPv6 或 IPv4 UDP 直连；Relay 同时准备但只在有界直连窗口到期或已建立 Direct 明确失活后兜底。Direct 的确认必须来自当前网络 generation、peer session、候选 epoch 和加密业务路径；业务连通性通过目标应用的虚拟 IP 请求验证。

@@ -1,5 +1,7 @@
 # 排障指南
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 先记录客户端、daemon、Control、Relay 的准确版本和时间，再按层排查。
 
 | 现象 | 先检查 | 判断与下一步 |

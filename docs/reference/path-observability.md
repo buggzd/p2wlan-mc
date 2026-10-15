@@ -1,5 +1,7 @@
 # 路径可观测性参考
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 路径观测只读取已提交的 Direct/Relay 状态，不做路径决策、不写 socket、不阻塞数据面。唯一的状态转换入口是 commit_path_transition；每个 peer 最多保留 32 条转换记录，动态标签不包含 peer id、endpoint、IP、session id 或任意错误文本。
 
 本地认证的 GET /status 响应附带进程内递增的 X-P2WLAN-Status-Request-ID 响应头，用于把同主机客户端的连接/首字节耗时与 daemon 快照、序列化和写回阶段对应起来。诊断日志只记录请求编号、进程编号、耗时和快照重试/回退状态，不记录授权头、token 或 peer 身份；JSON schema 不依赖该可选响应头。

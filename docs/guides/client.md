@@ -1,5 +1,7 @@
 # 客户端指南
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 OpenWrt 使用原生 IPK/APK 和 procd 服务，安装、路径与升级规则见 [OpenWrt 指南](openwrt.md)。普通 Linux 的 CLI tarball 使用 glibc，不能用于 OpenWrt。
 
 ## 安装与配置

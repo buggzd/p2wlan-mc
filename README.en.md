@@ -6,23 +6,23 @@
 
 **Open a room in-game and play with friends as if you shared a LAN.**
 
-![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1-62B47A)
-![Fabric](https://img.shields.io/badge/Fabric_Loader-0.16.14%2B-DBD0B4)
-![Java](https://img.shields.io/badge/Java-21-E76F00)
+![Minecraft](https://img.shields.io/badge/Minecraft-1.16.5%20%7C%201.18.2%20%7C%201.20.1%20%7C%201.21.1-62B47A)
+![Loaders](https://img.shields.io/badge/Loaders-Fabric%20%7C%20Forge%20%7C%20NeoForge-DBD0B4)
+![Java](https://img.shields.io/badge/Java-17%20%7C%2021-E76F00)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 [简体中文](README.md) · English
 
-[User guide (Chinese)](minecraft-mod/docs/quickstart.md) · [Technical reference](minecraft-mod/README.md) · [Documentation](docs/README.md) · [Contributing](CONTRIBUTING.md)
+[Get the Mod](#get-the-mod) · [User guide (Chinese)](minecraft-mod/docs/quickstart.md) · [Technical reference](minecraft-mod/README.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
 ---
 
-P2WLAN Minecraft is a **Fabric multiplayer Mod**. Sign in and create a room in-game; once friends join with the room code, the host's shared world appears in the vanilla Multiplayer list, ready to join with a double-click.
+P2WLAN Minecraft is a **Minecraft Java multiplayer Mod**. Sign in and create a room in-game; once friends join with the room code, the host's shared world appears in the vanilla Multiplayer list, ready to join with a double-click.
 
-The Mod bundles a native Agent built on the encrypted networking core of [P2WLAN](https://github.com/yhan-sun/p2wlan). Players connect peer-to-peer whenever possible and fall back to an encrypted relay when hole punching fails. Everything runs in user space: no separate VPN client, no changes to system network interfaces or routes.
+This repository focuses on the Minecraft Mod. It bundles a native Agent built on the encrypted networking core of [P2WLAN](https://github.com/yhan-sun/p2wlan). Players connect peer-to-peer whenever possible and fall back to an encrypted relay when hole punching fails. Everything runs in user space: no separate VPN client, no changes to system network interfaces or routes.
 
 ## Features
 
@@ -32,20 +32,39 @@ The Mod bundles a native Agent built on the encrypted networking core of [P2WLAN
 - **Integrated and dedicated servers** — Share or unshare a singleplayer world with one click; dedicated servers use `/p2wlan` commands to connect and publish.
 - **Direct first, Relay fallback** — The native core handles encrypted sessions, NAT traversal and Direct/Relay switching.
 - **Live network stats** — RTT, Direct/Relay path, virtual IP, jitter, MTU and traffic at a glance, plus an optional in-game HUD and latency statistics.
-- **Vanilla flows preserved** — Minecraft login, authentication and resource-pack prompts work as usual; P2WLAN accounts are separate from Minecraft accounts.
+- **Vanilla join flow** — Preserves player login, configuration and resource-pack consent. Shared integrated worlds accept offline game names; dedicated servers follow `online-mode`. P2WLAN accounts are separate from Minecraft accounts.
 - **Server account tool** — A standalone `p2wlan-account` CLI signs a dedicated server in and joins a room while the server is stopped, no GUI required.
 
-## Requirements
+## Get the Mod
 
-| Component | Version |
+In this repository, open **Actions → Minecraft Mod Build → a successful run for the desired source commit → Artifacts** and download `p2wlan-minecraft-mod-<source SHA>`. The [workflow configuration](.github/workflows/minecraft-mod.yml) produces these files after a successful build and retains them for 14 days:
+
+| File | Purpose |
 | --- | --- |
-| Minecraft | Java Edition **1.21.1** |
-| Fabric Loader | **0.16.14** or newer |
-| Fabric API | **0.116.7+1.21.1** |
-| Java | **21** (64-bit, matching the Mod's native target) |
-| P2WLAN Control | One Control service shared by all players — [self-hostable](docs/guides/self-hosting.md) |
+| `p2wlan-universal.jar` | The same Mod for clients, integrated-world hosts and dedicated servers; place it in the instance's `mods/` |
+| `p2wlan-hmcl-<minecraft>-<loader>-windows-x86_64.zip` | One Windows x64 HMCL modpack for each of the ten exact profiles |
+| `BUILD-METADATA.json`, `SHA256SUMS` | Source commit, bundled native targets, artifact inventory and SHA-256 hashes |
 
-Native targets: `macos-aarch64`, `macos-x86_64`, `linux-aarch64`, `linux-x86_64` and `windows-x86_64`. Each JAR contains the native program for its build host only; build once per platform.
+Extract the downloaded Actions artifact first, then use its JAR or an inner HMCL ZIP. Import the inner profile ZIP through HMCL's modpack installer; Fabric packs already include the matching full Fabric API. Minecraft, the loader, Java and game accounts are prepared through the launcher's normal flow.
+
+The automated JAR contains native resources for **Windows x64, Linux x64 and macOS Apple Silicon**. Intel Mac and Linux ARM64 resources can be built with the source tools. Use 64-bit Java matching the native target's architecture; Windows game instances and private directories require local NTFS.
+
+Packages are delivered as Actions artifacts; the workflow does not create a Release. See the [build and packaging reference](minecraft-mod/docs/reference/building.md#github-actions-build) for the full artifact contract and verification.
+
+## Game and loader versions
+
+Players, integrated-world hosts and dedicated servers use the same **`p2wlan-universal.jar`** for these ten exact profiles. Friends use the same Minecraft version. Manual Fabric Mod installations also need the matching full Fabric API installation JAR from the table.
+
+| Minecraft Java Edition | Fabric Loader / API | Forge | NeoForge | Game Java |
+| --- | --- | --- | --- | --- |
+| 1.16.5 | 0.16.14 / 0.42.0+1.16 | 36.2.42 | — | 17 |
+| 1.18.2 | 0.16.14 / 0.77.0+1.18.2 | 40.3.12 | — | 17 |
+| 1.20.1 | 0.16.14 / 0.92.12+1.20.1 | 47.3.2 | 47.1.106 | 17 |
+| 1.21.1 | 0.16.14 / 0.116.7+1.21.1 | 52.1.16 | 21.1.256 | 21 |
+
+Use 64-bit Java. Forge 1.16.5 with Java 17 requires `-Dnashorn.args=--anonymous-classes=false`. The profile source is [`minecraft_profiles.py`](minecraft-mod/tools/minecraft_profiles.py).
+
+The table lists the complete pins for four game versions and ten loader profiles. Other game patch versions or loader combinations are outside the current matrix. Everyone needs the same trusted P2WLAN Control service, which is [self-hostable](docs/guides/self-hosting.md); Relay fallback also requires a configured Relay.
 
 ## Quick start
 
@@ -53,7 +72,7 @@ Native targets: `macos-aarch64`, `macos-x86_64`, `linux-aarch64`, `linux-x86_64`
 Sign in  →  Create / join room  →  Connect room  →  Host shares world  →  Friends join via Multiplayer
 ```
 
-1. **Install** — Put Fabric API and the P2WLAN Mod JAR into `mods/` of a Fabric 1.21.1 instance ([build steps](#build-from-source)). With HMCL, import the HMCL ZIP through its modpack installer.
+1. **Install** — [Get the Mod](#get-the-mod), create an instance from the table and put `p2wlan-universal.jar` into `mods/`; add the matching full Fabric API for Fabric. With HMCL, import the corresponding HMCL ZIP.
 2. **Sign in** — Click the LAN icon, enter the Control root URL (e.g. `https://control.example.com`), then sign in or register a P2WLAN account.
 3. **Join a room** — The host creates a room; friends enter its 8-digit code and password.
 4. **Connect** — Every player clicks **连接 · room name** (Connect) in the room list to join the room network.
@@ -64,17 +83,20 @@ When done, click **断开房间** (Disconnect room) in the panel. Leaving a worl
 
 ### Dedicated server
 
-1. While the server is stopped, use `p2wlan-account` to sign the server in and join a room.
-2. Start the server normally and run these in the console (in-game they need permission level 4 and a leading `/`):
+Install the same Universal JAR on the server. While it is stopped, run the separate `p2wlan-account` tool as the server's OS user against that server's `config/p2wlan-private/` directory to sign in and join a room.
 
-```text
-p2wlan connect <room-code>   # connect the room
-p2wlan runtime               # wait for "ready"
-p2wlan host                  # publish the world
-p2wlan world                 # check publication status
-```
+The account tool is [built separately](minecraft-mod/docs/reference/building.md#dedicated-server-account-console); it is not included in the current Actions player artifact. After preparing the host native resource, run `python3 minecraft-mod/tools/java.py account-build` to produce `minecraft-mod/java/account-cli/build/distributions/p2wlan-account-0.1.0.zip`.
 
-`p2wlan unhost` stops sharing; `p2wlan disconnect` leaves the room network.
+Then start the server normally and run these commands in its console:
+
+| Command | Action |
+| --- | --- |
+| `p2wlan connect <room-code>` | Connect a room the server has joined |
+| `p2wlan runtime` | Wait for runtime state `ready` |
+| `p2wlan host` | Publish the current world |
+| `p2wlan world` | Inspect publication status |
+
+`p2wlan unhost` stops sharing; `p2wlan disconnect` leaves the room network. In-game commands require permission level 4 and a leading `/`. Dedicated servers follow their own `online-mode` setting.
 
 See the **[user guide (Chinese)](minecraft-mod/docs/quickstart.md)** for full steps, HMCL import, display settings and troubleshooting.
 
@@ -83,10 +105,10 @@ See the **[user guide (Chinese)](minecraft-mod/docs/quickstart.md)** for full st
 ```mermaid
 flowchart LR
     subgraph host [Host]
-        MA[Minecraft] <-->|local TCP| FA[Fabric adapter] <--> NA[Native Agent]
+        MA[Minecraft] <-->|local TCP| FA[Mod game adapter] <--> NA[Native Agent]
     end
     subgraph guest [Friend]
-        NB[Native Agent] <--> FB[Fabric adapter] <-->|local TCP| MB[Minecraft]
+        NB[Native Agent] <--> FB[Mod game adapter] <-->|local TCP| MB[Minecraft]
     end
     NA <==>|encrypted Direct / Relay| NB
     C[(Control<br/>accounts · rooms · signaling)]
@@ -96,7 +118,7 @@ flowchart LR
 
 | Component | Role |
 | --- | --- |
-| **Fabric adapter** | Menus, room panel, world publication and Multiplayer list integration |
+| **Mod game adapter** | Menus, room panel, world publication and Multiplayer list integration |
 | **Native Agent** | P2WLAN networking core: encrypted sessions, Direct/Relay path selection, user-space TCP forwarding |
 | **Control** | Accounts, rooms, device authorization and signaling; game traffic never passes through Control |
 
@@ -104,31 +126,21 @@ Room virtual IPs serve only the Mod's own game channel and are not exposed to ot
 
 ## Build from source
 
-Requires Python **3.11+**, a Rust toolchain with native build dependencies, and JDK **21**. The Gradle Wrapper is included; the first build downloads pinned dependencies.
+[Minecraft Mod Build](.github/workflows/minecraft-mod.yml) checks and packages pushes to `main` / `codex/**`, pull requests and manual runs. It builds three native targets separately and assembles them into one Universal JAR.
 
-From the root of a clean, committed, complete checkout:
+Full local builds use **Python 3.11+, Rust, a native C/C++ compiler and JDK 8 / 17 / 21 / 25**. JDK 17 / 21 compile shared code and game adapters; Forge also uses a full JDK 8 including `lib/tools.jar`, plus JDK 25. Repository wrappers start Gradle; first-run dependency resolution needs network access.
+
+Configure installed JDK paths using the [build prerequisites](minecraft-mod/docs/reference/building.md#build-prerequisites-and-primary-artifact): select 21 with `JAVA_HOME` and 17 with `P2WLAN_LEGACY_JAVA_HOME`; Forge helper selectors are in the [adapter reference](minecraft-mod/docs/reference/adapters.md#forge-adapter-and-build-inputs). From the root of a clean, committed, complete checkout:
 
 ```sh
-# 1. Build and bundle the native program for this platform
 python3 minecraft-mod/tools/native_bundle.py
-
-# 2. Build the Fabric Mod
-python3 minecraft-mod/tools/java.py fabric-build
-
-# Optional: dedicated-server account tool
-python3 minecraft-mod/tools/java.py account-build
-
-# Optional: HMCL modpack (macOS Apple Silicon shown)
-python3 minecraft-mod/tools/java.py hmcl-pack -PhmclPlatform=macos-aarch64
+python3 minecraft-mod/tools/java.py universal-build --output minecraft-mod/dist/p2wlan-universal.jar
+python3 minecraft-mod/tools/universal_jar.py verify minecraft-mod/dist/p2wlan-universal.jar
 ```
 
-| Artifact | Path |
-| --- | --- |
-| Mod JAR | `minecraft-mod/java/adapters/fabric-1.21.1/build/libs/p2wlan-fabric-1.21.1-0.1.0.jar` |
-| Account tool | `minecraft-mod/java/account-cli/build/distributions/p2wlan-account-0.1.0.zip` |
-| HMCL modpack | `minecraft-mod/java/adapters/fabric-1.21.1/build/distributions/p2wlan-hmcl-fabric-1.21.1-<platform>-0.1.0.zip` |
+These commands produce `minecraft-mod/dist/p2wlan-universal.jar` with the native targets already built into the resource directory; local native builds default to the host target. Individual loader JARs are Universal assembly inputs.
 
-Packaging verifies the embedded native program's source identity and hashes and aborts on mismatch; nothing executable is downloaded at runtime. Development packages, Windows cross-builds and test entry points are covered in the [technical reference](minecraft-mod/README.md).
+`minecraft-mod/tools/distribution.py` separately produces HMCL ZIPs, `BUILD-METADATA.json` and `SHA256SUMS`; the selected platform must already be present in the JAR. See the [build reference](minecraft-mod/docs/reference/building.md) for development packages, merged native targets, the account tool and [compilation cleanup](minecraft-mod/docs/reference/building.md#clean-compilation-outputs).
 
 ## Status
 
@@ -136,9 +148,10 @@ Packaging verifies the embedded native program's source identity and hashes and 
 
 | | Scope |
 | --- | --- |
-| ✅ Verified | Local macOS (Apple Silicon): an actual Minecraft client joining a dedicated server through the Mod (offline-auth test server) |
-| ⏳ Not yet done | Cross-machine/public-network play, full singleplayer-world sharing, Windows/HMCL on real devices, Linux graphical runs, online Minecraft authentication, forced Relay, long sessions and network-change recovery, compatibility with other Mods, independent security audit |
-| ➖ Out of scope | Other Minecraft versions, Forge, NeoForge, Bedrock, mobile |
+| Automated checks | Independent Rust workspace, shared Java, Python build/archive contracts, and final Universal/HMCL verification; Actions builds do not launch Minecraft gameplay. |
+| Gameplay verification entry points | Installed Universal fixtures select the ten exact profiles above and check dedicated/integrated worlds, Vanilla login, ordered game exchanges and cleanup. Execution prerequisites and recorded scope are in the [gameplay reference](minecraft-mod/docs/reference/testing.md#installed-universal-gameplay-verification). |
+| ⏳ Environment checks pending | Cross-machine/public-network play, Windows/HMCL on real devices, Linux graphical runs, online Minecraft authentication, forced Relay, long sessions and network-change recovery, compatibility with other Mods, independent security audit. |
+| ➖ Outside the matrix | Other Minecraft/loader profiles, Bedrock and mobile. |
 
 Direct connectivity depends on both sides' NAT and firewalls; without a configured Relay, players who cannot connect directly cannot play together.
 
@@ -154,18 +167,19 @@ See the [privacy notice](PRIVACY.md); report vulnerabilities privately via the [
 
 ```text
 minecraft-mod/        The Mod
-├── java/             Fabric adapter, common protocol, account tool, native resource packaging
+├── java/             Loader adapters, shared game code, common protocol, account tool and native resources
 ├── native/           Rust workspace: Agent, TCP bridge, gateway, runtime adaptation
 ├── tools/            Build, packaging and verification scripts
 ├── tests/            Mod tests
-└── docs/             Player documentation
+├── dist/             Generated JAR, HMCL ZIPs and checksums (not committed)
+└── docs/             Player guides and technical references by topic
 client/               Upstream P2WLAN networking core and client (reused by the Mod)
 server/  deploy/      Upstream Control/Relay services and deployment
-docs/                 Upstream reference docs and shared engineering rules
+docs/                 Upstream reference navigation and shared engineering rules
 ```
 
 ## Credits and license
 
 Networking comes from [P2WLAN](https://github.com/yhan-sun/p2wlan) — thanks to all upstream contributors.
 
-Released under the [MIT License](LICENSE). Minecraft, Fabric, launchers and other dependencies are governed by their own licenses and terms.
+Released under the [MIT License](LICENSE). Minecraft, loaders, launchers and other dependencies are governed by their own licenses and terms.

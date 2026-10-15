@@ -1,5 +1,7 @@
 # 安全模型
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 ## 身份与凭据
 
 设备控制面身份、数据面会话密钥、Relay ticket、JWT、管理控制台令牌、Relay 票据签名 key、撤权 feed token 和 TLS 私钥承担不同职责，不能互相替代。管理控制台令牌只授权同一 Control 实例的只读管理 API，不授予设备身份、房间成员身份或 Relay 数据连接权限。ticket 必须绑定 audience、region、设备/网络身份和短期过期时间；Relay 在撤权 feed 未就绪或过期时拒绝新的认证连接。

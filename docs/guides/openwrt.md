@@ -1,5 +1,7 @@
 # OpenWrt 路由器节点
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 OpenWrt 包包含 CLI、daemon、procd 服务和 sysupgrade 配置保留规则。它让路由器本机加入 P2WLAN；不会自动发布 LAN 子网、修改 WAN 防火墙或启用 LAN 转发。需要图形界面的用户仍使用桌面客户端，当前没有 LuCI 插件。
 
 ## 兼容范围

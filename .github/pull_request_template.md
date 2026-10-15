@@ -18,11 +18,14 @@
 
 - [ ] `python3 scripts/docs/verify_repository.py`
 - [ ] `python3 scripts/quality/check_code_health.py --base-ref main`
-- [ ] `cargo fmt --all --check`
-- [ ] 受影响 Rust 测试 / clippy
-- [ ] 受影响 Go 测试 / vet
-- [ ] 受影响 Flutter 测试 / analyze / format
-- [ ] 需要时完成真实 TUN、Windows、移动端、公网 NAT 或发布包验证
+- [ ] `python3 -m unittest discover -s scripts/quality/tests -p 'test_*.py'`
+- [ ] `bash -n scripts/install-server.sh scripts/deploy-server.sh scripts/p2wlan-server`
+- [ ] `python3 -m unittest discover -s minecraft-mod/tests -p 'test_*.py'`
+- [ ] `python3 minecraft-mod/tools/native.py fmt --all --check` 与受影响 Rust 测试
+- [ ] `python3 minecraft-mod/tools/java.py test` 与受影响加载器构建
+- [ ] Universal JAR／HMCL ZIP 校验（涉及打包时）
+- [ ] 需要时完成真实 Minecraft、Windows/HMCL、Direct/Relay 或公网 NAT 验证
+- [ ] 上游依赖有改动时运行相应 Go／Flutter／网络核心检查
 
 ## 故障与回滚
 

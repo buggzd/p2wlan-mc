@@ -1,6 +1,6 @@
 # 兼容性参考
 
-> 本页适用于上游客户端与服务端。Minecraft Mod 的版本要求与验证状态见[项目介绍](../../README.md)。
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
 
 | 平台 | 当前发布形态 | 说明 |
 | --- | --- | --- |

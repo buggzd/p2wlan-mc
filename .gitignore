@@ -20,8 +20,8 @@ server/bin/
 server/vendor/
 
 # Build artifacts
-# (The React/Vite frontend was removed; `dist/` is still used by the macOS
-#  tray app build, and `node_modules/`/`build/`/`.cache/` are kept defensively.)
+# Mod distributions and Java/Native outputs; upstream tools also use these
+# directories. Gradle wrapper JARs remain tracked as build entry points.
 node_modules/
 dist/
 build/

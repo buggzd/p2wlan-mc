@@ -2,6 +2,12 @@
 
 本文件是仓库级工作契约。任何 AI 或自动化代理在修改本仓库前都必须遵守它；与实现、测试和安全边界冲突的临时说明不具有更高优先级。
 
+## 当前仓库定位
+
+本仓库以 `minecraft-mod/` 中的 Minecraft Mod 为产品主线。根目录 README、贡献指南、文档导航和自动构建围绕 Mod 组织；`client/`、`server/`、上游部署工具与 `docs/` 中的网络核心参考保留为复用依赖和维护资料。
+
+`skills/p2wlan-repository/SKILL.md` 来自上游，只作为参考；部署和 VPN 客户端发布规则按相应组件的实际修改范围使用。Mod 的实现保留在独立 Java／Rust 工程中；仓库文档、打包和 CI 维护可以修改根目录入口与 `.github/`。
+
 ## 开始工作前
 
 1. 运行 git status --short --branch，确认当前分支和工作区，不覆盖已有改动。
@@ -50,3 +56,11 @@
     bash -n scripts/install-server.sh scripts/deploy-server.sh scripts/p2wlan-server
 
 再按改动范围运行 Rust、Go、Flutter 或脚本测试，并在交付时说明未运行的项目。提交信息必须使用 feat:中文 格式，feat: 后不加空格。
+
+Mod 的基础检查入口为：
+
+    python3 -m unittest discover -s minecraft-mod/tests -p 'test_*.py'
+    python3 minecraft-mod/tools/native.py test --workspace --locked
+    python3 minecraft-mod/tools/java.py test
+
+清理编译产物使用 `minecraft-mod/tools/clean_builds.py`，先预览再执行；运行前停止构建和测试，保留发布包、原生资源、游戏数据及验证记录。

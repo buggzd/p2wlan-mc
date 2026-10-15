@@ -2,19 +2,26 @@
 
 [← 返回项目介绍](../README.md)
 
+本仓库主攻 Minecraft Mod。先从下面的 Mod 文档进入；上游文档保留网络核心、VPN 客户端和 Control／Relay 的参考契约。
+
 ## Minecraft Mod
 
 | 文档 | 内容 |
 | --- | --- |
 | [项目介绍](../README.md) | 功能、环境要求、快速开始和源码构建 |
 | [安装与联机指南](../minecraft-mod/docs/quickstart.md) | Mod／HMCL 安装、账号、房间、世界共享、专用服务器、显示设置与常见问题 |
-| [技术参考](../minecraft-mod/README.md) | Java／Rust 工程结构、原生资源、IPC、身份围栏与测试入口 |
+| [技术导航](../minecraft-mod/README.md) | Mod 工程边界与各主题参考入口 |
+| [构建与打包](../minecraft-mod/docs/reference/building.md) | 原生资源、Universal JAR、专服账号工具、HMCL ZIP 与自动构建 |
+| [架构与协议](../minecraft-mod/docs/reference/architecture.md) | 用户态 TCP、原生 IPC、授权与生命周期围栏 |
+| [Minecraft 适配](../minecraft-mod/docs/reference/adapters.md) | 加载器构建输入、共享游戏实现与世界发布 |
+| [游戏验证](../minecraft-mod/docs/reference/testing.md) | 真实游戏 fixture 的前提、断言与平台范围 |
+| [启动诊断](../minecraft-mod/docs/diagnostics.md) | 初始化错误、日志位置与脱敏反馈 |
 | [贡献指南](../CONTRIBUTING.md) | 修改边界、本地检查与提交规范 |
 | [隐私说明](../PRIVACY.md) · [安全报告](../SECURITY.md) | 本地数据、信任边界与漏洞报告方式 |
 
 ## 上游 P2WLAN
 
-以下文档来自上游 P2WLAN，面向网络核心维护者和 Control／Relay 部署者。搭建 Mod 所需的 Control 服务时，从[自托管](guides/self-hosting.md)开始。
+以下文档来自上游 P2WLAN，面向网络核心维护者和 Control／Relay 部署者。本仓库自动构建入口是 [Minecraft Mod Build](../.github/workflows/minecraft-mod.yml)；保留的上游 workflow 通过手动入口维护，对应版本仍须满足各自发布契约。搭建 Mod 所需的 Control 服务时，从[自托管](guides/self-hosting.md)开始。
 
 ### 服务端部署与运维
 
@@ -58,6 +65,6 @@
 
 - 只描述当前已实现的行为、稳定规则和可复现操作；开发过程记录在 PR／Issue，版本证据保存在 Release 资产。
 - 说明围绕用途、成果和依据，用具体范围、条件与数据限定表述；必要限制放在相关句子中，避免惯例性的防御结尾。UI 提示说明当前状态和下一步操作。
-- Mod 玩家文档放在 `minecraft-mod/docs/`，实现契约放在 `minecraft-mod/README.md`。
+- Mod 玩家指南放在 `minecraft-mod/docs/`，实现、构建与测试契约放在 `minecraft-mod/docs/reference/`，`minecraft-mod/README.md` 维护技术导航。
 - 每条命令都能在仓库或发布包中找到执行入口；命令、路径和默认值以源码为准。
 - 示例统一使用 `example.com` 与占位符，不写入真实地址、密钥、token、用户目录或日志。

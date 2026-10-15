@@ -1,5 +1,7 @@
 # 连接生命周期
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 连接的有效状态由多个有界身份共同决定：daemon 进程、网络 generation、peer session、remote candidate epoch、Relay connection 和 Direct validation owner。旧任务完成时必须先检查它仍属于当前 owner，不能清除新连接的状态。
 
 生命周期顺序是：

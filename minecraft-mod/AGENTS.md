@@ -1,6 +1,6 @@
 # Minecraft Mod project boundaries
 
-All Minecraft integration, native adapters, build tools, tests, and product documentation belong in this directory. Do not edit the upstream Cargo workspace, client, server, scripts, workflows, or root documentation to implement the Mod.
+All Minecraft integration, native adapters, build tools, tests, and product documentation belong in this directory. Keep the upstream Cargo workspace, client, and server as reused dependencies. Repository documentation, packaging, and CI maintenance may update the root entry points and `.github/`; upstream deployment and VPN release rules apply only to those components. The upstream repository skill is reference material for this Mod-focused fork.
 
 The native workspace is independent of the upstream workspace. Reuse upstream code from this checkout, not a maintained vendored fork. Any build-only source adaptation must be exact, fail closed when its contract changes, and write only ignored generated files inside this directory.
 

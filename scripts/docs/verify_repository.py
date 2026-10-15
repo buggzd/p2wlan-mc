@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs"
+MOD = ROOT / "minecraft-mod"
 REQUIRED = (
     ROOT / "AGENTS.md",
     ROOT / "CONTRIBUTING.md",
@@ -20,6 +21,13 @@ REQUIRED = (
     DOCS / "guides/self-hosting.md",
     DOCS / "guides/upgrade-and-recovery.md",
     DOCS / "reference/release-contract.md",
+    MOD / "README.md",
+    MOD / "docs/quickstart.md",
+    MOD / "docs/diagnostics.md",
+    MOD / "docs/reference/architecture.md",
+    MOD / "docs/reference/adapters.md",
+    MOD / "docs/reference/building.md",
+    MOD / "docs/reference/testing.md",
 )
 FORBIDDEN_VALUES = (
     "47" + ".109.40.237",
@@ -76,14 +84,15 @@ TEXT_SCAN_EXEMPTIONS = {
 def markdown_files() -> list[Path]:
     return sorted(
         path
-        for path in DOCS.rglob("*.md")
-        if path.is_file() and "docs/adr/" not in path.as_posix()
+        for directory in (DOCS, MOD / "docs")
+        for path in directory.rglob("*.md")
+        if path.is_file() and not any(part in {"adr", "generated"} for part in path.relative_to(directory).parts[:-1])
     )
 
 
 def tracked_files() -> list[Path]:
     result = subprocess.run(
-        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -159,7 +168,11 @@ def main() -> int:
     if any(line.strip() == "deploy/staging/*.env.example" for line in gitignore.splitlines()):
         errors.append(".gitignore hides redacted staging templates")
 
-    for path in markdown_files() + [ROOT / "README.md", ROOT / "README.en.md"]:
+    root_documents = [ROOT / name for name in (
+        "README.md", "README.en.md", "CONTRIBUTING.md", "PRIVACY.md", "SECURITY.md",
+        "minecraft-mod/README.md",
+    )]
+    for path in markdown_files() + root_documents:
         if not path.exists():
             continue
         text = path.read_text(encoding="utf-8")
@@ -185,7 +198,7 @@ def main() -> int:
 
     print(
         f"PASS repository policy ({len(markdown_files())} public Markdown documents; "
-        f"{scanned} tracked text files scanned)"
+        f"{scanned} repository text files scanned)"
     )
     return 0
 

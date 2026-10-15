@@ -2,11 +2,11 @@
 
 ## 修改边界
 
-先阅读 [仓库 AI 约束](AGENTS.md)、[仓库 skill](skills/p2wlan-repository/SKILL.md)、[文档入口](docs/README.md)和[工程质量与架构边界](docs/explanation/engineering-quality.md)。修改前确认工作区已有改动，并阅读当前 docs/ 下的全部 Markdown 文档及受影响实现、测试、脚本和 workflow。
+先阅读 [仓库 AI 约束](AGENTS.md)、[文档入口](docs/README.md)和[工程质量与架构边界](docs/explanation/engineering-quality.md)，并将[仓库 skill](skills/p2wlan-repository/SKILL.md)作为上游维护参考。修改前确认工作区已有改动，并阅读当前 docs/ 下的全部 Markdown 文档及受影响实现、测试、脚本和 workflow。
 
-Minecraft 集成、原生适配、构建工具、测试和 Mod 产品文档归属 `minecraft-mod/`，还须遵守其中的 [AGENTS.md](minecraft-mod/AGENTS.md)。Java 与 Rust 工程独立于根 Cargo workspace；复用本 checkout 的上游实现，不维护一份 vendored 网络核心，也不为实现 Mod 改写上游客户端／服务端／workflow。根 README 与文档导航负责介绍本仓库产品，不取代 Mod 实现契约。
+Minecraft 集成、原生适配、构建工具、测试和 Mod 产品文档归属 `minecraft-mod/`，还须遵守其中的 [AGENTS.md](minecraft-mod/AGENTS.md)。Java 与 Rust 工程独立于根 Cargo workspace；复用本 checkout 的上游实现，不维护一份 vendored 网络核心，网络核心与服务端保持原有组件边界。根 README、文档导航和 `.github/workflows/minecraft-mod.yml` 服务于本仓库的 Mod 产品；上游发布流水线保留各自组件用途。
 
-- 玩家操作文档写入 `minecraft-mod/docs/`；协议、资源上界和测试入口维护在 [Mod 技术参考](minecraft-mod/README.md)。
+- 玩家操作文档写入 `minecraft-mod/docs/`；协议、资源上界、构建与测试入口维护在 `minecraft-mod/docs/reference/`，由 [Mod 技术导航](minecraft-mod/README.md)索引。
 - 根 `docs/` 保留底层客户端、服务端与共同工程规则，不能将其平台支持、TUN 或发布规则直接当成 Mod 的行为。
 - 实现变更同时更新直接受影响的测试与稳定文档。命令、路径、参数和默认值以当前源码或固定发布包为准。
 - 开发过程放在 PR／Issue，版本绑定证据放在 Release 资产。不要提交一次性验收台账、个人基础设施、日志、凭据、运行身份或构建产物。
@@ -40,7 +40,7 @@ python3 minecraft-mod/tools/native.py test --workspace --locked
 python3 minecraft-mod/tools/native.py clippy --workspace --all-targets -- -D warnings
 ```
 
-Java 测试构建需要 JDK 21；Python 工具使用 Python 3.11+。Fabric 构建、原生资源校验、互操作、游戏 fixture、账号控制台和 HMCL 产物按 [Mod 技术参考](minecraft-mod/README.md)的前提执行。首次依赖获取不要盲目使用 `--offline`。
+Java 测试构建需要 JDK 17 和 21；Python 工具使用 Python 3.11+。Universal／加载器构建、原生资源校验、互操作、游戏 fixture、账号控制台和 HMCL 产物按 [Mod 技术导航](minecraft-mod/README.md)列出的前提执行。首次依赖获取不要盲目使用 `--offline`。
 
 说明类文本遵循[仓库表达规则](AGENTS.md#说明类文本的表达)：围绕目的写清行为、成果和依据，用范围、条件与数据限定表述。UI 给出当前状态和下一步操作，指标说明来源、单位、窗口与样本；必要限制在相关句子中简述。
 

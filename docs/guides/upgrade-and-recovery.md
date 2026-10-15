@@ -1,5 +1,7 @@
 # 升级与恢复
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 ## 升级
 
 每次升级只使用一个固定 server-vX.Y.Z 归档：

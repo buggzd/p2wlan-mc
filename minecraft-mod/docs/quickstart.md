@@ -2,7 +2,7 @@
 
 [仓库介绍](../../README.md) · [技术参考](../README.md) · [文档导航](../../docs/README.md)
 
-本页按玩家、房主和专用服务器三种角色，介绍从安装到进入游戏的完整操作。项目处于实验阶段，固定配置与验证范围见本页和[技术参考](../README.md#installed-universal-gameplay-verification)。
+本页按玩家、房主和专用服务器三种角色，介绍从安装到进入游戏的完整操作。项目处于实验阶段，固定配置与验证范围见本页和[技术参考](reference/testing.md#installed-universal-gameplay-verification)。
 
 ## 安装前准备
 
@@ -37,7 +37,7 @@ Fabric 1.16.5 和 1.18.2 必须使用包含嵌套模块的官方完整 Fabric AP
 
 原生目标为 `macos-aarch64`、`macos-x86_64`、`linux-aarch64`、`linux-x86_64`、`windows-x86_64`。源码构建默认生成主机目标，其他目标须单独构建。Windows 游戏实例、私有配置和提取位置使用本地 NTFS，Mod 会核验用户 ACL。
 
-专用服和共享单人世界使用同一安装 JAR。真实游戏夹具分别检查原版登录、20 轮有序游戏数据往返、至少 18 秒持续游戏和退出清理；兼容矩阵与执行入口见[技术参考](../README.md#installed-universal-gameplay-verification)。Windows/HMCL 与跨机器联机待验证。
+专用服和共享单人世界使用同一安装 JAR。真实游戏夹具分别检查原版登录、20 轮有序游戏数据往返、至少 18 秒持续游戏和退出清理；兼容矩阵与执行入口见[技术参考](reference/testing.md#installed-universal-gameplay-verification)。Windows/HMCL 与跨机器联机待验证。
 
 ### 导入 HMCL ZIP
 
@@ -167,38 +167,13 @@ P2WLAN 面板提供「显示设置」和「延迟统计」。显示设置可在 
 
 房间面板的在线数量统计近期已观测设备加本机，最多观察 16 个对端。Relay 是直连不可用时承载游戏流量的加密中继路径。
 
-## 从源码获得安装包
+## 安装包与源码构建
 
-使用完整仓库：原生适配读取本 checkout 中的上游实现。需要 Python 3.11+、Rust 及原生编译依赖、JDK 17 和 21；Forge 1.16.5 的 MCP 构建另需完整 JDK 8。Forge 的固定 Gradle 与辅助 JDK 准备见[技术参考](../README.md#forge-adapter-and-build-inputs)。第一次构建需要联网解析固定依赖。
+在本仓库的 GitHub Actions 中打开成功的 **Minecraft Mod Build**，从 Artifacts 下载 `p2wlan-minecraft-mod-<源码 SHA>`。自动包包含 Windows x64、Linux x64 和 macOS Apple Silicon 的原生资源；macOS Intel／Linux ARM64 需要另外构建对应资源。
 
-在干净、已提交的仓库根目录运行：
+玩家安装入口为 `p2wlan-universal.jar`，专服账号工具独立构建为 `p2wlan-account-0.1.0.zip`，构建步骤见下方参考。HMCL ZIP 固定一组 Minecraft／加载器／原生目标，文件内的 `P2WLAN-PACK.json` 记录其配置和摘要；按当前电脑与游戏实例选择。
 
-```sh
-python3 minecraft-mod/tools/native_bundle.py
-python3 minecraft-mod/tools/java.py universal-build
-python3 minecraft-mod/tools/universal_jar.py verify minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-universal.jar
-```
-
-输出只有一个玩家安装入口：`minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-universal.jar`。组装器核对各 SDK 输入、共享类、映射、原生摘要与源码身份。各适配器的 JAR 是组装输入。
-
-已有包含 `windows-x86_64` 正式资源的 Universal JAR 时，可生成 Forge 1.20.1 的 HMCL 包：
-
-```sh
-python3 minecraft-mod/tools/java.py universal-hmcl-pack --minecraft 1.20.1 --loader forge --platform windows-x86_64 --mod minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-universal.jar --output minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-hmcl-forge-1.20.1-windows-x86_64-0.1.0.zip
-python3 minecraft-mod/tools/hmcl_pack.py verify minecraft-mod/java/universal-bootstrap/build/distributions/p2wlan-hmcl-forge-1.20.1-windows-x86_64-0.1.0.zip --universal --minecraft 1.20.1 --loader forge --platform windows-x86_64
-```
-
-用表中的精确版本和加载器选择其他配置。Fabric 追加 `--fabric-api /absolute/path/to/fabric-api.jar`，参数指向该版本未经修改的官方完整安装 JAR：1.16.5 使用 0.42.0+1.16，1.18.2 使用 0.77.0+1.18.2，1.20.1 使用 0.92.12+1.20.1，1.21.1 使用 0.116.7+1.21.1。打包器核对固定 SHA-256，1.16.5／1.18.2 的 Maven 依赖聚合文件不通过此校验。各 ZIP 安装的 P2WLAN JAR 字节相同。Forge 1.16.5 导入 HMCL 后仍需加入上述 JVM 参数。
-
-缺失原生目标、开发资源或过期源码身份会使正式打包失败。开发构建使用 `native_bundle.py --development` 与 `universal-build --development`，校验加 `--development`；HMCL 包要求正式资源。`--offline` 只在依赖全部缓存后使用。
-
-账号工具独立构建：
-
-```sh
-python3 minecraft-mod/tools/java.py account-build
-```
-
-输出为 `minecraft-mod/java/account-cli/build/distributions/p2wlan-account-0.1.0.zip`。
+[构建与打包参考](reference/building.md)说明完整 checkout、Rust／JDK 前提、Universal JAR、账号工具、HMCL 打包与校验命令。开发资源需要显式标记；正式 HMCL 包要求正式资源和对应原生目标。
 
 ## 常见问题与反馈边界
 

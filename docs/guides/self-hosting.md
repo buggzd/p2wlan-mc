@@ -1,5 +1,7 @@
 # 自托管指南
 
+> 本页是上游 P2WLAN 网络核心、VPN 客户端或服务端的参考；Minecraft Mod 的安装与操作见[Mod 指南](../../minecraft-mod/docs/quickstart.md)。
+
 ## 部署单元
 
 正式部署使用带有版本、提交和摘要的服务端归档。归档包含：

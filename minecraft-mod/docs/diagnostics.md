@@ -2,7 +2,7 @@
 
 [安装指南](quickstart.md) · [技术参考](../README.md)
 
-本页说明 Fabric / Minecraft 1.21.1 Mod 的启动诊断，用于定位初始化、文件操作和助手启动故障。
+本页说明 Mod 的共享启动诊断入口，用于定位初始化、文件操作和助手启动故障。适用的精确 Minecraft／加载器配置见[安装指南](quickstart.md)。
 
 ## 游戏内查看
 
