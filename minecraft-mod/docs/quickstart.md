@@ -98,7 +98,7 @@ Fabric 1.16.5 和 1.18.2 必须使用包含嵌套模块的官方完整 Fabric AP
 
 ### 1. 启服后初始化和登录
 
-将 Universal JAR 放入服务端的 `mods/`，按照 Fabric／Forge／NeoForge 的流程启动 Minecraft 服务端 JAR，游戏条款由管理员自行确认。启动完成后，在**这个服务端 JAR 自己的控制台**输入下列命令，也就是平时输入 `list`、`stop` 的同一个输入位置。`p2wlan` 是 Mod 注册的 Minecraft 服务端命令，直接输入，不加开头的 `/`：
+将 Universal JAR 放入服务端的 `mods/`，按照 Fabric／Forge／NeoForge 的流程启动 Minecraft 服务端 JAR，游戏条款由管理员自行确认。启动完成后，在**服务端 JAR 控制台**输入下列命令（也就是平时输入 `list`、`stop` 的同一个输入位置）。`p2wlan` 是 Mod 注册的 Minecraft 服务端命令：
 
 ```text
 p2wlan init https://control.example.com
