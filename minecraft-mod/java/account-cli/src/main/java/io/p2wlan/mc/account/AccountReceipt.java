@@ -8,6 +8,7 @@ import io.p2wlan.mc.common.AgentClient;
 import io.p2wlan.mc.common.AgentException;
 import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.common.AgentReply;
+import io.p2wlan.mc.common.JsonTrees;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
@@ -28,7 +29,7 @@ final class AccountReceipt {
         JsonObject data = reply.data();
         return switch (action) {
             case STATUS -> {
-                if (!data.keySet().equals(Set.of("phase", "failure", "account"))
+                if (!JsonTrees.fields(data, Set.of("phase", "failure", "account"))
                         || !text(data.get("phase"), 4).equals("idle") || !data.get("account").isJsonObject()) throw invalid();
                 JsonElement failure = data.get("failure");
                 if (!failure.isJsonNull() && !text(failure, 48).matches("[A-Z][A-Z0-9_]{0,47}")) throw invalid();
@@ -47,7 +48,7 @@ final class AccountReceipt {
                         : catalog.rooms().stream().map(room -> "ROOM " + room.code()).toList();
             }
             case CREATE_ROOM, JOIN_ROOM -> {
-                if (!data.keySet().equals(Set.of("room"))) throw invalid();
+                if (!JsonTrees.fields(data, Set.of("room"))) throw invalid();
                 JsonObject projection = new JsonObject();
                 var rooms = new com.google.gson.JsonArray();
                 rooms.add(data.get("room")); projection.add("rooms", rooms);
@@ -62,7 +63,7 @@ final class AccountReceipt {
         if (authenticated == null || !authenticated.isJsonPrimitive()
                 || !authenticated.getAsJsonPrimitive().isBoolean()) throw invalid();
         boolean signedIn = authenticated.getAsBoolean();
-        if (!value.keySet().equals(signedIn ? Set.of("authenticated", "server", "user_id") : Set.of("authenticated"))) throw invalid();
+        if (!JsonTrees.fields(value, signedIn ? Set.of("authenticated", "server", "user_id") : Set.of("authenticated"))) throw invalid();
         if (signedIn) { text(value.get("server"), 2048); text(value.get("user_id"), 128); }
         return signedIn;
     }

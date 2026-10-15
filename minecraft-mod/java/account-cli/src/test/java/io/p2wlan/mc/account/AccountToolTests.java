@@ -6,6 +6,7 @@ import io.p2wlan.mc.common.AgentException;
 import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.common.AgentReply;
 import io.p2wlan.mc.common.ControlTransport;
+import io.p2wlan.mc.common.JsonTrees;
 import io.p2wlan.mc.common.RoomPassword;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -55,7 +56,7 @@ public final class AccountToolTests {
         });
     }
     private static AgentReply reply(String json) {
-        return new AgentReply("0123456789abcdef0123456789abcdef", 1, JsonParser.parseString(json).getAsJsonObject());
+        return new AgentReply("0123456789abcdef0123456789abcdef", 1, new JsonParser().parse(json).getAsJsonObject());
     }
     private static String room() {
         return "{\"id\":\"room-fixture\",\"code\":\"12345678\",\"name\":\"\\u001b[2Jfixture-secret\",\"cidr\":\"10.0.0.0/24\",\"role\":\"\\u001b[2J\"}";
@@ -82,7 +83,7 @@ public final class AccountToolTests {
     private static void input() throws Exception {
         Input login = new Input("https://example.com", "fixture-account", "fixture-secret");
         try (var command = prepare(LOGIN, login)) {
-            check(command.arguments().keySet().equals(java.util.Set.of("server", "identifier", "password")));
+            check(JsonTrees.fields(command.arguments(), java.util.Set.of("server", "identifier", "password")));
             check(command.arguments().get("password").getAsString().equals("fixture-secret"));
             check(login.masked.equals(List.of(false, false, true)));
             login.cleared(3);

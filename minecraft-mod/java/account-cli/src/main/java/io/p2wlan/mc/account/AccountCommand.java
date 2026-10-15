@@ -6,7 +6,6 @@ import io.p2wlan.mc.common.RoomPassword;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.Set;
 
 /** One explicit intent. No native child exists while a human enters input;
  * credentials are never command-line/environment options or echoed by us. */
@@ -121,6 +120,6 @@ final class AccountCommand implements AutoCloseable {
     // soon as encoding ends, in addition to clearing every console char array.
     JsonObject arguments() { return arguments; }
     @Override public void close() {
-        for (String key : Set.copyOf(arguments.keySet())) arguments.remove(key);
+        arguments.entrySet().clear();
     }
 }
