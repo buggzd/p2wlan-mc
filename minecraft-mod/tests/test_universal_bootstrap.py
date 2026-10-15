@@ -94,7 +94,7 @@ class UniversalBootstrapTests(unittest.TestCase):
         self.assertIn('"FABRIC|1.16.5"', installations)
         self.assertIn('"FORGE|1.16.5"', installations)
         self.assertNotIn('"NEOFORGE|1.16.5"', installations)
-        server = 'List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin")'
+        server = 'List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin", "ConsoleSourceMixin")'
         for family, loader, extra in (('FABRIC', 'fabric', 'FabricLoginNetworkingMixin'),
                                      ('FML', 'forge', 'ClientShutdownMixin')):
             names = 'List.of("ClientConnectionMixin", "IntegratedServerMixin", "MultiplayerListMixin", "MultiplayerListAccessor", "MultiplayerScreenMixin", "' + extra + '", "LanNarrationMixin")'

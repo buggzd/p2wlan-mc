@@ -29,11 +29,11 @@ This repository focuses on the Minecraft Mod. It bundles a native Agent built on
 - **All in-game** — A pixel LAN icon in the title, Multiplayer and pause menus; `/p2wlan-client` opens the same panel.
 - **Room-based play** — Create a room; friends join with an 8-digit room code and password.
 - **Vanilla server browser** — Shared worlds appear in the Multiplayer list. Select, double-click or press Join Server; your saved servers stay untouched.
-- **Integrated and dedicated servers** — Share or unshare a singleplayer world with one click; dedicated servers use `/p2wlan` commands to connect and publish.
+- **Integrated and dedicated servers** — Share or unshare a singleplayer world with one click; configure dedicated servers through the Minecraft console and restore the saved room/sharing on restart.
 - **Direct first, Relay fallback** — The native core handles encrypted sessions, NAT traversal and Direct/Relay switching.
 - **Live network stats** — RTT, Direct/Relay path, virtual IP, jitter, MTU and traffic at a glance, plus an optional in-game HUD and latency statistics.
 - **Vanilla join flow** — Preserves player login, configuration and resource-pack consent. Shared integrated worlds accept offline game names; dedicated servers follow `online-mode`. P2WLAN accounts are separate from Minecraft accounts.
-- **Server account tool** — A standalone `p2wlan-account` CLI signs a dedicated server in and joins a room while the server is stopped, no GUI required.
+- **Dedicated console controls** — Initialize, sign in, create/join a room and share after server startup. Manual disconnect/unshare choices are saved for the next startup.
 
 ## Get the Mod
 
@@ -83,20 +83,30 @@ When done, click **断开房间** (Disconnect room) in the panel. Leaving a worl
 
 ### Dedicated server
 
-Install the same Universal JAR on the server. While it is stopped, run the separate `p2wlan-account` tool as the server's OS user against that server's `config/p2wlan-private/` directory to sign in and join a room.
-
-The account tool is [built separately](minecraft-mod/docs/reference/building.md#dedicated-server-account-console); it is not included in the current Actions player artifact. After preparing the host native resource, run `python3 minecraft-mod/tools/java.py account-build` to produce `minecraft-mod/java/account-cli/build/distributions/p2wlan-account-0.1.0.zip`.
-
-Then start the server normally and run these commands in its console:
+Install the same Universal JAR and start the server normally. Configure it in the
+actual server console. Passwords below are placeholders; terminal or hosting-panel
+history may retain complete commands, so check access to those records before
+entering credentials:
 
 | Command | Action |
 | --- | --- |
-| `p2wlan connect <room-code>` | Connect a room the server has joined |
+| `p2wlan init https://control.example.com` | Save the Control root origin |
+| `p2wlan login "user@example.com" "<account-password>"` | Sign in; use `register` for a new account |
+| `p2wlan create "Server room" "<room-password>"` | Create and connect; use `join <8-digit-code> "<room-password>"` to join |
 | `p2wlan runtime` | Wait for runtime state `ready` |
 | `p2wlan host` | Publish the current world |
 | `p2wlan world` | Inspect publication status |
 
-`p2wlan unhost` stops sharing; `p2wlan disconnect` leaves the room network. In-game commands require permission level 4 and a leading `/`. Dedicated servers follow their own `online-mode` setting.
+`config/p2wlan-server.json` saves the canonical room and share setting. Restarting
+reconnects the same room and restores sharing when enabled. `p2wlan unhost` saves
+sharing disabled; `p2wlan disconnect` clears the room selection and keeps the
+account/membership. Inspect restoration errors with `p2wlan status`, correct the
+problem and use `p2wlan restore` for one manual attempt.
+
+Initialization and password-bearing commands require the actual server console;
+players with permission level 4 may run other non-sensitive commands with a
+leading `/`. Dedicated servers follow their own `online-mode` setting. The
+standalone account tool remains an [optional offline maintenance entry](minecraft-mod/docs/reference/building.md#dedicated-server-account-console).
 
 See the **[user guide (Chinese)](minecraft-mod/docs/quickstart.md)** for full steps, HMCL import, display settings and troubleshooting.
 
@@ -150,7 +160,7 @@ These commands produce `minecraft-mod/dist/p2wlan-universal.jar` with the native
 | --- | --- |
 | Automated checks | Independent Rust workspace, shared Java, Python build/archive contracts, and final Universal/HMCL verification; Actions builds do not launch Minecraft gameplay. |
 | Gameplay verification entry points | Installed Universal fixtures select the ten exact profiles above and check dedicated/integrated worlds, Vanilla login, ordered game exchanges and cleanup. Execution prerequisites and recorded scope are in the [gameplay reference](minecraft-mod/docs/reference/testing.md#installed-universal-gameplay-verification). |
-| ⏳ Environment checks pending | Cross-machine/public-network play, Windows/HMCL on real devices, Linux graphical runs, online Minecraft authentication, forced Relay, long sessions and network-change recovery, compatibility with other Mods, independent security audit. |
+| ⏳ Environment checks pending | Dedicated-console setup and restart restoration in a real game, cross-machine/public-network play, Windows/HMCL on real devices, Linux graphical runs, online Minecraft authentication, forced Relay, long sessions and network-change recovery, compatibility with other Mods, independent security audit. |
 | ➖ Outside the matrix | Other Minecraft/loader profiles, Bedrock and mobile. |
 
 Direct connectivity depends on both sides' NAT and firewalls; without a configured Relay, players who cannot connect directly cannot play together.

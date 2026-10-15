@@ -126,6 +126,8 @@ public final class AgentLifecycle implements AutoCloseable {
         }
     }
     public ModDiagnostics diagnostics() { return diagnostics; }
+    /** Profile location only; account credentials remain native-owned. */
+    public Path profilePath() { return profile; }
     public Status status() { synchronized (gate) { return new Status(phase, reason); } }
     private void stop(Throwable failure) {
         BundledAgent owner;

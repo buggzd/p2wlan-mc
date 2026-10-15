@@ -233,7 +233,7 @@ public final class BootstrapPolicyTests {
         check(selected.family() == Family.FABRIC);
         check(select(json("{\"id\":\"1.16.5\",\"name\":\"1.16.5\"}")).equals(selected));
         String active = "io.p2wlan.mc.fabric.game.v1_16_5";
-        var serverNames = List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin");
+        var serverNames = List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin", "ConsoleSourceMixin");
         var clientNames = List.of("ClientConnectionMixin", "IntegratedServerMixin", "MultiplayerListMixin",
                 "MultiplayerListAccessor", "MultiplayerScreenMixin", "FabricLoginNetworkingMixin", "LanNarrationMixin");
         var server = new ServerMixinPlugin(selected); server.onLoad(active + ".server.mixin");
@@ -286,7 +286,7 @@ public final class BootstrapPolicyTests {
         check(select(resources(Set.of(FORGE_MARKER),
                 "{\"id\":\"1.16.5\",\"name\":\"1.16.5\"}".getBytes(StandardCharsets.UTF_8))).equals(selected));
         String active = "io.p2wlan.mc.game.v1_16_5";
-        var serverNames = List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin");
+        var serverNames = List.of("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin", "ConsoleSourceMixin");
         var clientNames = List.of("ClientConnectionMixin", "IntegratedServerMixin", "MultiplayerListMixin",
                 "MultiplayerListAccessor", "MultiplayerScreenMixin", "ClientShutdownMixin", "LanNarrationMixin");
         var server = new ServerMixinPlugin(selected); server.onLoad(active + ".server.mixin");

@@ -19,7 +19,7 @@ python3 minecraft-mod/tools/universal_jar.py verify minecraft-mod/dist/p2wlan-un
 | Artifact | Location |
 | --- | --- |
 | Player/client/server installation JAR from the command above | `minecraft-mod/dist/p2wlan-universal.jar` |
-| Dedicated-server account distribution | `minecraft-mod/java/account-cli/build/distributions/p2wlan-account-0.1.0.zip` |
+| Optional offline account distribution | `minecraft-mod/java/account-cli/build/distributions/p2wlan-account-0.1.0.zip` |
 | Native build resources | `minecraft-mod/java/native-bundle/build/generatedResources/p2wlan/native/<platform>/` |
 | Isolated SDK assembly intermediates | Temporary `minecraft-mod/java/universal-bootstrap/build/inputs-*` trees, removed after assembly |
 
@@ -107,7 +107,9 @@ This checks bundle validation, private extraction, replacement/symlink/hard-link
 
 ## Dedicated-server account console
 
-The independent `account-cli` distribution initializes the **P2WLAN Control account**, not a Microsoft/Minecraft account. It imports no game/loader classes, uses Java 17 bytecode and the same common IPC/lifecycle and verified native resource as the Mod. The project build still uses Java 21. It does not connect a room runtime, publish a world, change Minecraft authentication settings or accept any terms.
+Dedicated servers are configured after normal Minecraft startup through their own `p2wlan init`, `login`/`register`, `create`/`join`, `connect` and `host` commands. The Mod saves room/share intent and restores it on restart; see the [server console guide](../quickstart.md#专用服务器控制台配置与重启恢复). The Universal JAR contains this workflow.
+
+The independent `account-cli` distribution remains an optional **offline** maintenance entry for the **P2WLAN Control account**, separate from Microsoft/Minecraft accounts. It imports no game/loader classes, uses Java 17 bytecode and the same common IPC/lifecycle and verified native resource as the Mod. The project build still uses Java 21. It does not connect a room runtime, publish a world, change Minecraft authentication settings or accept any terms.
 
 From a clean checkout, build the host resource and distribution:
 
@@ -118,7 +120,7 @@ python3 minecraft-mod/tools/java.py account-build --offline
 
 The installed distribution is `java/account-cli/build/install/p2wlan-account/`; the matching zip is `java/account-cli/build/distributions/p2wlan-account-0.1.0.zip`, both beneath `minecraft-mod/`. Verification requires matching installed/zip bytes, Java 17 game-independent console/common classes, fixed dependencies, native executable hashes and current source binding. Native targets are limited to resources actually packaged on the build host, not inferred cross-platform coverage. For an explicitly labelled development bundle use `native_bundle.py --development --offline` and `java.py account-build -PdevelopmentNative --offline`.
 
-Stop the Minecraft server first. Run as the same OS user that runs it, and pass that server's exact private-profile directory explicitly. For the Mod it is `SERVER_ROOT/config/p2wlan-private`. Do not copy profiles between servers/devices or scan another application's credentials. From the installed or extracted distribution root:
+When using this optional offline tool, stop the Minecraft server first so the tool can hold the exclusive Native profile lock. Run as the same OS user that runs it, and pass that server's exact private-profile directory explicitly. For the Mod it is `SERVER_ROOT/config/p2wlan-private`. Do not copy profiles between servers/devices or scan another application's credentials. From the installed or extracted distribution root:
 
 ```sh
 ./bin/p2wlan-account status --profile-dir /absolute/path/to/server/config/p2wlan-private
@@ -133,7 +135,7 @@ Input is collected and validated before any helper starts. Fields use the native
 
 One lifecycle owns one helper and one request, with no mutation retry. Startup/request waits are at most 41/6 seconds (the underlying owner/client deadlines are 40/5 seconds); cleanup waits at most 20 seconds, including a bounded shutdown hook. Replies are checked against the exact lifecycle/native owner before capture. Output is a bounded historical command receipt, emitted after child/extraction cleanup, not a live room/path cache: status exposes authenticated/signed-out, and room operations expose only eight-digit codes. URLs, user IDs, JWTs, arbitrary room names and child stderr are not projected. An uncertain mutation emits `DELIVERY_UNKNOWN`; inspect `status`/`rooms` before deciding whether to retry. Profile-lock/privacy failures can terminate the native helper before hello and therefore surface as a generic typed startup/exit failure, not a diagnosis inferred from logs.
 
-After setup, start the server normally and use the [operator commands](adapters.md#guarded-local-world-publication) to connect the chosen room and explicitly host it. The console does not bypass the native profile lock or become another writer of credentials/network state.
+After offline setup, start the server normally and use the [operator commands](adapters.md#guarded-local-world-publication) to connect the chosen room and explicitly host it. Those Mod commands save the room/share selection in `config/p2wlan-server.json` for later restarts. The offline tool does not write this intent file, bypass the Native profile lock or become another writer of network state.
 
 The opt-in console fixture uses the installed launchers and packaged native executable against the unchanged Go Control, disposable accounts and real POSIX terminals. It checks password masking/no echo, EOF/no-console rejection before helper launch, room/account persistence, same-profile exclusion and helper cleanup during an in-flight mutation. With the [Go Control executable](architecture.md#managed-account-and-room-profiles) built:
 

@@ -206,3 +206,30 @@ tasks.register('layerNativeResourcesTest', JavaExec) {
     mainClass = 'io.p2wlan.mc.common.LayerNativeResourcesTests'
 }
 check.dependsOn layerNativeResourcesTest
+
+// Dedicated console intents, bounded restart workflow and durable preferences.
+tasks.register('dedicatedServerTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.DedicatedServerControllerTests'
+}
+tasks.register('dedicatedSettingsTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.DedicatedServerSettingsTests'
+}
+check.dependsOn dedicatedServerTest, dedicatedSettingsTest
+
+tasks.register('consoleCommandInputTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.ConsoleCommandInputTests'
+}
+check.dependsOn consoleCommandInputTest
+
+tasks.register('dedicatedAccountTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.p2wlan.mc.common.DedicatedServerAccountTests'
+}
+check.dependsOn dedicatedAccountTest

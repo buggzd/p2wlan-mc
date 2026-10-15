@@ -94,52 +94,62 @@ Fabric 1.16.5 和 1.18.2 必须使用包含嵌套模块的官方完整 Fabric AP
 
 共享按钮无需开启作弊。P2WLAN 共享单人世界支持 HMCL 离线账号；通过共享通道加入的朋友使用按游戏名生成的原版离线 UUID，房主与朋友使用不同的 Minecraft 游戏名。朋友进入世界后，可通过移动、聊天等游戏交互确认联机。
 
-## 专用服务器：初始化账号并发布世界
+## 专用服务器：控制台配置与重启恢复
 
-### 1. 停服初始化 P2WLAN 账号
+### 1. 启服后初始化和登录
 
-使用与 Mod 对应的 `p2wlan-account` 分发包。先停止 Minecraft 服务器，再以**运行服务器的同一系统用户**操作该服务器的 `config/p2wlan-private/`。Mod 和账号工具不能同时占用同一私有目录。
-
-在已解压的账号分发包根目录运行。下面是 macOS／Linux 启动器示例，将绝对目录占位符替换为自己的服务器目录：
-
-```sh
-./bin/p2wlan-account status --profile-dir /absolute/path/to/server/config/p2wlan-private
-./bin/p2wlan-account login --profile-dir /absolute/path/to/server/config/p2wlan-private
-./bin/p2wlan-account rooms --profile-dir /absolute/path/to/server/config/p2wlan-private
-./bin/p2wlan-account join-room --profile-dir /absolute/path/to/server/config/p2wlan-private
-```
-
-没有 P2WLAN 账号时改用 `register`，需要创建房间时使用 `create-room`。Control、邮箱和密码通过终端交互输入；密码操作要求真实终端，不支持密码命令行参数或回显 stdin 后备。不要把账号密码放进 Minecraft 命令、环境变量或公开日志。
-
-工具只初始化账号／成员关系，不启动房间、不发布世界、不接受 Minecraft EULA，也不修改服务器的认证模式。Windows 有独立的批处理启动器，但真实 Windows 配置／启动验收仍未完成。
-
-### 2. 启服后显式连接与发布
-
-按照对应加载器的服务器流程启动，游戏条款由管理员自行确认。以下为游戏内命令，要求权限级别 **4**；在服务器控制台输入时省略开头的 `/`。将 `<房间码>` 替换为已加入房间的 8 位数字码：
+安装同一份 Universal JAR，按照对应加载器的服务器流程正常启动，游戏条款由管理员自行确认。在**服务器本机控制台**输入下列命令，无需停服或另装账号工具：
 
 ```text
-/p2wlan status
-/p2wlan connect <房间码>
-/p2wlan runtime
+p2wlan init https://control.example.com
+p2wlan login "user@example.com" "<账号密码>"
 ```
 
-等待 `runtime` 为 `ready` 后再执行：
+没有 P2WLAN 账号时，用 `p2wlan register "user@example.com" "<账号密码>"` 代替登录。`init` 保存 Control 根地址；优先使用 HTTPS，选择 HTTP 时控制台会提示账号和房间密码通过明文连接发送。P2WLAN 账号独立于 Microsoft／Minecraft 账号。
+
+`init`、`login`、`register`、`create`、`join` 仅接受真正的服务器控制台来源，拒绝玩家、RCON 和命令方块。参数可以使用双引号；其中的双引号和反斜线分别写成 `\"` 和 `\\`，密码中的空格保持原样。Mod 的反馈不回显这些输入，**终端、托管面板或控制台历史仍可能保留完整命令**，输入密码前确认这些记录的访问范围。输入的账号密码和房间密码不写入恢复配置。
+
+### 2. 创建／加入房间并共享
+
+创建一个房间：
 
 ```text
-/p2wlan host
-/p2wlan world
+p2wlan create "服务器房间" "<房间密码>"
 ```
 
-`HOSTED` 表示本机受保护的世界监听和原生服务注册已创建。朋友需要连接同一房间，在多人游戏界面发现并加入。
+加入他人的房间时，改用 `p2wlan join 12345678 "<房间密码>"`，将 `12345678` 替换为实际的 8 位房间码。房间密码要求 **8–72 UTF-8 字节**。这两个控制台命令成功后都会保存房间并开始连接。
 
-### 3. 停止共享或断开
+已经是房间成员时，可用 `p2wlan rooms` 查看房间，再用 `p2wlan connect <房间码或房间ID>` 连接。`rooms` 也可在连接期间查询；切换账号或房间的命令会先撤销当前共享并停止旧运行时，再执行账号或成员变更。
 
 ```text
-/p2wlan unhost
-/p2wlan disconnect
+p2wlan runtime
+p2wlan host
+p2wlan world
 ```
 
-`unhost` 撤销世界共享但保留房间连接；`disconnect` 先撤销世界，再停止房间运行时，保留账号会话和成员关系。专用服务器原有普通监听端口不受这些命令管理，公网暴露仍由管理员控制。
+先通过 `runtime` 确认 `ready`，再用 `host` 共享并保存自动共享设置。`world` 的 `HOSTED` 表示本机受保护的世界监听和原生服务注册已创建；朋友连接同一房间后，在多人游戏界面发现并加入。
+
+### 3. 重启与手动调整
+
+`config/p2wlan-server.json` 保存 Control 地址、账号 ID、规范房间 ID 和共享开关；会话及设备身份仍由原生 Agent 保存在 `config/p2wlan-private/`。服务器重启后，Mod 在助手就绪后使用同一 Control／账号的保存会话连接原房间；自动共享开启时，再等待房间运行时就绪并发布当前世界。运行时就绪等待最多 **40 秒**，每次启动只尝试一次恢复。
+
+```text
+p2wlan status
+p2wlan restore
+```
+
+`status` 显示恢复阶段、失败码和已保存的房间／共享设置。会话过期时先重新登录，网络失败时先恢复服务，再执行 `restore` 重试保存的房间；恢复过程不自动注册账号、重新登录或创建房间。配置无效时用 `init`、登录和连接命令重新保存；手工编辑配置文件后需重启服务器加载。切换 Control 地址前先断开房间，再执行 `init` 和登录。
+
+| 命令 | 当前操作与下次启动 |
+| --- | --- |
+| `p2wlan unhost` | 停止共享，保留房间连接；重启仍连接原房间，保持不共享。 |
+| `p2wlan disconnect` | 先撤销共享再停止房间，清除保存的房间选择；账号和成员关系保留，下次启动等待手动连接。 |
+| `p2wlan logout` | 撤销共享、停止房间并清除账号会话及房间选择，下次需要重新登录。 |
+| `p2wlan host` | 共享当前世界，并保存重启后自动共享。 |
+
+其他非敏感 `/p2wlan` 命令也可由权限级别 **4** 的玩家执行；玩家命令需带开头的 `/`。专用服务器遵循自己的 `online-mode`，原有普通监听端口仍由管理员控制。
+
+独立的 [`p2wlan-account` 工具](reference/building.md#dedicated-server-account-console)保留为可选的离线账号维护入口；使用它时才需要停服，避免同时占用私有目录。控制台配置与重启恢复的真实游戏验收状态见[验证参考](reference/testing.md#dedicated-console-and-restart-workflow)。
 
 ## 朋友：从原版多人游戏加入
 
@@ -171,7 +181,7 @@ P2WLAN 面板提供「显示设置」和「延迟统计」。显示设置可在 
 
 在本仓库的 GitHub Actions 中打开成功的 **Minecraft Mod Build**，从 Artifacts 下载 `p2wlan-minecraft-mod-<源码 SHA>`。自动包包含 Windows x64、Linux x64 和 macOS Apple Silicon 的原生资源；macOS Intel／Linux ARM64 需要另外构建对应资源。
 
-玩家安装入口为 `p2wlan-universal.jar`，专服账号工具独立构建为 `p2wlan-account-0.1.0.zip`，构建步骤见下方参考。HMCL ZIP 固定一组 Minecraft／加载器／原生目标，文件内的 `P2WLAN-PACK.json` 记录其配置和摘要；按当前电脑与游戏实例选择。
+玩家与专服安装入口为 `p2wlan-universal.jar`；可选离线账号工具独立构建为 `p2wlan-account-0.1.0.zip`，构建步骤见下方参考。HMCL ZIP 固定一组 Minecraft／加载器／原生目标，文件内的 `P2WLAN-PACK.json` 记录其配置和摘要；按当前电脑与游戏实例选择。
 
 [构建与打包参考](reference/building.md)说明完整 checkout、Rust／JDK 前提、Universal JAR、账号工具、HMCL 打包与校验命令。开发资源需要显式标记；正式 HMCL 包要求正式资源和对应原生目标。
 

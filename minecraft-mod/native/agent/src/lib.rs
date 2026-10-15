@@ -385,7 +385,7 @@ impl State {
                 | "leave_room"
                 | "connect_room"
         ) {
-            if self.runtime.is_some() {
+            if request.operation != "rooms" && self.runtime.is_some() {
                 return Err(AgentError::RuntimeBusy);
             }
             return tokio::time::timeout(Duration::from_secs(3), self.account_command(request))

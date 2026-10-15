@@ -17,6 +17,7 @@ public final class WorldSessions<S> implements AutoCloseable {
         private final ScheduledTaskGate intents = new ScheduledTaskGate(Duration.ofSeconds(3));
         private final UiCompletionGate commands = new UiCompletionGate();
         private volatile WorldHost host;
+        private DedicatedServerController dedicated;
         private World(WorldSessions<S> owner, S server, BooleanSupplier onThread, WorldHost.TargetFactory targets) {
             this.owner = owner; this.server = server; this.onThread = onThread; this.targets = targets;
         }
@@ -24,6 +25,8 @@ public final class WorldSessions<S> implements AutoCloseable {
         public boolean isCurrent() { return live.get() && owner.current.get() == this; }
         public ScheduledTaskGate intents() { return intents; }
         public UiCompletionGate commands() { return commands; }
+        public DedicatedServerController dedicated() { return dedicated; }
+        public boolean publicationAvailable() { WorldHost value = host; return value == null || value.isReleased(); }
         public WorldHost.Status status() { WorldHost value = host; return value == null ? null : value.status(); }
         public void host() throws WorldHostException {
             host(RuntimeView.ready(owner.agent.current().orElse(null)).orElse(null));
@@ -41,8 +44,11 @@ public final class WorldSessions<S> implements AutoCloseable {
             WorldHost value = host;
             return isCurrent() && value != null && value.status().phase() == WorldHost.Phase.HOSTED && value.isCurrent();
         }
-        public void tick() { WorldHost value = host; if (value != null && !value.isCurrent()) value.revoke(); }
-        private void retire() { live.set(false); intents.close(); commands.close(); unhost(); }
+        public void tick() {
+            WorldHost value = host; if (value != null && !value.isCurrent()) value.revoke();
+            if (dedicated != null) dedicated.tick();
+        }
+        private void retire() { live.set(false); if (dedicated != null) dedicated.close(); intents.close(); commands.close(); unhost(); }
     }
     private final AgentLifecycle agent;
     private final AtomicReference<World<S>> current = new AtomicReference<>();
@@ -52,10 +58,15 @@ public final class WorldSessions<S> implements AutoCloseable {
     }
     /** Called by a loader's serialized server-started event, never a worker. */
     public World<S> started(S server, BooleanSupplier onThread, WorldHost.TargetFactory targets) {
+        return started(server, onThread, targets, false, ignored -> {});
+    }
+    public World<S> started(S server, BooleanSupplier onThread, WorldHost.TargetFactory targets,
+            boolean dedicated, java.util.function.Consumer<String> output) {
         if (server == null || onThread == null || targets == null) throw new IllegalArgumentException("INVALID_WORLD_SCOPE");
         World<S> next = new World<>(this, server, onThread, targets);
         World<S> old = current.getAndSet(next);
         if (old != null) old.retire();
+        if (dedicated) next.dedicated = new DedicatedServerController(next, agent, onThread, output);
         return next;
     }
     public World<S> current(S server) {

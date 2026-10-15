@@ -261,7 +261,7 @@ class UniversalJarTests(unittest.TestCase):
         sixteen = universal.SDK_INPUTS['fabric_1165'].binding.class_prefix
         self.assertEqual(set(universal.classes(files, sixteen)),
                          {universal.relocate_name(name, sixteen) for name in universal.role_game_classes('fabric_1165')})
-        self.assertEqual(len(universal.game_catalog()), 405)
+        self.assertEqual(len(universal.game_catalog()), 407)
         self.assertEqual(self.check(universal.archive_bytes(files))['loaders']['1.16.5'], {'fabric': '0.16.14', 'forge': '36.2.42'})
         old_forge = universal.members(inputs[5])
         for name in universal.FORGE_NEUTRAL:

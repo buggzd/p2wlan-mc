@@ -7,5 +7,9 @@ import net.minecraft.network.chat.Component;
 /** Minecraft 1.18.2 expects the component at command-dispatch time. */
 public final class GameCommandApi {
     private GameCommandApi() {}
+    /** withSource preserves object identity only for the exact original source. */
+    public static boolean isConsole(CommandSourceStack source) {
+        return source.getServer().isDedicatedServer() && source.withSource(source.getServer()) == source;
+    }
     public static void success(CommandSourceStack source, Supplier<Component> text, boolean broadcast) { source.sendSuccess(text.get(), broadcast); }
 }

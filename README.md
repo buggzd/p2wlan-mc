@@ -29,11 +29,11 @@ P2WLAN Minecraft 是一个 **Minecraft Java 联机 Mod**。在游戏里登录、
 - **游戏内一站式** — 标题、多人游戏和暂停菜单都有局域网像素图标，也可以用 `/p2wlan-client` 打开面板。
 - **房间制联机** — 创建房间，朋友使用 8 位房间码和密码加入。
 - **原版选服体验** — 房间内共享的世界出现在多人游戏列表里，选中、双击或「加入服务器」即可进入；已保存的服务器保持不变。
-- **单人世界与专用服务器** — 单人世界一键共享／停止共享；专用服务器通过 `/p2wlan` 命令连接房间和发布世界。
+- **单人世界与专用服务器** — 单人世界一键共享／停止共享；专用服务器在 Minecraft 控制台完成配置，重启自动恢复房间与共享设置。
 - **直连优先，中继兜底** — 原生核心负责加密会话、NAT 打洞和 Direct／Relay 切换。
 - **网络状态可视** — RTT、直连／中继、虚拟 IP、抖动、MTU 和累计流量一目了然，可选开启游戏内 HUD 和延迟统计。
 - **原版加入流程** — 保留玩家登录、配置和资源包确认；共享世界支持离线游戏名，专用服遵循 `online-mode`。P2WLAN 账号与 Minecraft 账号相互独立。
-- **专服账号工具** — 独立的 `p2wlan-account` 命令行工具，在服务器停机时完成登录和入房，无需图形界面。
+- **专服控制台管理** — 启服后初始化、登录、创建／加入房间和共享世界；手动断开或停止共享会保存为下一次启动的设置。
 
 ## 获取安装包
 
@@ -83,20 +83,20 @@ P2WLAN Minecraft 是一个 **Minecraft Java 联机 Mod**。在游戏里登录、
 
 ### 专用服务器
 
-为服务器安装相同的 Universal JAR。停服后，以运行服务器的同一系统用户，用独立的 `p2wlan-account` 工具初始化该服务器的 `config/p2wlan-private/`，登录并加入房间。
-
-账号工具需要[单独构建](minecraft-mod/docs/reference/building.md#dedicated-server-account-console)，当前 Actions 玩家产物不含它。准备好本机原生资源后，运行 `python3 minecraft-mod/tools/java.py account-build`，得到 `minecraft-mod/java/account-cli/build/distributions/p2wlan-account-0.1.0.zip`。
-
-初始化完成后正常启服，在控制台依次执行：
+安装相同的 Universal JAR，正常启服后，在服务器本机控制台完成配置。下面的密码是占位符；终端或托管面板的历史可能保留完整命令，输入前确认记录的访问范围：
 
 | 命令 | 操作 |
 | --- | --- |
-| `p2wlan connect <房间码>` | 连接已加入的房间 |
+| `p2wlan init https://control.example.com` | 保存 Control 根地址 |
+| `p2wlan login "user@example.com" "<账号密码>"` | 登录；新账号改用 `register` |
+| `p2wlan create "服务器房间" "<房间密码>"` | 创建并连接；加入他人房间改用 `join <8位房间码> "<房间密码>"` |
 | `p2wlan runtime` | 等待运行时显示 `ready` |
 | `p2wlan host` | 发布当前世界 |
 | `p2wlan world` | 查看发布状态 |
 
-`p2wlan unhost` 停止共享，`p2wlan disconnect` 断开房间。游戏内执行上述命令需要权限等级 4，并在开头加 `/`。专用服务器遵循自己的 `online-mode` 设置。
+房间和共享选择保存在 `config/p2wlan-server.json`，服务器重启后自动连接同一房间并按设置共享。`p2wlan unhost` 保存为不共享；`p2wlan disconnect` 清除房间选择，保留账号和成员关系。恢复失败时查看 `p2wlan status`，修正后用 `p2wlan restore` 重试。
+
+初始化和带密码的命令仅接受真正的服务器控制台；其他非敏感命令可由权限等级 4 的玩家加 `/` 执行。专用服务器遵循自己的 `online-mode` 设置。独立账号工具保留为[可选离线维护入口](minecraft-mod/docs/reference/building.md#dedicated-server-account-console)。
 
 完整步骤、HMCL 导入、显示设置和常见问题见 **[安装与联机指南](minecraft-mod/docs/quickstart.md)**。
 
@@ -150,7 +150,7 @@ HMCL ZIP、`BUILD-METADATA.json` 和 `SHA256SUMS` 由 `minecraft-mod/tools/distr
 | --- | --- |
 | 自动构建检查 | 独立 Rust workspace、共享 Java、Python 构建与归档契约，以及最终 Universal／HMCL 产物校验；Actions 构建不启动 Minecraft 游戏。 |
 | 游戏验证入口 | 已安装 Universal 夹具可选择上表十个精确配置，检查专用服务器与共享单人世界、原版登录、有序游戏数据往返和退出清理。执行条件和已记录范围见[游戏验证参考](minecraft-mod/docs/reference/testing.md#installed-universal-gameplay-verification)。 |
-| ⏳ 待环境验证 | 跨机器／公网联机、Windows／HMCL 实机、Linux 图形环境、正版在线认证、强制中继、长时间游戏与切网恢复、与其他 Mod 的兼容性、独立安全审计。 |
+| ⏳ 待环境验证 | 专服控制台配置与重启恢复的真实游戏验收、跨机器／公网联机、Windows／HMCL 实机、Linux 图形环境、正版在线认证、强制中继、长时间游戏与切网恢复、与其他 Mod 的兼容性、独立安全审计。 |
 | ➖ 范围之外 | 上表以外的 Minecraft／加载器配置、基岩版、移动端。 |
 
 直连成功率取决于双方的 NAT 和防火墙环境；未配置 Relay 时，无法直连的玩家之间无法联机。

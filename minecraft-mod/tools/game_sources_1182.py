@@ -33,7 +33,7 @@ COMPONENT_COUNTS = {
     'LatencyStatsScreen': (1, 0), 'LocalPanelScreen': (3, 0), 'LogoButton': (2, 0), 'MenuLogo': (0, 1),
     'RoomFormScreen': (1, 0), 'RuntimeScreen': (1, 0), 'MultiplayerScreenMixin': (2, 0),
     'ClientHookChecks': (1, 0), 'IntegratedHostChecks': (1, 0), 'GameClientChecks': (0, 1),
-    'GameServerChecks': (1, 0), 'WorldCommands': (18, 0), 'ServerLoginMixin': (1, 0),
+    'GameServerChecks': (1, 0), 'WorldCommands': (2, 0), 'ServerLoginMixin': (1, 0),
 }
 # GuiGraphics tokens, then draw/context calls to fill, string, centered string.
 DRAW_COUNTS = {

@@ -88,7 +88,7 @@ GAME_CLASSES = frozenset(GAME + name + ".class" for name in GAME_TYPES)
 GAME_COUNT = len(GAME_CLASSES)
 GAME_1182_EXTRAS = frozenset(GAME + name + '.class' for name in
                             ('GameText', 'client/GameUi$TooltipButton', 'client/connect/MinecraftConnect$1'))
-GAME_1165_EXTRAS = GAME_1182_EXTRAS | {GAME + 'mixin/LanNarrationMixin.class'}
+GAME_1165_EXTRAS = GAME_1182_EXTRAS | {GAME + 'mixin/LanNarrationMixin.class', GAME + 'server/mixin/ConsoleSourceMixin.class'}
 FORGE_1182_GAME = SDK_INPUTS['forge_1182'].binding.class_prefix
 FABRIC_1182_GAME = SDK_INPUTS['fabric_1182'].binding.class_prefix
 MODERN_GAME_EXTRAS = frozenset({GAME + 'server/mixin/ServerConfigurationMixin.class'})

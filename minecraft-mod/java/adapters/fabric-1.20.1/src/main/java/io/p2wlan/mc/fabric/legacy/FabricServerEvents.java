@@ -4,11 +4,13 @@ import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.common.WorldSessions;
 import io.p2wlan.mc.fabric.FabricP2wlan;
 import io.p2wlan.mc.game.server.WorldCommands;
+import io.p2wlan.mc.game.server.GameCommandApi;
 import io.p2wlan.mc.transport.LoopbackBind;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.network.ServerConnectionListener;
 
 /** Minecraft 1.20.1 events; the common owner fences each local world. */
@@ -26,7 +28,9 @@ public final class FabricServerEvents implements FabricP2wlan.ServerEvents {
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             var network = server.getConnection();
             events.worlds.started(server, server::isSameThread,
-                    fence -> new LoopbackBind(network, network::startTcpServerListener, fence));
+                    fence -> new LoopbackBind(network, network::startTcpServerListener, fence), dedicatedServer,
+                    message -> GameCommandApi.success(server.createCommandSourceStack(), () -> Component.literal(message), false));
+            if (dedicatedServer) agent.start();
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             events.worlds.stopped(events.world(server));
@@ -36,7 +40,6 @@ public final class FabricServerEvents implements FabricP2wlan.ServerEvents {
             var world = events.world(server);
             if (world != null) world.tick();
         });
-        if (dedicatedServer) ServerLifecycleEvents.SERVER_STARTING.register(server -> agent.start());
         CommandRegistrationCallback.EVENT.register((dispatcher, registry, environment) ->
                 WorldCommands.register(dispatcher, agent, events::world, events::transportSupported));
         return events;

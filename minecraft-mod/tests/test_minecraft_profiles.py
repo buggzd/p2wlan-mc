@@ -62,10 +62,10 @@ class MinecraftProfileTests(unittest.TestCase):
         client = ('ClientConnectionMixin', 'IntegratedServerMixin', 'MultiplayerListMixin',
                   'MultiplayerListAccessor', 'MultiplayerScreenMixin')
         expected = {
-            ('1.16.5', 'fabric'): (server, client + ('FabricLoginNetworkingMixin', 'LanNarrationMixin'),
+            ('1.16.5', 'fabric'): (server + ('ConsoleSourceMixin',), client + ('FabricLoginNetworkingMixin', 'LanNarrationMixin'),
                                   'p2wlan-universal-fabric-1.16.5-server-refmap.json',
                                   'p2wlan-universal-fabric-1.16.5-client-refmap.json'),
-            ('1.16.5', 'forge'): (server, client + ('ClientShutdownMixin', 'LanNarrationMixin'),
+            ('1.16.5', 'forge'): (server + ('ConsoleSourceMixin',), client + ('ClientShutdownMixin', 'LanNarrationMixin'),
                                  'p2wlan-universal-forge-1.16.5-server-refmap.json',
                                  'p2wlan-universal-forge-1.16.5-client-refmap.json'),
             ('1.20.1', 'fabric'): (server, client + ('FabricLoginNetworkingMixin',),

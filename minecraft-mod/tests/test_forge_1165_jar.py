@@ -83,9 +83,9 @@ side="BOTH"
     def test_exact_raw_sdk_scope_and_no_nested_runtime_owners(self):
         result = self.check(self.fixture())
         self.assertEqual(result, {'schema': 1, 'minecraft': '1.16.5', 'forge': '36.2.42', 'java': 17,
-                                 'shape': 'raw-sdk-leaf', 'classes': 61, 'game_classes': 53,
+                                 'shape': 'raw-sdk-leaf', 'classes': 62, 'game_classes': 54,
                                  'verification': 'sdk-class/refmap-contract'})
-        self.assertEqual((len(verify.CLASSES), len(verify.GAME_TYPES), len(verify.DEDICATED_CLASSES)), (61, 53, 13))
+        self.assertEqual((len(verify.CLASSES), len(verify.GAME_TYPES), len(verify.DEDICATED_CLASSES)), (62, 54, 14))
         for name in ('META-INF/jarjar/common.jar', 'p2wlan/native/windows-x86_64/manifest.properties'):
             top = self.fixture(); top[name] = b'unowned runtime payload'
             with self.subTest(name=name), self.assertRaisesRegex(verify.VerificationError, 'forge1165_raw_sdk_nested_payload'):
@@ -205,7 +205,7 @@ side="BOTH"
             with self.subTest(name=name), self.assertRaisesRegex(verify.VerificationError, 'forge1165_archive_entry_invalid'):
                 self.check(top)
         top = self.fixture(); top['io/'] = b''
-        self.assertEqual(self.check(top)['classes'], 61)
+        self.assertEqual(self.check(top)['classes'], 62)
 
 
 if __name__ == '__main__':

@@ -9,9 +9,9 @@
 | 文档 | 内容 |
 | --- | --- |
 | [项目介绍](../README.md) | 功能、环境要求、快速开始和源码构建 |
-| [安装与联机指南](../minecraft-mod/docs/quickstart.md) | Mod／HMCL 安装、账号、房间、世界共享、专用服务器、显示设置与常见问题 |
+| [安装与联机指南](../minecraft-mod/docs/quickstart.md) | Mod／HMCL 安装、账号、房间、世界共享、专服控制台与重启恢复、显示设置与常见问题 |
 | [技术导航](../minecraft-mod/README.md) | Mod 工程边界与各主题参考入口 |
-| [构建与打包](../minecraft-mod/docs/reference/building.md) | 原生资源、Universal JAR、专服账号工具、HMCL ZIP 与自动构建 |
+| [构建与打包](../minecraft-mod/docs/reference/building.md) | 原生资源、Universal JAR、可选离线账号工具、HMCL ZIP 与自动构建 |
 | [架构与协议](../minecraft-mod/docs/reference/architecture.md) | 用户态 TCP、原生 IPC、授权与生命周期围栏 |
 | [Minecraft 适配](../minecraft-mod/docs/reference/adapters.md) | 加载器构建输入、共享游戏实现与世界发布 |
 | [游戏验证](../minecraft-mod/docs/reference/testing.md) | 真实游戏 fixture 的前提、断言与平台范围 |

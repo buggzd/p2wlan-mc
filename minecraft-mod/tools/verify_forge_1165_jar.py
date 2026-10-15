@@ -20,6 +20,7 @@ ACTIVATION_MIXIN = 'io/p2wlan/mc/game/mixin/ClientConnectionMixin.class'
 ACTIVATION_TOKENS = frozenset((b'activationHandler', b'channelActive(Lio/netty/channel/ChannelHandlerContext;)V',
     b'TAIL', b'getDirection', b'CLIENTBOUND', b'net/minecraftforge/fml/network/NetworkHooks', b'registerClientLoginChannel'))
 SERVER_TARGETS = {
+    'io/p2wlan/mc/game/server/mixin/ConsoleSourceMixin': {'source': 'field_197041_c:Lnet/minecraft/command/ICommandSource;'},
     'io/p2wlan/mc/game/server/mixin/ServerConnectionMixin': {
         'startTcpServerListener': 'Lnet/minecraft/network/NetworkSystem;func_151265_a(Ljava/net/InetAddress;I)V'},
     'io/p2wlan/mc/game/server/mixin/ServerLoginConnectionMixin': {'channel': 'field_150746_k:Lio/netty/channel/Channel;'},
@@ -50,7 +51,7 @@ SHADOW_FIELDS = (
     ('server/mixin/ServerLoginMixin', b'field_147333_a', b'connection'),
 )
 GAME_TYPES = frozenset(('GameText', 'server/GameCommandApi', 'server/WorldCommands',
-    'server/mixin/ServerConnectionMixin', 'server/mixin/ServerLoginConnectionMixin', 'server/mixin/ServerLoginMixin',
+    'server/mixin/ServerConnectionMixin', 'server/mixin/ServerLoginConnectionMixin', 'server/mixin/ServerLoginMixin', 'server/mixin/ConsoleSourceMixin',
     'client/ClientDisplaySettings', 'client/ClientPlatform', 'client/ClientPlatform$Binding', 'client/ClientPlatform$IntegratedHooks',
     'client/GameUi', 'client/GameUi$TooltipButton', 'client/LatencyHud',
     'client/connect/GameJoins', 'client/connect/GameJoins$Attempt', 'client/connect/GameJoins$Handoff',
@@ -78,7 +79,7 @@ SDK_DIRECTORIES = frozenset(name[:offset + 1] for name in SDK_FILES for offset, 
 MAX_SDK_TOTAL = 32 * 1024 * 1024
 MIXIN_CONFIG = {'required': True, 'minVersion': '0.8.4', 'package': 'io.p2wlan.mc.game.server.mixin',
                 'compatibilityLevel': 'JAVA_17', 'refmap': SERVER_REFMAP,
-                'mixins': ['ServerConnectionMixin', 'ServerLoginConnectionMixin', 'ServerLoginMixin'],
+                'mixins': ['ServerConnectionMixin', 'ServerLoginConnectionMixin', 'ServerLoginMixin', 'ConsoleSourceMixin'],
                 'injectors': {'defaultRequire': 1}}
 CLIENT_MIXIN_CONFIG = {'required': True, 'minVersion': '0.8.4', 'package': 'io.p2wlan.mc.game.mixin',
                 'compatibilityLevel': 'JAVA_17', 'refmap': CLIENT_REFMAP,

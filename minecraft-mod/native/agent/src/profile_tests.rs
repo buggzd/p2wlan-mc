@@ -407,3 +407,87 @@ async fn invalid_room_passwords_are_rejected_before_any_http_mutation() {
             .is_err()
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn active_runtime_allows_read_only_rooms_and_rejects_account_mutations() {
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let directory = Directory::new();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut profile = directory.profile();
+    profile
+        .login(
+            format!("http://{}", listener.local_addr().unwrap()),
+            "fixture-user".into(),
+            "fixture-token".into(),
+        )
+        .unwrap();
+    let mut config = profile.room_config("room-fixture", "10.40.1.0/24").unwrap();
+    // Keep the daemon's network initialization separate from the room-list fixture.
+    config.control.server_url = "http://127.0.0.1:9".into();
+    let owner = p2wlan_mc_runtime_port::ScopeOwner::new();
+    let runtime = crate::ManagedRuntime::start(config, owner.token()).unwrap();
+    let runtime_id = runtime.id.as_str().to_string();
+    let account = profile.status();
+    let mut state = crate::State {
+        parent: owner.token(),
+        profile: Some(profile),
+        api: AccountApi::new().unwrap(),
+        runtime: Some(runtime),
+        bindings: std::collections::HashMap::new(),
+        last_failure: None,
+    };
+    for operation in [
+        "login",
+        "register",
+        "logout",
+        "create_room",
+        "join_room",
+        "leave_room",
+        "connect_room",
+    ] {
+        let request = crate::Request {
+            id: 1,
+            operation: operation.into(),
+            arguments: serde_json::Map::new(),
+        };
+        assert_eq!(state.execute(&request).await, Err(AgentError::RuntimeBusy));
+    }
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
+            .await
+            .unwrap()
+            .unwrap();
+        let mut request = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !request.ends_with(b"\r\n\r\n") {
+                assert!(request.len() < 4096);
+                request.push(socket.read_u8().await.unwrap());
+            }
+            assert!(request.starts_with(b"GET /api/v1/rooms HTTP/1.1\r\n"));
+            let body = br#"{"user_id":"fixture-user","room_protocol_version":1,"rooms":[{"id":"room-fixture","room_code":"12345678","name":"Fixture","cidr":"10.40.1.0/24","role":"owner","password":"fixture-secret"}]}"#;
+            let header = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            socket.write_all(header.as_bytes()).await.unwrap();
+            socket.write_all(body).await.unwrap();
+        })
+        .await
+        .unwrap();
+    });
+    let request = crate::Request {
+        id: 2,
+        operation: "rooms".into(),
+        arguments: serde_json::Map::new(),
+    };
+    let rooms = state.execute(&request).await.unwrap();
+    assert_eq!(
+        rooms,
+        json!({"rooms":[{"id":"room-fixture","code":"12345678","name":"Fixture","cidr":"10.40.1.0/24","role":"owner"}]})
+    );
+    assert_eq!(state.runtime.as_ref().unwrap().id.as_str(), runtime_id);
+    assert_eq!(state.profile.as_ref().unwrap().status(), account);
+    tokio::time::timeout(Duration::from_secs(3), server)
+        .await
+        .unwrap()
+        .unwrap();
+}

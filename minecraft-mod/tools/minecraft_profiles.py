@@ -150,12 +150,12 @@ _FABRIC_API_1165 = FabricApiPin('0.42.0+1.16',
     'https://cdn.modrinth.com/data/P7dR8mSH/versions/0.42.0%2B1.16/fabric-api-0.42.0%2B1.16.jar')
 _FORGE_1165 = LoaderPin('forge', 'Forge', '36.2.42')
 _FABRIC_1165 = GameBinding('1.16.5', 17, 'fabric', 'io.p2wlan.mc.fabric.game.v1_16_5',
-    MixinSelection(_SERVER, _CLIENT + ('FabricLoginNetworkingMixin', 'LanNarrationMixin'),
+    MixinSelection(_SERVER + ('ConsoleSourceMixin',), _CLIENT + ('FabricLoginNetworkingMixin', 'LanNarrationMixin'),
                    'p2wlan-universal-fabric-1.16.5-server-refmap.json',
                    'p2wlan-universal-fabric-1.16.5-client-refmap.json'),
     'p2wlan.dispatch.fabric.1165.json', 'p2wlan.dispatch.fabric.1165.client.json')
 _FML_1165 = GameBinding('1.16.5', 17, 'fml', 'io.p2wlan.mc.game.v1_16_5',
-    MixinSelection(_SERVER, _CLIENT + ('ClientShutdownMixin', 'LanNarrationMixin'),
+    MixinSelection(_SERVER + ('ConsoleSourceMixin',), _CLIENT + ('ClientShutdownMixin', 'LanNarrationMixin'),
                    'p2wlan-universal-forge-1.16.5-server-refmap.json',
                    'p2wlan-universal-forge-1.16.5-client-refmap.json'),
     'p2wlan.dispatch.1165.json', 'p2wlan.dispatch.1165.client.json')

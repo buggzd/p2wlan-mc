@@ -4,6 +4,7 @@ import io.p2wlan.mc.common.AgentLifecycle;
 import io.p2wlan.mc.common.WorldSessions;
 import io.p2wlan.mc.fabric.FabricP2wlan;
 import io.p2wlan.mc.game.server.WorldCommands;
+import io.p2wlan.mc.game.server.GameCommandApi;
 import io.p2wlan.mc.transport.LoopbackBind;
 import net.fabricmc.fabric.api.command.v1.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -24,14 +25,15 @@ public final class FabricServerEvents implements FabricP2wlan.ServerEvents {
         var events = new FabricServerEvents(agent);
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             var network = server.getConnection();
-            events.worlds.started(server, server::isSameThread, fence -> new LoopbackBind(network, network::startTcpServerListener, fence));
+            events.worlds.started(server, server::isSameThread, fence -> new LoopbackBind(network, network::startTcpServerListener, fence), dedicatedServer,
+                    message -> GameCommandApi.success(server.createCommandSourceStack(), () -> io.p2wlan.mc.game.GameText.literal(message), false));
+            if (dedicatedServer) agent.start();
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             events.worlds.stopped(events.world(server));
             if (dedicatedServer) { events.shutdownWorlds(); agent.close(); }
         });
         ServerTickEvents.END_SERVER_TICK.register(server -> { var world = events.world(server); if (world != null) world.tick(); });
-        if (dedicatedServer) ServerLifecycleEvents.SERVER_STARTING.register(server -> agent.start());
         CommandRegistrationCallback.EVENT.register((dispatcher, dedicated) -> WorldCommands.register(dispatcher, agent, events::world, events::transportSupported));
         return events;
     }

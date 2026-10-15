@@ -74,7 +74,7 @@ def main():
         except (OSError, ValueError) as error:
             parser.error(str(error) if isinstance(error, ValueError) else "FORGE_BOOTSTRAP_IO")
     if args.command == "test":
-        tasks["test"].append(":universal-bootstrap:bootstrapPolicyTest")
+        tasks["test"].extend([":universal-bootstrap:bootstrapPolicyTest", ":common:dedicatedServerTest", ":common:dedicatedSettingsTest", ":common:consoleCommandInputTest", ":common:dedicatedAccountTest"])
     return subprocess.call([gradle, "--no-daemon", *tasks[args.command], *args.args], cwd=PROJECT / "java", env=env)
 
 if __name__ == "__main__":

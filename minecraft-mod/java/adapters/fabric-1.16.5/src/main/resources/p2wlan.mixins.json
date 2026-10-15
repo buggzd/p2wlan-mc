@@ -3,6 +3,6 @@
   "package": "io.p2wlan.mc.game.server.mixin",
   "compatibilityLevel": "JAVA_17",
   "refmap": "p2wlan-fabric-1.16.5-refmap.json",
-  "mixins": ["ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin"],
+  "mixins": ["ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin", "ConsoleSourceMixin"],
   "injectors": {"defaultRequire": 1}
 }

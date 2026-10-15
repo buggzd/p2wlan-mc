@@ -4,6 +4,21 @@
 
 Opt-in local game fixtures, their consent requirements, result contracts and platform scope. Commands run from the complete repository root unless a distribution directory is explicitly selected. Paths beginning with `java/`, `native/` or `tools/` in prose are relative to `minecraft-mod/`.
 
+## Dedicated console and restart workflow
+
+`python3 minecraft-mod/tools/java.py test` includes the game-independent
+dedicated-controller, console-input and settings harnesses. They use controlled
+Native replies and explicit ticks/time to check saved room/share restoration,
+account/process/world fencing, cancellation, one-attempt failure handling,
+runtime readiness deadlines and atomic bounded-file persistence. Password-input
+parsing checks fixed errors, quoting and argument limits without echoing inputs.
+
+The Minecraft fixtures below cover their stated world/listener/gameplay paths.
+Actual dedicated-console command submission, a full server restart restoring the
+saved room/shared world, and console-history behavior have not yet been checked
+inside a running game or hosting panel. These are separate from the portable
+controller and file checks.
+
 ## Isolated integrated-world gameplay verification
 
 The same test-only `IntegratedHostChecks` source runs on all three loaders. Loader

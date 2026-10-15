@@ -24,7 +24,7 @@ WORLD_COMMANDS = "io/p2wlan/mc/game/server/WorldCommands.class"
 SERVER_MIXIN = "io/p2wlan/mc/game/server/mixin/ServerConnectionMixin.class"
 MODERN_SERVER_MIXIN = "io/p2wlan/mc/game/server/mixin/ServerConfigurationMixin.class"
 SERVER_MIXINS = tuple("io/p2wlan/mc/game/server/mixin/" + name + ".class" for name in
-                      ("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin"))
+                      ("ServerConnectionMixin", "ServerLoginConnectionMixin", "ServerLoginMixin", "ConsoleSourceMixin"))
 SERVER_REFMAP = "p2wlan-fabric-1.16.5-refmap.json"
 CLIENT_REFMAP = "client-p2wlan-fabric-1.16.5-refmap.json"
 MIXINS = ["p2wlan.mixins.json", {"config": "p2wlan.client.mixins.json", "environment": "client"}]
@@ -38,7 +38,7 @@ SHADOW_FIELDS = (
 # Exact bindings from the pinned Minecraft 1.16.5 Loom annotation processor.
 MIXIN_CONFIG = {'compatibilityLevel': 'JAVA_17',
  'injectors': {'defaultRequire': 1},
- 'mixins': ['ServerConnectionMixin', 'ServerLoginConnectionMixin', 'ServerLoginMixin'],
+ 'mixins': ['ServerConnectionMixin', 'ServerLoginConnectionMixin', 'ServerLoginMixin', 'ConsoleSourceMixin'],
  'package': 'io.p2wlan.mc.game.server.mixin',
  'refmap': 'p2wlan-fabric-1.16.5-refmap.json',
  'required': True}
@@ -75,6 +75,12 @@ REFMAP = {'data': {'named:intermediary': {'io/p2wlan/mc/game/server/mixin/Server
                                                                   'handleAcceptedLogin': 'Lnet/minecraft/class_3248;method_14384()V',
                                                                   'handleHello': 'Lnet/minecraft/class_3248;method_12641(Lnet/minecraft/class_2915;)V',
                                                                   'tick': 'Lnet/minecraft/class_3248;method_18785()V'}}}
+# Exact original CommandSource field from the pinned 1.16.5 intermediary map.
+CONSOLE_SOURCE = 'io/p2wlan/mc/game/server/mixin/ConsoleSourceMixin'
+CONSOLE_MAPPING = {'source': 'field_9819:Lnet/minecraft/class_2165;'}
+SERVER_MAPPING[CONSOLE_SOURCE] = CONSOLE_MAPPING
+REFMAP['mappings'][CONSOLE_SOURCE] = CONSOLE_MAPPING
+REFMAP['data']['named:intermediary'][CONSOLE_SOURCE] = CONSOLE_MAPPING
 CLIENT_MAPPING = {'io/p2wlan/mc/game/mixin/IntegratedServerMixin': {'isPublished': 'Lnet/minecraft/class_1132;method_3860()Z'},
  'io/p2wlan/mc/game/mixin/LanNarrationMixin': {'setSelected(Lnet/minecraft/client/gui/screens/multiplayer/ServerSelectionList$Entry;)V': 'Lnet/minecraft/class_4267;method_20122(Lnet/minecraft/class_4267$class_504;)V'},
  'io/p2wlan/mc/game/mixin/MultiplayerListAccessor': {'refreshEntries': 'method_20131()V'},
@@ -132,7 +138,7 @@ def verify(path, development=False):
         game_extras = {LOGIN_MIXIN, "io/p2wlan/mc/game/GameText.class",
                        "io/p2wlan/mc/game/client/GameUi$TooltipButton.class",
                        "io/p2wlan/mc/game/client/connect/MinecraftConnect$1.class",
-                       "io/p2wlan/mc/game/mixin/LanNarrationMixin.class"}
+                       "io/p2wlan/mc/game/mixin/LanNarrationMixin.class", CONSOLE_SOURCE + ".class"}
         loader_classes = {MAIN, WORLD, SERVER, CLIENT, CLIENT_EVENTS, MAIN[:-6] + "$ServerEvents.class",
                           MAIN[:-6] + "$Binding.class", WORLD[:-6] + "$IntegratedHooks.class"}
         if {name for name in names if name.endswith(".class")} != GAME_CLASSES | game_extras | loader_classes | BOOTSTRAP_CLASSES:

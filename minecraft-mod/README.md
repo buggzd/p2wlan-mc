@@ -8,9 +8,9 @@
 
 | 任务 | 文档 |
 | --- | --- |
-| 安装、账号、房间、共享世界、专用服务器与显示设置 | [安装与联机指南](docs/quickstart.md) |
+| 安装、账号、房间、共享世界、专服控制台与重启恢复、显示设置 | [安装与联机指南](docs/quickstart.md) |
 | 定位初始化、资源提取和助手启动错误 | [启动诊断与日志](docs/diagnostics.md) |
-| 源码构建、原生资源、Universal JAR、账号工具和 HMCL ZIP | [构建与打包参考](docs/reference/building.md) |
+| 源码构建、原生资源、Universal JAR、可选离线账号工具和 HMCL ZIP | [构建与打包参考](docs/reference/building.md) |
 | 状态所有权、授权、TCP 桥、IPC、进程与私有配置 | [架构与协议契约](docs/reference/architecture.md) |
 | 加载器构建输入、共享游戏实现、界面、世界发布与游戏钩子 | [Minecraft 适配契约](docs/reference/adapters.md) |
 | 真实游戏 fixture 的前提、精确断言、执行入口与平台范围 | [游戏验证参考](docs/reference/testing.md) |

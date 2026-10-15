@@ -36,7 +36,7 @@ class Fabric1165JarTests(unittest.TestCase):
         extras = {adapter.LOGIN_MIXIN, 'io/p2wlan/mc/game/GameText.class',
                   'io/p2wlan/mc/game/client/GameUi$TooltipButton.class',
                   'io/p2wlan/mc/game/client/connect/MinecraftConnect$1.class',
-                  'io/p2wlan/mc/game/mixin/LanNarrationMixin.class'}
+                  'io/p2wlan/mc/game/mixin/LanNarrationMixin.class', adapter.CONSOLE_SOURCE + '.class'}
         top.update({name: fixtures.bytecode(61) for name in universal.GAME_CLASSES | universal.BOOTSTRAP_CLASSES | loader | extras})
         for owner, field, original in adapter.SHADOW_FIELDS:
             top['io/p2wlan/mc/game/' + owner + '.class'] = legacy_fixtures.LegacyGradleTests.field_fixture(field, original)

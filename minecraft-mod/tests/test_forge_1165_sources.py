@@ -69,9 +69,9 @@ RegistryAccess.RegistryHolder registries;
         self.assertNotIn('new NetworkManager(', result)
         self.assertNotIn('syncUninterruptibly', result)
 
-    def test_all_45_inputs_are_bound_to_unique_source_and_rejected_before_partial_publish(self):
+    def test_all_46_inputs_are_bound_to_unique_source_and_rejected_before_partial_publish(self):
         source = forge.inputs()
-        self.assertEqual(len(source), 45)
+        self.assertEqual(len(source), 46)
         self.assertEqual(set(source), set(forge.INPUT_SHA256))
         with tempfile.TemporaryDirectory(dir=forge.PROJECT / '.evidence') as temporary:
             root = Path(temporary); output = root / 'build/generated'

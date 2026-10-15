@@ -47,6 +47,7 @@ CLASS_ALIASES = {'com.mojang.blaze3d.vertex.PoseStack': 'com.mojang.blaze3d.matr
  'net.minecraft.client.multiplayer.ServerData': 'net.minecraft.client.multiplayer.ServerData',
  'net.minecraft.client.server.IntegratedServer': 'net.minecraft.server.integrated.IntegratedServer',
  'net.minecraft.client.server.LanServer': 'net.minecraft.client.network.LanServerInfo',
+ 'net.minecraft.commands.CommandSource': 'net.minecraft.command.ICommandSource',
  'net.minecraft.commands.CommandSourceStack': 'net.minecraft.command.CommandSource',
  'net.minecraft.commands.Commands': 'net.minecraft.command.Commands',
  'net.minecraft.core.Registry': 'net.minecraft.util.registry.Registry',
@@ -81,7 +82,8 @@ CLASS_ALIASES = {'com.mojang.blaze3d.vertex.PoseStack': 'com.mojang.blaze3d.matr
  'net.minecraft.world.level.levelgen.FlatLevelSource': 'net.minecraft.world.gen.FlatChunkGenerator',
  'net.minecraft.world.level.levelgen.WorldGenSettings': 'net.minecraft.world.gen.settings.DimensionGeneratorSettings',
  'net.minecraft.world.level.levelgen.flat.FlatLevelGeneratorSettings': 'net.minecraft.world.gen.FlatGenerationSettings'}
-INPUT_SHA256 = {'api/client/java/io/p2wlan/mc/game/client/GameUi.java': '45a922b40d35fb83a87cba8c4f0116dc5575f79f1f857c594be26481a789cc9e',
+INPUT_SHA256 = {'api/server/java/io/p2wlan/mc/game/server/mixin/ConsoleSourceMixin.java': '136df407391d84a56536d4f55b6cd7749b11f1c54a89e19d2c013e8102f5e132',
+'api/client/java/io/p2wlan/mc/game/client/GameUi.java': '45a922b40d35fb83a87cba8c4f0116dc5575f79f1f857c594be26481a789cc9e',
  'api/client/java/io/p2wlan/mc/game/client/connect/GameLogin.java': '4db725b5c5076d64b3f37f7cc3d4b3974102c41ee716476ff1e812fef8ca7f75',
  'api/client/java/io/p2wlan/mc/game/client/connect/MinecraftConnect.java': '2953662731d07f003834ec3d9e81d68bdb60c167f854b9923dbe7d9450f3e1d1',
  'api/client/java/io/p2wlan/mc/game/mixin/ClientConnectionMixin.java': 'cc4b0b0983d3b1e8179d98de039a402a5efed2605ba592eca9d1ae4f14a147e6',
@@ -89,7 +91,7 @@ INPUT_SHA256 = {'api/client/java/io/p2wlan/mc/game/client/GameUi.java': '45a922b
  'api/fixture/java/io/p2wlan/mc/game/fixture/GameFixtureApi.java': 'f6263d29baf4be369d01557a79b9a94077374722fcc8a40d75b86ed7b23ee885',
  'api/fixtureServer/java/io/p2wlan/mc/game/fixture/GameFixtureServerApi.java': '0e68199309445bfee489eda3c657f0936042040733930fd284e3129b0ee25f66',
  'api/main/java/io/p2wlan/mc/game/GameText.java': '0703880a0d20096fddf37106251f19464f554252df483ac846fdc136a4cfafb4',
- 'api/server/java/io/p2wlan/mc/game/server/GameCommandApi.java': 'bd2ba33212f034b44cee61387af0c78a09bf546bd2a57ae9af3681631f9e534e',
+ 'api/server/java/io/p2wlan/mc/game/server/GameCommandApi.java': '665d28703d15de570885df6f9c579c86c0ede2099fbbef4b16e7b7bd440cc2ac',
  'shared/client/java/io/p2wlan/mc/game/client/ClientDisplaySettings.java': '9ca1ce59e911b6182e5fa36f6a94c9da0977e8a5e72ddfa7d38f41d16b640dec',
  'shared/client/java/io/p2wlan/mc/game/client/ClientPlatform.java': '67c481a25303daf6b26ccfbc1d44597c297c467c9a3877f96717981783510bae',
  'shared/client/java/io/p2wlan/mc/game/client/LatencyHud.java': '47f81342ea9fa63712d89f66ab6038dcc60a1c21e087c48834a2983920a96117',
@@ -122,7 +124,7 @@ INPUT_SHA256 = {'api/client/java/io/p2wlan/mc/game/client/GameUi.java': '45a922b
  'shared/integratedFixture/java/io/p2wlan/mc/game/fixture/IntegratedHostChecks.java': 'f531099bde8a6f47c0c0612fdd117a2e78de296e573643dd71f1d1629c56a265',
  'shared/localGameClientFixture/java/io/p2wlan/mc/game/fixture/GameClientChecks.java': 'fc209ace7f7c105e66246abbf8d145e42f7328bb14122f8f292eb7b0ebe6805f',
  'shared/localGameFixture/java/io/p2wlan/mc/game/fixture/GameServerChecks.java': '9894f72dded7bdd940a97d5207ad450117575aba9a6cfd125a483363d154f70b',
- 'shared/server/java/io/p2wlan/mc/game/server/WorldCommands.java': '8dc8a38a2cae7f403af99eaf393caa581a20842f89c83ff6b8144d0b44871924',
+ 'shared/server/java/io/p2wlan/mc/game/server/WorldCommands.java': '27d26b794f7fa2d0c913741bc2f4c7a8eeb6dacb5979920f328fd7b98607a451',
  'shared/server/java/io/p2wlan/mc/game/server/mixin/ServerConnectionMixin.java': '71c99c2574a26a6eba0c354c39ef3a12982ae7daaf11094fa146e987fda768d3',
  'shared/server/java/io/p2wlan/mc/game/server/mixin/ServerLoginConnectionMixin.java': 'f57aa4b0f5c9b7f3ef71e5095d8d34bf922284cc79fa324208a83e9f2713e21e',
  'shared/server/java/io/p2wlan/mc/game/server/mixin/ServerLoginMixin.java': '7974be24f4f01592834a5c255596414adb0d5226b0000a9fd423fda9e0a695b3'}
@@ -134,7 +136,8 @@ API_INVENTORY = frozenset(('client/java/io/p2wlan/mc/game/client/GameUi.java',
  'fixture/java/io/p2wlan/mc/game/fixture/GameFixtureApi.java',
  'fixtureServer/java/io/p2wlan/mc/game/fixture/GameFixtureServerApi.java',
  'main/java/io/p2wlan/mc/game/GameText.java',
- 'server/java/io/p2wlan/mc/game/server/GameCommandApi.java'))
+ 'server/java/io/p2wlan/mc/game/server/GameCommandApi.java',
+ 'server/java/io/p2wlan/mc/game/server/mixin/ConsoleSourceMixin.java'))
 
 
 def _java(value):

@@ -30,7 +30,7 @@ python3 minecraft-mod/tools/java.py fabric-client -PdevelopmentNative
 
 The common loader entrypoint contains no client initialization. Dedicated-server lifecycle events start the native helper off the game thread and close it when the server stops. On a client, the helper lifetime follows the application rather than individual integrated worlds. The shared `AgentLifecycle` is single-use: one startup worker, one 40-second startup deadline, no retry/work queue, immediate revocation on close, and identity checks before an asynchronous client reference can be used. Late startup completion closes its own child rather than publishing a revoked owner.
 
-The dedicated-server `/p2wlan status` command requires permission level 4. The client command is `/p2wlan-client status`. They show helper process/IPC readiness and stable startup/cleanup reason codes. The client exposes a 20×20 pixel LAN-logo button beside existing controls in the title, multiplayer and pause menus; bare `/p2wlan-client` opens the same entry. An idle helper shows account/membership controls; an active `starting`/`ready` runtime shows room controls. The screens support explicit login/register, saved-account room membership, bounded paging, refresh, create/join membership and logout. Room create/join forms require a password of 8–72 UTF-8 bytes and reject invalid input locally before submitting a native request; passwords are not trimmed or normalized. Password fields mask rendering and narration, block copy/cut and clear widget retention after submission/removal/resize; Java strings are not securely zeroisable. No Minecraft/Microsoft credential is required by these screens.
+The dedicated-server `/p2wlan status` command requires permission level 4 and shows the room-restoration phase, stable reason and saved room/share intent. The client command `/p2wlan-client status` shows helper process/IPC readiness and stable startup/cleanup reason codes. The client exposes a 20×20 pixel LAN-logo button beside existing controls in the title, multiplayer and pause menus; bare `/p2wlan-client` opens the same entry. An idle helper shows account/membership controls; an active `starting`/`ready` runtime shows room controls. The screens support explicit login/register, saved-account room membership, bounded paging, refresh, create/join membership and logout. Room create/join forms require a password of 8–72 UTF-8 bytes and reject invalid input locally before submitting a native request; passwords are not trimmed or normalized. Password fields mask rendering and narration, block copy/cut and clear widget retention after submission/removal/resize; Java strings are not securely zeroisable. No Minecraft/Microsoft credential is required by these screens.
 
 A shared completion gate permits at most one native request, local intent or queued game-thread presentation. Process/view/runtime identities are rechecked at admission, the queued IPC write and the actual presentation boundary. Closing a screen discards late presentation without replaying or claiming to undo a submitted mutation. Buttons derive eligibility from native snapshots, not a second account/runtime state machine. Creating/joining membership does **not** connect the overlay runtime; clicking a room-list row is the separate connection intent. Reopening P2WLAN after stopping a room uses the saved native session and returns to the room list without requesting a password or Control URL again. Explicit sign-out clears the session; stopping a room does not.
 
@@ -77,16 +77,40 @@ The one physical server Mixin under `java/game-1.21.1/src/server/java` is compil
 
 In an integrated world, the runtime screen exposes explicit host/unhost intents without requiring cheats. One server-thread task is retained per world, with a three-second deadline. An expired result keeps its capacity until the queued runnable actually drains; the late runnable cannot mutate a replacement world/runtime or begin a host intent after its view expires. Closing a view after the effect has already begun does not undo that world-owned intent. Host receives the originally selected runtime rather than reacquiring a newer one. `Stop room` revokes local publication before requesting native stop, including a runtime still `starting`. A stop acknowledgement waits for a matching native status transition before returning to account controls; late presentation rejects another active runtime. None of these actions silently accept terms or automatically publish a world.
 
-Operator/console commands (permission level 4):
+Dedicated operators configure P2WLAN after normal server startup. All commands
+require permission level 4; console input omits the leading `/`:
 
-- `/p2wlan connect ROOM`: connect one room ID/eight-digit code from the already saved P2WLAN account's own membership. This starts the native runtime only; no Minecraft world is published automatically.
-- `/p2wlan runtime`: report native `idle`/`starting`/`ready`.
-- `/p2wlan host`: explicitly publish the current Minecraft server after the native runtime is ready. A failed attempt returns a stable code, with no retry.
-- `/p2wlan world`: report local publication status. `HOSTED` reports creation of the local guarded target and native registration.
-- `/p2wlan disconnect`: revoke the local world before requesting native runtime stop, retaining account/membership. A failed stop reports that local revocation already occurred; it is not silently undone.
-- `/p2wlan unhost`: immediately revoke the local world capability and perform bounded cleanup off the game thread. This does not change room membership or claim to roll back an already delivered native mutation.
+| Command | Behavior |
+| --- | --- |
+| `p2wlan init URL` | Save the Control origin and initialize the helper. |
+| `p2wlan login ACCOUNT PASSWORD` / `register ACCOUNT PASSWORD` | Save a Native-owned account session. |
+| `p2wlan rooms` | Read the saved account's rooms, including while connected. |
+| `p2wlan create NAME PASSWORD` / `join CODE PASSWORD` | Create/join membership, save its canonical room ID and connect it. |
+| `p2wlan connect ROOM` | Connect a member room by ID/eight-digit code and save that selection. |
+| `p2wlan runtime` / `world` | Report Native `idle`/`starting`/`ready` or local publication status. |
+| `p2wlan host` | Publish the current world and enable sharing for later restarts. |
+| `p2wlan unhost` | Revoke publication and disable saved sharing, keeping the selected room. |
+| `p2wlan disconnect` | Revoke publication, stop the runtime and clear room/share intent; retain account/membership. |
+| `p2wlan logout` | Stop the room and clear the saved account session and room/share selection. |
+| `p2wlan restore` | Make one explicit attempt to restore the saved selection. |
 
-The subprocess/world tests check capacity, native-owner/runtime fencing, cancellation during setup, cleanup of late host replies and malformed registration failure. Protected-target socket tests check that both local capability handshakes disappear before game bytes. Fabric transport tests use actual Netty pipelines with fragmented/coalesced input, virtual-time expiry, capacity, revocation and delayed Vanilla initialization, plus a real 128,000-byte TCP exchange between the Java guard and a protected Netty echo target. The socket tests use a protected Netty echo target. Dedicated-server accounts can be initialized with the [independent account console](building.md#dedicated-server-account-console) while the server is stopped. The [gameplay fixture](testing.md#isolated-local-gameplay-verification) checks Vanilla login and at least 18 seconds of play. Cross-machine gameplay, cancellation during actual configuration and world-replacement acceptance remain separate verification targets. Ordinary builds and the hook/server-boot fixtures do not accept EULA/account terms; the [local gameplay fixture](testing.md#isolated-local-gameplay-verification) requires explicit consent.
+`init`, `login`, `register`, `create` and `join` require the actual dedicated
+server console source; players, RCON and command blocks are refused. Their
+bounded quoted-field parser produces fixed errors without echoing credentials.
+Terminal/panel command history can retain complete inputs. The
+[user guide](../quickstart.md#专用服务器控制台配置与重启恢复) gives quoted examples.
+
+Each dedicated world owns one server-thread `DedicatedServerController`.
+`config/p2wlan-server.json` saves the non-secret Control/account/room selection
+and share flag. After helper readiness, one startup attempt reconnects the saved
+room for the same Native account and waits at most 40 seconds for the exact
+runtime to become ready. An enabled share flag then publishes the current world.
+Manual account/room changes stop the prior publication/runtime first; command
+revision, world and process checks fence queued writes and completions. Failures
+wait for operator action, without automatic login, room creation or retry.
+Integrated-world controls retain their explicit share/unshare behavior.
+
+The subprocess/world tests check capacity, native-owner/runtime fencing, cancellation during setup, cleanup of late host replies and malformed registration failure. Protected-target socket tests check that both local capability handshakes disappear before game bytes. Fabric transport tests use actual Netty pipelines with fragmented/coalesced input, virtual-time expiry, capacity, revocation and delayed Vanilla initialization, plus a real 128,000-byte TCP exchange between the Java guard and a protected Netty echo target. The socket tests use a protected Netty echo target. The [independent account console](building.md#dedicated-server-account-console) remains optional offline maintenance and requires a stopped server to obtain the profile lock. The [gameplay fixture](testing.md#isolated-local-gameplay-verification) checks Vanilla login and at least 18 seconds of play; the new console/restart flow has the separate [verification scope](testing.md#dedicated-console-and-restart-workflow). Cross-machine gameplay, cancellation during actual configuration and world-replacement acceptance remain separate verification targets. Ordinary builds and the hook/server-boot fixtures do not accept EULA/account terms; the [local gameplay fixture](testing.md#isolated-local-gameplay-verification) requires explicit consent.
 
 ## NeoForge adapter
 
@@ -111,8 +135,8 @@ python3 minecraft-mod/tools/java.py neoforge-client --offline
 The JAR is
 `minecraft-mod/java/adapters/neoforge-1.21.1/build/libs/p2wlan-neoforge-1.21.1-0.1.0.jar`.
 The server run uses the adapter's normal development directory and does not
-accept the EULA. Dedicated operators initialize accounts with the common account
-console and explicitly connect/host using the commands above. Development native
+accept the EULA. Dedicated operators initialize accounts and configure restart
+restoration through the Minecraft console commands above. Development native
 resources require `native_bundle.py --development` and `-PdevelopmentNative` for
 the Java build/run, as with Fabric.
 
